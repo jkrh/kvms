@@ -81,6 +81,44 @@
 				     : "memory", "x20");                       \
 	} while (0);
 
+static inline uint64_t ioread64(const volatile void *addr)
+{
+	uint64_t val;
+
+	__asm__ __volatile__("ldr	%x0, [%0]\n"
+			     "dmb	sy\n"
+			     : "=r" (val)
+			     : "r" (addr));
+	return val;
+}
+
+static inline uint32_t ioread32(const volatile void *addr)
+{
+	uint32_t val;
+
+	__asm__ __volatile__("ldr	%w0, [%0]\n"
+			     "dmb	sy\n"
+			     : "=r" (val)
+			     : "r" (addr));
+	return val;
+}
+
+static inline void iowrite64(uint64_t val, volatile void *addr)
+{
+
+	__asm__ __volatile__("dmb	sy\n"
+			     "str	%x0, [%1]\n"
+			     : : "r" (val), "r" (addr));
+}
+
+static inline void iowrite32(uint32_t val, volatile void *addr)
+{
+
+	__asm__ __volatile__("dmb	sy\n"
+			     "str	%w0, [%1]\n"
+			     : : "r" (val), "r" (addr));
+}
+
 #define get_current_vmid() (read_reg(VTTBR_EL2) >> 48)
 #define set_current_vmid(x) write_reg(VTTBR_EL2, (read_reg(VTTBR_EL2) | ((uint64_t)x << 48)))
 
