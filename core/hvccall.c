@@ -58,9 +58,9 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		/*
 		 * kern_hyp_va: MSB WATCH
 		 *
-		 */
 		LOG("HYP_HOST_MAP_STAGE1: %ld: 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n",
 		     res, a1, a2, a3, a4, a5);
+		 */
 #ifdef HOSTBLINDING_DEV
 		/*
 		 * Workaround. Keep mappings of the sections mapped to

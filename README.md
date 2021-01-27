@@ -42,8 +42,9 @@ hypervisor can be stepped through via a relatively comfortable environment.
 
 Building and running on QEMU:
 -----------------------------
-- download current linux kernel, git tag is kvmarm-5.6
-- apply patches/0001-*5.6*.patch to the kernel
+- get the linux kernel matching to patch in patches/ dir. Initial patch is a
+  a draft for 5.10 lts tree.
+- apply patches/0001-*kernel-version*.patch to the kernel
 - download or assemble a .qcow2 linux image you wish to boot up
 - build the kernel:
   make -j16 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig Image modules
