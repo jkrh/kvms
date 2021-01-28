@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <stdbool.h>
+#include <stdlib.h>
+
 #include "mm.h"
+#include "mtree.h"
 #include "guest.h"
 #include "helpers.h"
 #include "host_platform.h"
 #include "armtrans.h"
 #include "include/generated/asm-offsets.h"
+
+#ifndef MAX_PAGING_BLOCKS
+#define MAX_PAGING_BLOCKS 262144
+#endif
+static kvm_page_data hyp_page_data[MAX_PAGING_BLOCKS];
+static uint64_t pd_index;
 
 uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 uint64_t hyp_text_start;
@@ -74,6 +83,98 @@ bool is_in_kvm_hyp_region(uint64_t paddr)
 	return false;
 }
 #endif // HOSTBLINDING_DEV
+
+static int compfunc(const void *v1, const void *v2)
+{
+	kvm_page_data *val1 = (kvm_page_data *)v1;
+	kvm_page_data *val2 = (kvm_page_data *)v2;
+
+	return (val1->phys_addr - val2->phys_addr);
+}
+
+kvm_page_data *get_page_info(uint64_t addr)
+{
+	kvm_page_data key, *res;
+
+	if (!addr)
+		return NULL;
+
+	key.phys_addr = addr;
+	res = bsearch(&key, hyp_page_data, pd_index,
+		      sizeof(key), compfunc);
+
+	return res;
+}
+
+int add_page_info(uint64_t addr, uint32_t vmid)
+{
+	kvm_page_data *res;
+	int ret;
+	bool s = false;
+
+	if (!addr)
+		return -EINVAL;
+
+	res = get_page_info(addr);
+	if (res)
+		goto use_old;
+
+	if (pd_index == MAX_PAGING_BLOCKS - 1)
+		return -ENOSPC;
+
+	s = true;
+	res = &hyp_page_data[pd_index];
+	res->phys_addr = addr;
+	pd_index += 1;
+
+use_old:
+	res->vmid = vmid;
+	ret = calc_hash(res->sha256, (void *)addr, PAGE_SIZE);
+	if (ret) {
+		memset(res->sha256, 0, 32);
+		res->vmid = 0;
+	}
+	if (s)
+		qsort(hyp_page_data, pd_index, sizeof(kvm_page_data), compfunc);
+
+	return ret;
+}
+
+void free_page_info(uint64_t addr)
+{
+	kvm_page_data *res;
+
+	res = get_page_info(addr);
+	if (!res)
+		return;
+
+	res->vmid = 0;
+	memset(res->sha256, 0, 32);
+}
+
+int verify_page(uint64_t addr, uint32_t vmid)
+{
+	kvm_page_data *res;
+	uint8_t sha256[32];
+	int ret;
+
+	res = get_page_info(addr);
+	if (!res)
+		return -ENOENT;
+
+	if (res->vmid != vmid)
+		return -EFAULT;
+
+	ret = calc_hash(sha256, (void *)addr, PAGE_SIZE);
+	if (ret)
+		return -EFAULT;
+
+	ret = memcmp(sha256, res->sha256, 32);
+	if (ret != 0)
+		return -EINVAL;
+
+	return 0;
+}
 
 void *kern_hyp_va(void *a)
 {

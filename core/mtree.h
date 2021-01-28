@@ -7,6 +7,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include "constants.h"
 #include "commondefines.h"
 
 /*

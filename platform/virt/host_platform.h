@@ -21,10 +21,10 @@
 #if TABLE_LEVELS == 4
 #define VA_BITS 40
 #define VA_WIDTH (64 - VA_BITS)
-#define PLATFORM_VTCR_EL2      (0x23580 | VA_WIDTH)
+#define PLATFORM_VTCR_EL2      (0x623580 | VA_WIDTH)
 #define PLATFORM_TCR_EL2       0x0
 #else
-#define PLATFORM_VTCR_EL2	0x1355C
+#define PLATFORM_VTCR_EL2	0x61355C
 #define PLATFORM_TCR_EL2	0x80813519
 #endif
 

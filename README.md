@@ -18,7 +18,7 @@ areas such as the virtio shared memory. We try to do this while a single
 host kernel is still responsible for the allocation and deallocation of the
 entire host machine physical RAM space for maximum utilization of the memory
 in embedded systems. There is no need to pin guest memory permanently in the
-system memory.
+system memory and the guests can even be swapped out securely.
 
 To accomplish the above mentioned duties the hypervisor takes ownership of
 the EL2 exception vector, the EL2 stage 1 translation table and the stage 2
@@ -73,14 +73,13 @@ Testing on the virt platform:
 SHORT TERM TODO
 ----------------
 1) Testing, testing, testing and debugging
-2) Finishing the merkle tree / hash list / for the guest paging. The code in
-   the repo is entirely untested and not currently in use.
-3) Analysis of the kvm callback functions in terms of whether or not further
+2) Analysis of the kvm callback functions in terms of whether or not further
    hardening is required
-4) Protection of the critical shared memory blobs (vcpu, kvm and few others)
-5) Testing the behavior on the host memory pressure
-6) Proper 5.10 LTS kernel patch
-7) Some HVC calls need to be made 'fused', ie available only once during the
-   bootup.
-8) HVC kernel callback interface should be hardened and only function entry
-   points must be callable.
+3) Protection of the critical shared memory blobs (vcpu, kvm and few others)
+4) Testing the behavior on the host memory pressure
+5) Proper 5.10 LTS kernel patch
+6) Some HVC calls need to be made 'fused', ie available only once during the
+   bootup
+7) HVC kernel callback interface should be hardened and only function entry
+   points must be callable
+8) Further harden the virtio-mapback

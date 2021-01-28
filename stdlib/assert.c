@@ -29,6 +29,8 @@
  */
 
 #include "hyplogs.h"
+#include "commondefines.h"
+#include "helpers.h"
 
 /*
  * This is a basic implementation. This could be improved.
@@ -37,5 +39,8 @@ void __assert (const char *function, const char *file, unsigned int line,
 		const char *assertion)
 {
 	ERROR("ASSERT: %s <%d> : %s\n", function, line, assertion);
-	while(1);
+	while(1) {
+		wfi();
+	}
 }
+WEAK_ALIAS(__assert, __assert_fail)

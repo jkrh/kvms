@@ -48,7 +48,7 @@
 #define L3_SHIFT	(0xC)
 
 #ifndef PLATFORM_VTCR_EL2
-#define PLATFORM_VTCR_EL2 0
+#define PLATFORM_VTCR_EL2 0x600000UL
 #endif
 
 struct ptable
@@ -923,9 +923,11 @@ int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		case STAGE2:
 			block.guest = get_guest_by_s2pgd(pgd);
 			block.pgd = pgd;
+			break;
 		case STAGE1:
 			block.guest = get_guest_by_s1pgd(pgd);
 			block.pgd = pgd;
+			break;
 		default:
 			return -EINVAL;
 		}
