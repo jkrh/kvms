@@ -302,7 +302,7 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 
 	/* 1:1 mapping - TODO the parameters from platform map */
 	if (mmap_range(host->s2_pgd, STAGE2, ipa, ipa,
-		       PAGE_SIZE, ((sh_no<<8)|PAGE_HYP_RWX), (s2_owb|s2_iwb)))
+		       PAGE_SIZE, ((SH_NO<<8)|PAGE_HYP_RWX), (S2_OWB|S2_IWB)))
 		HYP_ABORT();
 
 	return true;
