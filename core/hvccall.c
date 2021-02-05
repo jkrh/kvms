@@ -184,7 +184,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		/*
 		 * Do we know about this page?
 		 */
-		res = verify_page(a3, guest->vmid);
+		res = verify_page(guest, a2, a3);
 		if (res == -EINVAL) {
 			spin_unlock(&core_lock);
 			break;
@@ -230,7 +230,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			 * get swapped out. Take a measurement to make sure it
 			 * does not change while out.
 			 */
-			res = add_page_info(addr, guest->vmid);
+			res = add_page_info(guest, a2, addr);
 			if (res) {
 				spin_unlock(&core_lock);
 				break;

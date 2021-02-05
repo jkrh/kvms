@@ -18,6 +18,10 @@
 #define KVM_MEM_SLOTS_NUM (KVM_USER_MEM_SLOTS + KVM_PRIVATE_MEM_SLOTS)
 #endif
 
+#ifndef MAX_PAGING_BLOCKS
+#define MAX_PAGING_BLOCKS 131072
+#endif
+
 #define GUEST_TABLE_LEVELS 4
 
 typedef int kernel_func_t(uint64_t, ...);
@@ -37,6 +41,8 @@ typedef struct {
 	struct ptable *s2_pgd;
 	void *kvm;	/* struct kvm */
 	kvm_memslots slots[KVM_MEM_SLOTS_NUM];
+	kvm_page_data hyp_page_data[MAX_PAGING_BLOCKS];
+	uint64_t pd_index;
 	uint32_t sn;
 	uint32_t table_levels;
 } kvm_guest_t;
@@ -84,6 +90,46 @@ int update_memslot(void *kvm, kvm_memslot *slot, kvm_userspace_memory_region *me
  * @return enum guest_t
  */
 guest_state_t get_guest_state(uint64_t vmid);
+
+/**
+ * Fetch a page integrity structure for guest
+ *
+ * @param guest, the guest
+ * @param ipa, the guest ipa
+ * @return pointer to the page integrity structure,
+ *         NULL on error.
+ */
+kvm_page_data *get_page_info(kvm_guest_t *guest, uint64_t ipa);
+
+/**
+ * Add page integrity structure for address
+ *
+ * @param guest, the guest
+ * @param ipa, the guest ipa
+ * @param addr, the host physical address
+ * @return zero on success, negative errno on error
+ */
+int add_page_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr);
+
+/**
+ * Free a page integrity structure
+ *
+ * @param ipa, the guest ipa
+ * @return void
+ */
+void free_page_info(kvm_guest_t *guest, uint64_t ipa);
+
+/**
+ * Verify page integrity for address
+ *
+ * @param ipa, the guest ipa
+ * @param addr, the host physical address the new data is on
+ * @return zero on integrity OK,
+ *         -ENOENT on unknown page,
+ *         -EINVAL on integrity failure
+ *         -errno on generic error
+ */
+int verify_page(kvm_guest_t *guest, uint64_t ipa, uint64_t addr);
 
 /**
  * Fetch given guest structure

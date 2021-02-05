@@ -67,44 +67,6 @@ static inline int blind_host(uint64_t ipa, uint64_t paddr, size_t len)
 #endif
 
 /**
- * Allocate a page integrity structure
- *
- * @param addr, the host physical address
- * @return address of the page integrity structure,
- *         NULL on error.
- */
-kvm_page_data *get_page_info(uint64_t addr);
-
-/**
- * Add page info for address
- *
- * @param addr, the host physical address
- * @param vmid, the page owner
- * @return zero on success, negative errno on error
- */
-int add_page_info(uint64_t addr, uint32_t vmid);
-
-/**
- * Free a page integrity structure
- *
- * @param addr, the host physical address
- * @return void
- */
-void free_page_info(uint64_t addr);
-
-/**
- * Verify page integrity for address
- *
- * @param addr, the host physical address
- * @param vmid, the page owner
- * @return zero on integrity OK,
- *         -ENOENT on unknown page,
- *         -EINVAL on integrity failure
- *         -errno on generic error
- */
-int verify_page(uint64_t addr, uint32_t vmid);
-
-/**
  * Translate kernel memory address to hyp address
  *
  * @param p kernel address to translate

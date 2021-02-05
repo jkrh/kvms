@@ -1,4 +1,4 @@
-From 7c34f1a6648c77a81844d66fe0b400ec38167b5b Mon Sep 17 00:00:00 2001
+From dc6f746e71b7a6a9426a7138abb881e29008ecdf Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -9,23 +9,23 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  arch/arm64/include/asm/kvm_asm.h  |  21 ++
  arch/arm64/include/asm/kvm_host.h |  19 +-
  arch/arm64/include/asm/kvm_hyp.h  |  13 +
- arch/arm64/include/asm/kvm_mmu.h  |  67 ++++--
+ arch/arm64/include/asm/kvm_mmu.h  |  67 +++--
  arch/arm64/kernel/asm-offsets.c   |   7 +
  arch/arm64/kernel/head.S          |  16 +-
  arch/arm64/kvm/Makefile           |   2 +-
  arch/arm64/kvm/arm.c              |  33 ++-
- arch/arm64/kvm/ext-guest.c        | 378 ++++++++++++++++++++++++++++++
- arch/arm64/kvm/ext-guest.h        |  20 ++
+ arch/arm64/kvm/ext-guest.c        | 425 ++++++++++++++++++++++++++++++
+ arch/arm64/kvm/ext-guest.h        |  21 ++
  arch/arm64/kvm/hvccall-defines.h  |  38 +++
  arch/arm64/kvm/hyp/entry.S        |  13 +-
  arch/arm64/kvm/hyp/nvhe/switch.c  |  15 +-
  arch/arm64/kvm/hyp/nvhe/tlb.c     |  11 +-
  arch/arm64/kvm/hyp/pgtable.c      |  24 +-
  arch/arm64/kvm/hyp/vgic-v3-sr.c   |   6 +
- arch/arm64/kvm/mmu.c              |  91 ++++---
+ arch/arm64/kvm/mmu.c              |  92 +++++--
  arch/arm64/kvm/reset.c            |   7 +-
  arch/arm64/lib/copy_template.S    |   9 +
- 20 files changed, 701 insertions(+), 99 deletions(-)
+ 20 files changed, 750 insertions(+), 99 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -469,10 +469,11 @@ index c0ffb019ca8b..32d8db633138 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..9901ac504daf
+index 000000000000..5312abef3d27
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,378 @@
+@@ -0,0 +1,425 @@
++#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
 +#include <linux/io.h>
@@ -571,10 +572,56 @@ index 000000000000..9901ac504daf
 +		"mov	x1, %[vmid]\n"
 +		"mov	x2, %[start]\n"
 +		"mov	x3, %[size]\n"
++		"mov	x4, #0\n"
 +		"hvc	#0\n"
 +		:
 +		: [vmid]"r"(vmid), [start]"r"(start), [size]"r"(size)
-+		: "x0", "x1", "x2", "x3");
++		: "x0", "x1", "x2", "x3", "x4");
++}
++
++void unmap_stage2_range_sec(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size)
++{
++	register int ret asm ("x0");
++	u32 vmid = mmu->vmid.vmid;
++	unsigned long uaddr;
++	int locked = 1;
++	long res;
++	u64 end = start;
++
++	/* Fix to be managed in the hyp as one blob */
++	while (end < (start + size)) {
++		__asm__ __volatile__ (
++			"mov	x0, " XSTR(HYP_GUEST_UNMAP_STAGE2) "\n"
++			"mov	x1, %[vmid]\n"
++			"mov	x2, %[end]\n"
++			"mov	x3, 0x1000\n"
++			"mov	x4, #1\n"
++			"hvc	#0\n"
++			:
++			: [vmid]"r"(vmid), [end]"r"(end), [size]"r"(size)
++			: "x0", "x1", "x2", "x3", "x4");
++
++		/*
++		* If the hyp returned an permission error it did not unmap the
++		* page that did exist. Try to make sure the linux mm does not
++		* go about trying to free it anyway.
++		*/
++		if (ret == -EPERM) {
++			uaddr = gfn_to_hva(mmu->kvm, end >> PAGE_SHIFT);
++
++			if (uaddr >= PAGE_OFFSET)
++				continue;
++
++			mmap_write_lock(mmu->kvm->mm);
++			res = get_user_pages_remote(mmu->kvm->mm, uaddr, 1, FOLL_WRITE,
++						    NULL, NULL, &locked);
++			if (res != 1)
++				pr_warn("unable to pin guest %p/%llu on swap\n",
++					(void *)start, size);
++			mmap_write_unlock(mmu->kvm->mm);
++		}
++		end += PAGE_SIZE;
++	}
 +}
 +
 +int __create_hyp_mappings(unsigned long start, unsigned long size,
@@ -853,10 +900,10 @@ index 000000000000..9901ac504daf
 +}
 diff --git a/arch/arm64/kvm/ext-guest.h b/arch/arm64/kvm/ext-guest.h
 new file mode 100644
-index 000000000000..daa4ca45674e
+index 000000000000..c727772cc7b0
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.h
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,21 @@
 +#include <linux/kvm.h>
 +#include <linux/kvm_host.h>
 +#include <asm/kvm_asm.h>
@@ -877,6 +924,7 @@ index 000000000000..daa4ca45674e
 +int update_hyp_memslots(struct kvm *kvm, struct kvm_memory_slot *slot,
 +			const struct kvm_userspace_memory_region *mem);
 +void unmap_stage2_range(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size);
++void unmap_stage2_range_sec(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size);
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
 index 000000000000..cc43518ea359
@@ -1168,7 +1216,7 @@ index 452f4cacd674..7afa96f528c3 100644
  	case 7:
  		__vgic_v3_write_ap0rn(cpu_if->vgic_ap0r[3], 3);
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 75814a02d189..f756472421a6 100644
+index 75814a02d189..91b2533d6207 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
 @@ -31,6 +31,10 @@ static phys_addr_t hyp_idmap_vector;
@@ -1212,7 +1260,15 @@ index 75814a02d189..f756472421a6 100644
  {
  	int err;
  
-@@ -499,13 +506,20 @@ void kvm_free_stage2_pgd(struct kvm_s2_mmu *mmu)
+@@ -391,6 +398,7 @@ int kvm_init_stage2_mmu(struct kvm *kvm, struct kvm_s2_mmu *mmu)
+ 	mmu->pgt = pgt;
+ 	mmu->pgd_phys = __pa(pgt->pgd);
+ 	mmu->vmid.vmid_gen = 0;
++
+ 	return 0;
+ 
+ out_destroy_pgtable:
+@@ -499,13 +507,20 @@ void kvm_free_stage2_pgd(struct kvm_s2_mmu *mmu)
  int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
  			  phys_addr_t pa, unsigned long size, bool writable)
  {
@@ -1234,7 +1290,7 @@ index 75814a02d189..f756472421a6 100644
  
  	size += offset_in_page(guest_ipa);
  	guest_ipa &= PAGE_MASK;
-@@ -516,10 +530,11 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
+@@ -516,10 +531,11 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
  		if (ret)
  			break;
  
@@ -1250,7 +1306,7 @@ index 75814a02d189..f756472421a6 100644
  		if (ret)
  			break;
  
-@@ -632,6 +647,9 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
+@@ -632,6 +648,9 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
  	hva_t uaddr_start, uaddr_end;
  	size_t size;
  
@@ -1260,7 +1316,7 @@ index 75814a02d189..f756472421a6 100644
  	/* The memslot and the VMA are guaranteed to be aligned to PAGE_SIZE */
  	if (map_size == PAGE_SIZE)
  		return true;
-@@ -743,7 +761,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -743,7 +762,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  			  unsigned long fault_status)
  {
  	int ret = 0;
@@ -1269,7 +1325,7 @@ index 75814a02d189..f756472421a6 100644
  	bool exec_fault;
  	bool device = false;
  	unsigned long mmu_seq;
-@@ -758,6 +776,12 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -758,6 +777,12 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	unsigned long vma_pagesize, fault_granule;
  	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
  	struct kvm_pgtable *pgt;
@@ -1282,7 +1338,7 @@ index 75814a02d189..f756472421a6 100644
  
  	fault_granule = 1UL << ARM64_HW_PGTABLE_LEVEL_SHIFT(fault_level);
  	write_fault = kvm_is_write_fault(vcpu);
-@@ -898,18 +922,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -898,18 +923,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	else if (cpus_have_const_cap(ARM64_HAS_CACHE_DIC))
  		prot |= KVM_PGTABLE_PROT_X;
  
@@ -1309,7 +1365,7 @@ index 75814a02d189..f756472421a6 100644
  
  out_unlock:
  	spin_unlock(&kvm->mmu_lock);
-@@ -919,7 +939,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -919,7 +940,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  }
  
  /* Resolve the access fault by making the page young again. */
@@ -1319,7 +1375,7 @@ index 75814a02d189..f756472421a6 100644
  {
  	pte_t pte;
  	kvm_pte_t kpte;
-@@ -1095,10 +1116,7 @@ static int handle_hva_to_gpa(struct kvm *kvm,
+@@ -1095,10 +1117,7 @@ static int handle_hva_to_gpa(struct kvm *kvm,
  
  static int kvm_unmap_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
  {
@@ -1327,11 +1383,11 @@ index 75814a02d189..f756472421a6 100644
 -	bool may_block = flags & MMU_NOTIFIER_RANGE_BLOCKABLE;
 -
 -	__unmap_stage2_range(&kvm->arch.mmu, gpa, size, may_block);
-+	unmap_stage2_range(&kvm->arch.mmu, gpa, size);
++	unmap_stage2_range_sec(&kvm->arch.mmu, gpa, size);
  	return 0;
  }
  
-@@ -1301,9 +1319,16 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -1301,9 +1320,16 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	bool writable = !(mem->flags & KVM_MEM_READONLY);
  	int ret = 0;
  
@@ -1348,7 +1404,7 @@ index 75814a02d189..f756472421a6 100644
  
  	/*
  	 * Prevent userspace from creating a memory region outside of the IPA
-@@ -1371,6 +1396,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -1371,6 +1397,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	else if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
  		stage2_flush_memslot(kvm, memslot);
  	spin_unlock(&kvm->mmu_lock);
@@ -1368,7 +1424,7 @@ index 75814a02d189..f756472421a6 100644
  out:
  	mmap_read_unlock(current->mm);
  	return ret;
-@@ -1386,7 +1424,6 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
+@@ -1386,7 +1425,6 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
  
  void kvm_arch_flush_shadow_all(struct kvm *kvm)
  {

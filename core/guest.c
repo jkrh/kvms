@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
 #include <errno.h>
 
 #include "helpers.h"
+#include "mtree.h"
 #include "guest.h"
 #include "armtrans.h"
 #include "hvccall.h"
@@ -420,4 +422,97 @@ int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count)
 		return -EINVAL;
 
 	return user_copy(dest, src, count, dest_pgd, src_pgd);
+}
+
+static int compfunc(const void *v1, const void *v2)
+{
+	kvm_page_data *val1 = (kvm_page_data *)v1;
+	kvm_page_data *val2 = (kvm_page_data *)v2;
+
+	return (val1->phys_addr - val2->phys_addr);
+}
+
+kvm_page_data *get_page_info(kvm_guest_t *guest, uint64_t ipa)
+{
+	kvm_page_data key, *res;
+
+	if (!guest)
+		return NULL;
+
+	key.phys_addr = ipa;
+	res = bsearch(&key, guest->hyp_page_data, guest->pd_index,
+		      sizeof(key), compfunc);
+
+	return res;
+}
+
+int add_page_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr)
+{
+	kvm_page_data *res;
+	int ret;
+	bool s = false;
+
+	if (!guest || !ipa || !addr)
+		return -EINVAL;
+
+	res = get_page_info(guest, ipa);
+	if (res)
+		goto use_old;
+
+	if (guest->pd_index == MAX_PAGING_BLOCKS - 1)
+		return -ENOSPC;
+
+	s = true;
+	res = &guest->hyp_page_data[guest->pd_index];
+	res->phys_addr = addr;
+	guest->pd_index += 1;
+
+use_old:
+	res->vmid = guest->vmid;
+	ret = calc_hash(res->sha256, (void *)addr, PAGE_SIZE);
+	if (ret) {
+		memset(res->sha256, 0, 32);
+		res->vmid = 0;
+	}
+	if (s)
+		qsort(guest->hyp_page_data, guest->pd_index, sizeof(kvm_page_data),
+		      compfunc);
+
+	return ret;
+}
+
+void free_page_info(kvm_guest_t *guest, uint64_t ipa)
+{
+	kvm_page_data *res;
+
+	res = get_page_info(guest, ipa);
+	if (!res)
+		return;
+
+	res->vmid = 0;
+	memset(res->sha256, 0, 32);
+}
+
+int verify_page(kvm_guest_t *guest, uint64_t ipa, uint64_t addr)
+{
+	kvm_page_data *res;
+	uint8_t sha256[32];
+	int ret;
+
+	res = get_page_info(guest, ipa);
+	if (!res)
+		return -ENOENT;
+
+	if (res->vmid != guest->vmid)
+		return -EFAULT;
+
+	ret = calc_hash(sha256, (void *)addr, PAGE_SIZE);
+	if (ret)
+		return -EFAULT;
+
+	ret = memcmp(sha256, res->sha256, 32);
+	if (ret != 0)
+		return -EINVAL;
+
+	return 0;
 }
