@@ -21,6 +21,8 @@
 
 uint8_t __stack[STACK_SIZE * PLATFORM_CORE_COUNT] ALIGN(PAGE_SIZE) DATA;
 
+int _IO_putc (int c, FILE *fp);
+
 static bool init_ready;
 
 typedef struct {
@@ -103,7 +105,7 @@ error:
 }
 
 #ifdef DEBUG
-int _IO_putc(int c, _IO_FILE *__fp)
+int _IO_putc(int c, struct _IO_FILE *__fp)
 {
 	uint8_t *uart = (uint8_t *)VIRT_UART;
 

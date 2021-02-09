@@ -30,16 +30,16 @@
 
 #include <stdio.h>
 #include <host_platform.h>
+#include <bits/types/struct_FILE.h>
 #include <spinlock.h>
+
+#include "commondefines.h"
 
 #ifndef PAGE_SIZE
 #define PAGE_SIZE 0x1000
 #endif
 
 static char __logbuf[PAGE_SIZE * 4];
-#ifndef DEBUG
-static uint64_t print_lock;
-#endif
 
 static struct _IO_FILE outstream = {
 	._IO_buf_base = __logbuf,
@@ -51,8 +51,12 @@ static struct _IO_FILE outstream = {
 struct _IO_FILE *stdout = &outstream;
 struct _IO_FILE *stderr = &outstream;
 
+int _IO_putc(int c, struct _IO_FILE *__fp);
+
 #ifndef DEBUG
-static void wraparound_ptrs(_IO_FILE *__fp)
+static uint64_t print_lock;
+
+static void wraparound_ptrs(struct _IO_FILE *__fp)
 {
 	if (__fp->_IO_read_ptr + 1 > __fp->_IO_buf_end)
 		__fp->_IO_read_ptr = __fp->_IO_buf_base;
@@ -60,7 +64,7 @@ static void wraparound_ptrs(_IO_FILE *__fp)
 		__fp->_IO_write_ptr = __fp->_IO_buf_base;
 }
 
-int _IO_putc(int c, _IO_FILE *__fp)
+int _IO_putc(int c, struct _IO_FILE *__fp)
 {
 	spin_lock(&print_lock);
 	*__fp->_IO_write_ptr = c;
@@ -75,17 +79,10 @@ int _IO_putc(int c, _IO_FILE *__fp)
 
 	return 0;
 }
-#endif
 
-int putchar(int c)
-{
-	return _IO_putc(c, stdout);
-}
-
-#ifndef DEBUG
 int __getchar(void)
 {
-	_IO_FILE *__fp = stdout;
+	struct _IO_FILE *__fp = stdout;
 	int chr = -1;
 
 	spin_lock(&print_lock);
@@ -103,3 +100,13 @@ out_unlock:
 	return chr;
 }
 #endif
+
+int putchar(int c)
+{
+	return _IO_putc(c, stdout);
+}
+
+int putc(int c, FILE *stream)
+{
+	return _IO_putc(c, stream);
+}

@@ -151,7 +151,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 		__asm__ __volatile__("mov	sp, %[__my_sp]\n"
 				     :
 				     : [__my_sp] "r"(__my_sp)
-				     : "sp");
+				     :);
 	}
 	early_setup();
 	enable_mmu();

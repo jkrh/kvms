@@ -8,7 +8,7 @@
 #define MICROSECONDS 1000000
 #define NANOSECONDS  1000000000
 
-int gettimeofday(struct timeval *tv, struct timezone *tz)
+int gettimeofday(struct timeval *tv, void *tz)
 {
 	uint64_t cntptval_org;
 	uint64_t cntfrq_org;

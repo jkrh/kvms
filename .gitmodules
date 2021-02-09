@@ -1,3 +1,18 @@
 [submodule "tinycrypt"]
 	path = tinycrypt
 	url = https://github.com/intel/tinycrypt.git
+[submodule "oss/binutils-gdb"]
+	path = oss/binutils-gdb
+	url = git://sourceware.org/git/binutils-gdb.git
+[submodule "oss/gcc"]
+	path = oss/gcc
+	url = https://github.com/gcc-mirror/gcc.git
+[submodule "oss/qemu"]
+	path = oss/qemu
+	url = https://github.com/qemu/qemu.git
+[submodule "oss/glibc"]
+	path = oss/glibc
+	url = git://sourceware.org/git/glibc.git
+[submodule "oss/linux"]
+	path = oss/linux
+	url = https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git

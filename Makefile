@@ -1,19 +1,20 @@
-$(info KERNEL_DIR:    $(KERNEL_DIR))
-$(info PLATFORM:      $(PLATFORM))
-$(info CHIPSET:       $(CHIPSET))
-
 export BASE_DIR := $(PWD)
 export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
 
 ifeq ($(PLATFORM),virt)
-SUBDIRS = stdlib core tinycrypt platform/$(PLATFORM)
+SUBDIRS := stdlib core tinycrypt platform/$(PLATFORM)
+KERNEL_DIR := $(BASE_DIR)/oss/linux
 else
-SUBDIRS = platform/$(PLATFORM) stdlib core tinycrypt platform/$(PLATFORM)/common
+SUBDIRS := platform/$(PLATFORM) stdlib core tinycrypt platform/$(PLATFORM)/common
 endif
 include core/tools.mk
 include core/makevars.mk
 include core/makeflags.mk
+
+$(info KERNEL_DIR:	$(KERNEL_DIR))
+$(info PLATFORM:	$(PLATFORM))
+$(info CHIPSET:		$(CHIPSET))
 
 all: check dirs
 check:
@@ -35,12 +36,15 @@ clean:
 
 submodule-update:
 	@echo "Fetching sources.."
-	@git submodule update --init --recursive
+	@git submodule update --init
 
 $(TOOLS_GCC): | submodule-update
 	@mkdir -p $(TOOLDIR)
-	@echo "Extracting tools.."
-	@pbzip2 -dc $(TOOLS) | tar x -C $(TOOLDIR)
+	./scripts/build-tools.sh
+
+tools-clean:
+	./scripts/build-tools.sh clean
+	@rm -rf $(TOOLDIR)
 
 $(OBJDIR): | $(TOOLS_GCC)
 	@mkdir -p $(OBJDIR)/$(PLATFORM)
@@ -51,8 +55,6 @@ gdb:
 run:
 	$(MAKE) CROSS_COMPILE=$(CROSS_COMPILE) KERNEL_DIR=$(KERNEL_DIR) -Cplatform/$(PLATFORM) run
 
-tools: | $(TOOLS_GCC)
-
 test: | module-test
 
 module-test:
@@ -61,4 +63,4 @@ module-test:
 package:
 	$(MAKE) -C platform/$(PLATFORM)/tools/sign
 
-.PHONY: all check submodule-update tools clean gdb qemu package run $(SUBDIRS)
+.PHONY: all check submodule-update tools tools-clean clean gdb qemu package run $(SUBDIRS)
