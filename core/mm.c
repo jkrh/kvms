@@ -117,6 +117,9 @@ static int __is_range_valid(uint64_t addr_start, size_t len,
 
 	addr_end = addr_start + len;
 
+	if (addr_end < addr_start)
+		return 0;
+
 	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
 		if (!slots[i].slot.npages)
 			continue;
