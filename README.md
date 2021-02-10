@@ -42,21 +42,23 @@ hypervisor can be stepped through via a relatively comfortable environment.
 
 Building and running on QEMU:
 -----------------------------
-- get the linux kernel matching to patch in patches/ dir. Initial patch is a
-  a draft for 5.10 lts tree.
-- apply patches/0001-*kernel-version*.patch to the kernel
-- download or assemble a .qcow2 linux image you wish to boot up
-- build the kernel:
-  make -j16 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig Image modules
-- build the hyp:
-  export KERNEL_DIR=<kernel top level dir>
-  export PLATFORM=virt
-  export BOOTIMG=<image you want to boot as the host>
-  make
-- make run will run the host emulation
-- make gdb will run a target debugger session. You can hit breakpoints anywhere
-  in the kernel and in the hypervisor. This implies that that 'run' target was
-  invoked with 'make DEBUGGER=1 run'
+- Download or assemble QEMU compatible arm64 linux image you wish to boot up
+- Set environment variable BOOTIMG to point to the image. Set PLATFORM=virt
+  as well to tell the build system which target you are going for.
+- Run 'make tools'. This will build all the tools required with right versions
+  and install them into the 'buildtools' directory.
+- Apply the kernel patch found under patches/ in the kernel under oss/linux
+  directory by saying 'git am <patchfile>' within the kernel dir.
+- Rerun kernel make:
+  'make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig Image modules'
+- Run 'make DEBUG=1' to build the hypervisor against the kernel under oss/linux
+- 'make run' will run the host emulation
+- 'make gdb' will run a target debugger session. You can hit breakpoints
+  anywhere in the kernel and in the hypervisor. This implies that that 'run'
+  target was invoked with 'make DEBUGGER=1 run' such that the QEMU was waiting
+  for the debugger connection.
+- Install more kvm virtual machines inside your host system emulation to see
+  some more work the hypervisor is doing.
 
 
 Testing on the virt platform:
