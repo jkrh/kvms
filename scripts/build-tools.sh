@@ -89,7 +89,7 @@ qemu()
 	make install
 }
 
-if [ $1 = "clean" ]; then
+if [ "x$1" = "xclean" ]; then
 	clean
 	exit 0
 fi

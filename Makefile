@@ -20,7 +20,6 @@ all: check dirs
 check:
 	@[ "${KERNEL_DIR}" ] && echo -n "" || ( echo "KERNEL_DIR is not set"; exit 1 )
 	@[ "${PLATFORM}" ] && echo -n "" || ( echo "PLATFORM is not set"; exit 1 )
-	@[ "${TOOLS}" ] && echo -n "" || ( echo "TOOLS is not set"; exit 1 )
 	@[ "${PLATFORM}" = "virt" ] || [ "${CHIPSET}" ] && echo -n "" || ( echo "CHIPSET is not set"; exit 1 )
 
 dirs: $(SUBDIRS) | $(OBJDIR)
@@ -41,6 +40,8 @@ submodule-update:
 $(TOOLS_GCC): | submodule-update
 	@mkdir -p $(TOOLDIR)
 	./scripts/build-tools.sh
+
+tools: $(TOOLS_GCC)
 
 tools-clean:
 	./scripts/build-tools.sh clean
