@@ -33,11 +33,11 @@ clean:
 	done
 	@rm -rf $(OBJDIR)
 
-submodule-update:
+$(FETCH_SOURCES):
 	@echo "Fetching sources.."
 	@git submodule update --init
 
-$(TOOLS_GCC): | submodule-update
+$(TOOLS_GCC): | $(FETCH_SOURCES)
 	@mkdir -p $(TOOLDIR)
 	./scripts/build-tools.sh
 

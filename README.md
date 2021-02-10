@@ -46,11 +46,8 @@ Building and running on QEMU:
 - Set environment variable BOOTIMG to point to the image. Set PLATFORM=virt
   as well to tell the build system which target you are going for.
 - Run 'make tools'. This will build all the tools required with right versions
-  and install them into the 'buildtools' directory.
-- Apply the kernel patch found under patches/ in the kernel under oss/linux
-  directory by saying 'git am <patchfile>' within the kernel dir.
-- Rerun kernel make:
-  'make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- defconfig Image modules'
+  and install them into the 'buildtools' directory. This will also build the
+  patched kernel under oss/linux.
 - Run 'make DEBUG=1' to build the hypervisor against the kernel under oss/linux
 - 'make run' will run the host emulation
 - 'make gdb' will run a target debugger session. You can hit breakpoints
@@ -59,6 +56,7 @@ Building and running on QEMU:
   for the debugger connection.
 - Install more kvm virtual machines inside your host system emulation to see
   some more work the hypervisor is doing.
+- Work with the kernel under oss/linux, hyp
 
 
 Testing on the virt platform:

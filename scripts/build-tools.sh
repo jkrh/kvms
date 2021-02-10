@@ -51,6 +51,7 @@ binutils-gdb()
 kernel()
 {
 	cd $BASE_DIR/oss/linux
+	git am $BASE_DIR/patches/0001-KVM-external-hypervisor-5.10-kernel-baseport.patch
 	make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$NJOBS defconfig Image modules
 	make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_HDR_PATH=$TOOLDIR/usr headers_install
 }
