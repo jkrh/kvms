@@ -1,9 +1,9 @@
 #!/bin/bash -e
 
 #
-# Tested on ubuntu 20.n. Be sure not to have gcc-cross-dev packages
-# installed on the build machine, some headers seem to leak from the
-# host.
+# Tested on ubuntu 20.n with no other cross tools installed other than
+# 'gcc-aarch64-linux-gnu g++-aarch64-linux-gnu'. These are used for
+# bootstrapping a bit faster
 #
 
 TOOLDIR=$BASE_DIR/buildtools
@@ -23,11 +23,12 @@ unset INCLUDES
 unset WARNINGS
 unset DEFINES
 
-export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin:/usr/local/bin
-NJOBS=`nproc`
+export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin
 
+KERNEL_PATCHFILE="$BASE_DIR/patches/0001-KVM-external-hypervisor-5.10-kernel-baseport.patch"
 TTRIPLET="aarch64-linux-gnu"
 HTRIPLET="x86_64-unknown-linux-gnu"
+NJOBS=`nproc`
 
 clean()
 {
@@ -48,12 +49,23 @@ binutils-gdb()
 	make DESTDIR=$TOOLDIR install
 }
 
+kernel_headers()
+{
+	cd $BASE_DIR/oss/linux
+	OUT=$(git apply --check $KERNEL_PATCHFILE 2>&1 | wc -l)
+	if [ $OUT != "0" ]; then
+		echo "Skipping kernel patch, already applied?"
+	else
+		echo "Patching kernel"
+		git am $KERNEL_PATCHFILE
+	fi
+	make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_HDR_PATH=$TOOLDIR/usr headers_install
+}
+
 kernel()
 {
 	cd $BASE_DIR/oss/linux
-	git am $BASE_DIR/patches/0001-KVM-external-hypervisor-5.10-kernel-baseport.patch
 	make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j$NJOBS defconfig Image modules
-	make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_HDR_PATH=$TOOLDIR/usr headers_install
 }
 
 glibc()
@@ -75,8 +87,8 @@ gcc()
 	cd $BASE_DIR/oss/gcc/build
 	../configure --prefix=/usr --target=$TTRIPLET --host=$HTRIPLET --build=$HTRIPLET \
 		     --disable-nls --enable-threads --disable-plugins --disable-multilib \
-		     --with-sysroot=$TOOLDIR \
-		     --disable-bootstrap --enable-languages=c,c++
+		     --disable-bootstrap --disable-libsanitizer --enable-languages=c,c++ \
+		     --with-sysroot=/
 	make -j$NJOBS
 	make DESTDIR=$TOOLDIR install
 }
@@ -96,7 +108,8 @@ if [ "x$1" = "xclean" ]; then
 fi
 
 binutils-gdb
-kernel
+kernel_headers
 glibc
 gcc
 qemu
+kernel
