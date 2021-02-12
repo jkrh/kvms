@@ -42,12 +42,14 @@ hypervisor can be stepped through via a relatively comfortable environment.
 
 Building and running on QEMU:
 -----------------------------
-- Download or assemble QEMU compatible arm64 linux image you wish to boot up
-- Set environment variable BOOTIMG to point to the image. Set PLATFORM=virt
-  as well to tell the build system which target you are going for.
 - Run 'make tools'. This will build all the tools required with right versions
   and install them into the 'buildtools' directory. This will also build the
   patched kernel under oss/linux.
+- Download or assemble QEMU compatible arm64 linux image you wish to boot up.
+  Script named 'scripts/make-bootimg.sh' may work as an example, it should work
+  directly if you invoke it with superuser permissions.
+- Set environment variable BOOTIMG to point to the image. Set PLATFORM=virt
+  as well to tell the build system which target you are going for.
 - Run 'make DEBUG=1' to build the hypervisor against the kernel under oss/linux
 - 'make run' will run the host emulation
 - 'make gdb' will run a target debugger session. You can hit breakpoints
