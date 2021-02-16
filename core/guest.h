@@ -9,8 +9,12 @@
 #include "host_platform.h"
 #include "mm.h"
 
-#define NUM_CPUS 8
-#define MAX_GUESTS 16
+#ifndef NUM_VCPUS
+#define NUM_VCPUS 8
+#endif
+#ifndef MAX_GUESTS
+#define MAX_GUESTS 8
+#endif
 
 #define KVM_USER_MEM_SLOTS 512
 #define KVM_PRIVATE_MEM_SLOTS 0
@@ -36,7 +40,7 @@ typedef enum {
 typedef struct {
 	uint32_t vmid;
 	guest_state_t state;
-	kernel_func_t *cpu_map[NUM_CPUS];
+	kernel_func_t *cpu_map[NUM_VCPUS];
 	struct ptable *s1_pgd;
 	struct ptable *s2_pgd;
 	void *kvm;	/* struct kvm */

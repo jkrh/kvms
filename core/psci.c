@@ -29,7 +29,7 @@ void psci_reg(register_t cn, register_t a1, register_t a2, register_t a3,
 	if (vmid == HOST_VMID)
 		maxcpu = PLATFORM_CORE_COUNT;
 	else
-		maxcpu = NUM_CPUS;
+		maxcpu = NUM_VCPUS;
 
 	guest = get_guest(vmid);
 	if (!guest)
