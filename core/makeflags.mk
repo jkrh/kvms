@@ -9,7 +9,8 @@ export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(BASE_DIR)/stdlib \
 		-I$(BASE_DIR)/platform/$(PLATFORM) \
 		-I$(BASE_DIR)/platform/$(PLATFORM)/$(CHIPSET) \
 		-I$(BASE_DIR)/platform/$(PLATFORM)/$(CHIPSET)/$(PRODUCT) \
-		-I$(BASE_DIR)/stdlib/sys
+		-I$(BASE_DIR)/stdlib/sys \
+		-I$(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)
 export CFLAGS := -march=armv8-a+nofp --sysroot=$(TOOLDIR) --no-sysroot-suffix \
 		-fstack-protector-strong -mstrict-align -static -ffreestanding \
 		-fno-hosted -std=c99 -mgeneral-regs-only -mno-omit-leaf-frame-pointer \
