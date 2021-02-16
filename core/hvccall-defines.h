@@ -4,10 +4,10 @@
 /*
  * Base addressing for data sharing
  */
-#define KERNEL_MAP	0xFFFFFFF000000000UL
-#define KERN_VA_MASK	0x0000000FFFFFFFFFUL
+#define KERNEL_MAP	0xFFFFFFF000000000
+#define KERN_VA_MASK	0x0000000FFFFFFFFF
 #define CALL_MASK	KERN_VA_MASK
-#define KERNEL_BASE	0x4000000000UL
+#define KERNEL_BASE	0x4000000000
 
 /*
  * Host protection support
