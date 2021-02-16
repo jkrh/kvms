@@ -47,9 +47,7 @@ static int dopen;
 
 static u64 kaddr_to_phys(u64 kaddr)
 {
-	/* TODO: is this general enough? */
-	return page_to_phys(vmalloc_to_page((void *)kaddr)) +
-		offset_in_page(kaddr);
+	return virt_to_phys((void *)kaddr);
 
 	/* WAS: return ats1e1r(kaddr) & KADDR_MASK; */
 }
@@ -73,12 +71,85 @@ call_hyp(u64 function_id, u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4)
 		__asmeq("%3", "x3")
 		__asmeq("%4", "x4")
 		"hvc	#0\n"
-		: "=r"(reg0)
-		: [reg1]"r"(reg1), [reg2]"r"(reg2), [reg3]"r"(reg3),
-		  [reg4]"r"(reg4), [reg5]"r"(reg5)
+		: "+r"(reg0)
+		: "r"(reg1), "r"(reg2), "r"(reg3), "r"(reg4), "r"(reg5)
 		: "memory");
 
 	return reg0;
+}
+
+static ssize_t
+do_host_map(struct hypdrv_mem_region *reg)
+{
+	u64 section_start;
+	u64 section_end;
+	u64 size, prot;
+	int ret;
+
+	section_start = kaddr_to_phys(reg->start);
+	section_end   = kaddr_to_phys(reg->end);
+	size = reg->end - reg->start;
+	prot = reg->prot;
+
+#ifdef DEBUG
+        pr_info("HYPDRV %s: %llx %llx %llx [ %llx %llx %llx ]\n", __func__,
+                reg->start, reg->end, prot, section_start, section_end, size);
+#endif
+	ret = call_hyp(HYP_HOST_MAP_STAGE2, section_start, section_start,
+		       size, prot, s2_iwb);
+
+	return ret;
+}
+
+#define MK_HMR(START, END, PROT)                                \
+        (struct hypdrv_mem_region){(u64)START, (u64)END, PROT}
+
+static ssize_t
+kernel_lock(void)
+{
+	struct hypdrv_mem_region reg;
+	int err = -ENODEV;
+
+	preempt_disable();
+	local_irq_disable();
+
+	/* kernel text section */
+	reg = MK_HMR(_text__addr, _etext__addr, HYPDRV_KERNEL_EXEC);
+	err = do_host_map(&reg);
+	if (err)
+		goto out;
+
+	/* kernel data */
+	reg = MK_HMR(_data__addr, __bss_stop__addr, HYPDRV_PAGE_KERNEL);
+	err = do_host_map(&reg);
+	if (err)
+		goto out;
+
+	/* vdso */
+	reg = MK_HMR(vdso_start__addr, vdso_end__addr, HYPDRV_PAGE_VDSO);
+	err = do_host_map(&reg);
+	if (err)
+		goto out;
+
+	/* rodata */
+	reg = MK_HMR(__start_rodata__addr, vdso_start__addr,
+		     HYPDRV_PAGE_KERNEL_RO);
+	err = do_host_map(&reg);
+	if (err)
+		goto out;
+
+	reg = MK_HMR(vdso_end__addr, __end_rodata__addr, HYPDRV_PAGE_KERNEL_RO);
+	err = do_host_map(&reg);
+
+out:
+	local_irq_enable();
+	preempt_enable();
+
+#ifdef DEBUG
+	pr_info("HYPDRV %s: return %d\n", __func__, err);
+#endif
+
+	return err;
 }
 
 static int device_open(struct inode *inode, struct file *filp)
@@ -104,26 +175,20 @@ device_read(struct file *filp, char *buffer, size_t length, loff_t *off)
 }
 
 static ssize_t
-do_host_map(struct hypdrv_mem_region *reg)
+device_write(struct file *filp, const char *buf, size_t len, loff_t *off)
 {
-	u64 section_start;
-	u64 section_end;
-	u64 size, prot;
-	int ret;
+	ssize_t res;
+	static int locked;
 
-	section_start = kaddr_to_phys(reg->start);
-	section_end   = kaddr_to_phys(reg->end);
-	size = reg->end - reg->start;
-	prot = reg->prot;
+	if (locked)
+		return len;
 
-#ifdef DEBUG
-	pr_info("HYPDRV %s: %llx %llx %llx [ %llx ]\n", __func__,
-		section_start, section_end, prot, size);
-#endif
-	ret = call_hyp(HYP_HOST_MAP_STAGE2, section_start, section_start,
-		       size, reg->prot, s2_iwb);
+	res = kernel_lock();
+	if (res)
+		return res;
+	locked = 1;
 
-	return ret;
+	return len;
 }
 
 #ifdef DEBUG
@@ -161,75 +226,6 @@ do_read(void __user *argp)
 	ret = copy_to_user(argp, &log, sizeof(log));
 
 	return ret;
-}
-
-static ssize_t
-kernel_lock(void)
-{
-	struct hypdrv_mem_region reg;
-	int err = 0;
-
-	preempt_disable();
-	local_irq_disable();
-
-	/* kernel text section */
-	reg = (struct hypdrv_mem_region)
-		{_text__addr, _etext__addr, HYPDRV_KERNEL_EXEC};
-	err = do_host_map(&reg);
-	if (err)
-		goto out;
-
-	/* kernel data */
-	reg = (struct hypdrv_mem_region)
-		{_data__addr, __bss_stop__addr, HYPDRV_PAGE_KERNEL};
-	err = do_host_map(&reg);
-	if (err)
-		goto out;
-
-	/* vdso */
-	reg = (struct hypdrv_mem_region)
-		{vdso_start__addr, vdso_end__addr, HYPDRV_PAGE_VDSO};
-	err = do_host_map(&reg);
-	if (err)
-		goto out;
-
-	/* rodata */
-	reg = (struct hypdrv_mem_region)
-		{__start_rodata__addr, vdso_start__addr, HYPDRV_PAGE_KERNEL_RO};
-	err = do_host_map(&reg);
-	if (err)
-		goto out;
-
-	reg = (struct hypdrv_mem_region)
-		{vdso_end__addr, __end_rodata__addr, HYPDRV_PAGE_KERNEL_RO};
-	err = do_host_map(&reg);
-
-out:
-	local_irq_enable();
-	preempt_enable();
-
-#ifdef DEBUG
-	pr_info("HYPDRV %s: return %d\n", __func__, err);
-#endif
-
-	return err;
-}
-
-static ssize_t
-device_write(struct file *filp, const char *buf, size_t len, loff_t *off)
-{
-	ssize_t res;
-	static int locked;
-
-	if (locked)
-		return len;
-
-	res = kernel_lock();
-	if (res)
-		return res;
-	locked = 1;
-
-	return len;
 }
 
 int get_region(struct hypdrv_mem_region *reg, void __user *argp)
@@ -305,5 +301,7 @@ int init_module(void)
 
 void cleanup_module(void)
 {
-	unregister_chrdev(major, DEVICE_NAME);
+	if (major > 0)
+		unregister_chrdev(major, DEVICE_NAME);
+	major = 0;
 }
