@@ -2,6 +2,7 @@
 ifeq ($(DEBUG),1)
 export OPTS := -g -O0 -DDEBUG
 endif
+KERNEL_DIR := $(PWD)/../oss/linux
 
 obj-m += hyp-drv.o
 

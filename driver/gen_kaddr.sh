@@ -13,7 +13,9 @@ SYSTEM_MAP=$1/System.map
 #
 # Strip the system.map first.
 #
-grep -v '\.' $SYSTEM_MAP > tmp.out
+
+grep -Ew '_text|_etext|_data|__bss_stop|vdso_start|vdso_end|__start_rodata|__end_rodata' \
+     $SYSTEM_MAP | grep -v '\.' > tmp.out
 #grep "__" tmp.out > tmp2.out
 grep -v @ tmp.out > tmp2.out
 grep -v "__UNIQUE_ID" tmp2.out > tmp.out

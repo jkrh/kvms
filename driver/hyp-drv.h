@@ -38,11 +38,11 @@ struct log_frag {
 #define _S2AP(A, B)	(A<<7|B<<6)
 #define HYPDRV_KERNEL_EXEC	(_XN(1UL, 1UL)|_SH(1UL, 1UL)|_S2AP(0UL, 1UL))
 #define HYPDRV_PAGE_KERNEL	(_XN(1UL, 0UL)|_SH(1UL, 1UL)|_S2AP(1UL, 1UL))
-#define HYPDRV_PAGE_VDSO	(_XN(0UL, 0UL)|_SH(1UL, 1UL)|_S2AP(1UL, 1UL))
+#define HYPDRV_PAGE_VDSO	(_XN(0UL, 1UL)|_SH(1UL, 1UL)|_S2AP(1UL, 1UL))
 #define HYPDRV_PAGE_KERNEL_RO	(_XN(1UL, 0UL)|_SH(1UL, 1UL)|_S2AP(0UL, 1UL))
 
 #define s2_inone	0x1 /* Inner Non-cacheable */
 #define s2_iwt		0x2 /* Inner Write-Through Cacheable */
-#define s2_iwb		0xf /* WAS: 0x3 ??? Inner Write-Back Cacheable */
+#define s2_iwb		0xF /* Inner Write-Back Cacheable */
 
 #endif // __HYP_DRV__
