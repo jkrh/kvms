@@ -100,6 +100,9 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_HOST_GET_VMID:
 		res = platform_get_next_vmid(a1);
 		break;
+	case HYP_HOST_SET_LOCKFLAGS:
+		res = set_lockflags(a1);
+		break;
 
 #ifdef KVM_GUEST_SUPPORT
 	uint64_t *pte = NULL;

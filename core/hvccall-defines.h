@@ -18,6 +18,7 @@
 #define HYP_HOST_UNMAP_STAGE2		0x8003
 #define HYP_HOST_BOOTSTEP		0x8004
 #define HYP_HOST_GET_VMID		0x8005
+#define HYP_HOST_SET_LOCKFLAGS		0x8006
 
 /*
  * KVM guest support

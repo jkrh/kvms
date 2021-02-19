@@ -58,6 +58,8 @@ struct ptable
 
 struct ptable tables[NUM_TABLES] ALIGN(PAGE_SIZE) SECTION("xlat_table");
 uint16_t table_props[NUM_TABLES] SECTION("xlat_table");
+
+static uint64_t hostflags;
 int debugflags = 0;
 
 /*
@@ -860,17 +862,35 @@ static struct ptable *host_pgd(uint64_t stage)
 	}
 }
 
+int set_lockflags(uint64_t flags)
+{
+	if (flags & HOST_STAGE2_LOCK)
+		hostflags |= HOST_STAGE2_LOCK;
+	if (flags & HOST_STAGE1_LOCK)
+		hostflags |= HOST_STAGE1_LOCK;
+
+	return 0;
+}
+
 int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type)
 {
+	kvm_guest_t *host = get_guest(HOST_VMID);
 	mblockinfo_t block;
+
+	if (!host)
+		HYP_ABORT();
 
 	memset(&block, 0, sizeof(block));
 
 	if (!pgd) {
-		block.guest = get_guest(HOST_VMID);
+		block.guest = host;
+
 		switch (stage) {
 		case STAGE2:
+			if (hostflags & HOST_STAGE2_LOCK)
+				return -EPERM;
+
 			/* Only allow unmap or 1:1 mapping for the host */
 			if ((vaddr != paddr) && paddr) {
 				ERROR("invalid host st2 mapping 0x%lx - 0x%lx\n",
@@ -881,6 +901,9 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			prot &= PROT_MASK_STAGE2;
 			break;
 		case STAGE1:
+			if (hostflags & HOST_STAGE1_LOCK)
+				return -EPERM;
+
 			block.pgd = block.guest->s1_pgd;
 			prot &= PROT_MASK_STAGE1;
 			break;
@@ -893,53 +916,85 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			block.guest = get_guest_by_s2pgd(pgd);
 			block.pgd = pgd;
 			prot &= PROT_MASK_STAGE2;
+
+			if ((block.guest == host) &&
+			    (hostflags & HOST_STAGE2_LOCK))
+				return -EPERM;
 			break;
 		case STAGE1:
 			block.guest = get_guest_by_s1pgd(pgd);
 			block.pgd = pgd;
 			prot &= PROT_MASK_STAGE1;
+
+			if ((block.guest == host) &&
+			    (hostflags & HOST_STAGE1_LOCK))
+				return -EPERM;
 			break;
 		default:
 			return -EINVAL;
 		}
 	}
+	if (!block.pgd || !block.guest || (length % PAGE_SIZE))
+		return -EINVAL;
 
 	block.stage = stage;
 
-	return __block_remap(vaddr, length, &block,
-			     paddr, prot, type, TABLE_LEVELS);
+	return __block_remap(vaddr, length, &block, paddr, prot, type,
+			     TABLE_LEVELS);
 }
 
 int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		size_t length)
 {
+	kvm_guest_t *host = get_guest(HOST_VMID);
 	mblockinfo_t block;
+
+	if (!host)
+		HYP_ABORT();
 
 	if (!pgd) {
 		block.guest = get_guest(HOST_VMID);
 		block.pgd = host_pgd(stage);
+
+		switch (stage) {
+		case STAGE2:
+			if (hostflags & HOST_STAGE2_LOCK)
+				return -EPERM;
+			break;
+		case STAGE1:
+			if (hostflags & HOST_STAGE1_LOCK)
+				return -EPERM;
+			break;
+		default:
+			return -EINVAL;
+		}
 	} else {
 		switch (stage) {
 		case STAGE2:
 			block.guest = get_guest_by_s2pgd(pgd);
 			block.pgd = pgd;
+			if ((block.guest == host) &&
+			    (hostflags & HOST_STAGE2_LOCK))
+				return -EPERM;
 			break;
 		case STAGE1:
 			block.guest = get_guest_by_s1pgd(pgd);
 			block.pgd = pgd;
+			if ((block.guest == host) &&
+			    (hostflags & HOST_STAGE2_LOCK))
+				return -EPERM;
 			break;
 		default:
 			return -EINVAL;
 		}
 	}
-
-	if (!block.pgd || !block.guest || length < PAGE_SIZE)
+	if (!block.pgd || !block.guest || (length % PAGE_SIZE))
 		return -EINVAL;
 
 	block.stage = stage;
 
-	return __block_remap(vaddr, length, &block,
-			     0, 0, INVALID_MEMORY, TABLE_LEVELS);
+	return __block_remap(vaddr, length, &block, 0, 0, INVALID_MEMORY,
+			     TABLE_LEVELS);
 }
 
 void table_init(void)
