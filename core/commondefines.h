@@ -2,6 +2,8 @@
 #ifndef __CDEFINES_H__
 #define __CDEFINES_H__
 
+typedef uint64_t u_register_t;
+
 #define PAGE_SIZE 0x1000UL
 #define PAGE_SHIFT 12
 #define PAGE_MASK 0xFFFFFFFFFFFFF000

@@ -10,16 +10,13 @@
 #include "hvccall.h"
 
 /*
- * TODO: Add implementation to UART driver
- * to check whether clocks are enabled.
- * Meanwhile be careful when adding printfs at this
- * function. UART clocks may have been turned
- * off before calling this function.
- * For example PSCI_CPU_ON_SMC64 is called
- * with UART clocks off.
+ * TODO: Add implementation to UART driver to check whether clocks are
+ * enabled. Meanwhile be careful when adding printfs at this function.
+ * UART clocks may have been turned off before calling this function.
+ * For example PSCI_CPU_ON_SMC64 is called with UART clocks off.
  */
-void psci_reg(register_t cn, register_t a1, register_t a2, register_t a3,
-	      register_t a4, register_t a5)
+void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
+	      u_register_t a3, u_register_t a4, u_register_t a5)
 {
 	uint64_t vmid, cpuid, target_core, maxcpu, hcr_el2;
 	kvm_guest_t *guest;
@@ -61,13 +58,13 @@ void psci_reg(register_t cn, register_t a1, register_t a2, register_t a3,
 		break;
 	case PSCI_CPU_ON_SMC64:
 		if (vmid == HOST_VMID) {
-			/* a1 contain target core MPIDR */
+			/* a1: target core MPIDR */
 			target_core = (a1 & (0x700)) >> 8;
 		} else {
-			/* a1 has the core number  */
+			/* a1: the core number */
 			target_core = a1;
 		}
-		if ((target_core >= 0) || (target_core < maxcpu)) {
+		if (target_core < maxcpu) {
 			/* a2 has the core entry address */
 			cpu_map[target_core] = (kernel_func_t *)a2;
 			dmb();

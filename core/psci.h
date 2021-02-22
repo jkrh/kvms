@@ -3,6 +3,7 @@
 #define __PSCI_H__
 
 #include <stdint.h>
+#include "helpers.h"
 
 #define PSCI_VERSION		0x84000000UL
 #define PSCI_CPU_SUSPEND_SMC64	0xC4000001UL
@@ -25,7 +26,7 @@
 #define PSCI_DISABLED		-8
 #define PSCI_INVALID_ADDRESS	-9
 
-void psci_reg(register_t cn, register_t a1, register_t a2, register_t a3,
-	      register_t a4, register_t a5);
+void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2, u_register_t a3,
+	      u_register_t a4, u_register_t a5);
 
 #endif // __PSCI_H__
