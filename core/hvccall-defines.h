@@ -12,6 +12,7 @@
 /*
  * Host protection support
  */
+#define HYP_FIRST_HOSTCALL		0x8000
 #define HYP_HOST_MAP_STAGE1		0x8000
 #define HYP_HOST_MAP_STAGE2		0x8001
 #define HYP_HOST_UNMAP_STAGE1		0x8002
@@ -19,10 +20,12 @@
 #define HYP_HOST_BOOTSTEP		0x8004
 #define HYP_HOST_GET_VMID		0x8005
 #define HYP_HOST_SET_LOCKFLAGS		0x8006
+#define HYP_LAST_HOSTCALL		HYP_HOST_SET_LOCKFLAGS
 
 /*
  * KVM guest support
  */
+#define HYP_FIRST_GUESTCALL		0x9000
 #define HYP_READ_MDCR_EL2		0x9000
 #define HYP_SET_HYP_TXT			0x9001
 #define HYP_SET_TPIDR			0x9002
@@ -34,6 +37,7 @@
 #define HYP_SET_WORKMEM			0x9008
 #define HYP_USER_COPY			0x9009
 #define HYP_MKYOUNG			0x900A
+#define HYP_LAST_GUESTCALL		HYP_MKYOUNG
 
 /*
  * Misc

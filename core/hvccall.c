@@ -19,6 +19,11 @@
 #include "heap.h"
 #include "mm.h"
 
+#define CALL_TYPE_UNKNOWN	0
+#define CALL_TYPE_HOSTCALL	1
+#define CALL_TYPE_GUESTCALL	2
+#define CALL_TYPE_KVMCALL	3
+
 typedef int hyp_func_t(void *, ...);
 typedef int kvm_func_t(uint64_t, ...);
 
@@ -30,12 +35,26 @@ extern uint64_t hyp_text_end;
 extern uint64_t core_lock;
 uint64_t crash_lock;
 
+static int is_apicall(uint64_t cn)
+{
+	if ((cn >= HYP_FIRST_GUESTCALL) &&
+	    (cn <= HYP_LAST_GUESTCALL))
+		return CALL_TYPE_HOSTCALL;
+	if ((cn >= HYP_FIRST_HOSTCALL) &&
+	    (cn <= HYP_LAST_HOSTCALL))
+		return CALL_TYPE_GUESTCALL;
+	return CALL_TYPE_UNKNOWN;
+}
+
 int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	    register_t a4, register_t a5, register_t a6, register_t a7,
 	    register_t a8, register_t a9)
 {
 	int64_t res = -EINVAL;
 	uint64_t addr;
+
+	if (is_apicall(cn))
+		spin_lock(&core_lock);
 
 	switch (cn) {
 	/*
@@ -47,8 +66,6 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		 * and virt has the device area below 0x4000 0000, we
 		 * can hardcode the type.
 		 */
-		spin_lock(&core_lock);
-
 		if (a2 < 0x40000000)
 			a5 = DEVICE_GRE;
 		else
@@ -72,30 +89,21 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		if (add_kvm_hyp_region(a1, a2, a3))
 			HYP_ABORT();
 #endif // HOSTBLINDING_DEV
-
-		spin_unlock(&core_lock);
 		break;
 	case HYP_HOST_UNMAP_STAGE1:
-		spin_lock(&core_lock);
 		res = unmap_range(NULL, STAGE1, a1, a2);
 
 #ifdef HOSTBLINDING_DEV
 		if (remove_kvm_hyp_region(a1))
 			ERROR("kvm hyp region not found! %lx\n", a1);
 #endif // HOSTBLINDING_DEV
-
-		spin_unlock(&core_lock);
 		break;
 	case HYP_HOST_MAP_STAGE2:
-		spin_lock(&core_lock);
 		res = mmap_range(NULL, STAGE2, a1, a2, a3, a4, a5);
-		spin_unlock(&core_lock);
 		break;
 	case HYP_HOST_BOOTSTEP:
-		spin_lock(&core_lock);
 	/*	res = hyp_bootstep(a1, a2, a3, a4, a5, a6);*/
 		res = 0;
-		spin_unlock(&core_lock);
 		break;
 	case HYP_HOST_GET_VMID:
 		res = platform_get_next_vmid(a1);
@@ -116,8 +124,6 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = read_reg(MDCR_EL2);
 		break;
 	case HYP_SET_HYP_TXT:
-		spin_lock(&core_lock);
-
 		hyp_text_start = (uint64_t)kern_hyp_va((void *)a1);
 		hyp_text_end = (uint64_t)kern_hyp_va((void *)a2);
 		LOG("hyp text is at 0x%lx - 0x%lx\n",
@@ -131,7 +137,6 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			(uint64_t)__fpsimd_guest_restore);
 
 		res = 0;
-		spin_unlock(&core_lock);
 		break;
 	case HYP_SET_WORKMEM:
 		res = set_heap(kern_hyp_va((void *)a1), (size_t)a2);
@@ -182,16 +187,12 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -EINVAL;
 			break;
 		}
-
-		spin_lock(&core_lock);
 		/*
 		 * Do we know about this page?
 		 */
 		res = verify_page(guest, a2, a3);
-		if (res == -EINVAL) {
-			spin_unlock(&core_lock);
+		if (res == -EINVAL)
 			break;
-		}
 		/*
 		 * Request the MMU to tell us if this was touched, if it can.
 		 */
@@ -199,7 +200,6 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = mmap_range(guest->s2_pgd, STAGE2, a2, a3, a4, a5, a6);
 		if (!res)
 			res = blind_host(a2, a3, a4);
-		spin_unlock(&core_lock);
 		break;
 	case HYP_GUEST_UNMAP_STAGE2:
 		guest = get_guest(a1);
@@ -226,7 +226,6 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -EPERM;
 			break;
 		}
-		spin_lock(&core_lock);
 		if (a4 == 1) {
 			/*
 			 * This is a mmu notifier chain call and the page may
@@ -234,17 +233,14 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			 * does not change while out.
 			 */
 			res = add_page_info(guest, a2, addr);
-			if (res) {
-				spin_unlock(&core_lock);
+			if (res)
 				break;
-			}
 		}
 		/*
 		 * Detach the page from the guest
 		 */
 		res = unmap_range(guest->s2_pgd, STAGE2, a2, a3);
 		if (res) {
-			spin_unlock(&core_lock);
 			break;
 		}
 		/*
@@ -258,7 +254,6 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		if (res)
 			HYP_ABORT();
 
-		spin_unlock(&core_lock);
 		break;
 	case HYP_MKYOUNG:
 		guest = get_guest(a1);
@@ -274,25 +269,17 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -ENOENT;
 		break;
 	case HYP_INIT_GUEST:
-		spin_lock(&core_lock);
 		res = init_guest((void *)a1);
-		spin_unlock(&core_lock);
 		break;
 	case HYP_FREE_GUEST:
-		spin_lock(&core_lock);
 		res = free_guest((void *)a1);
-		spin_unlock(&core_lock);
 		break;
 	case HYP_UPDATE_GUEST_MEMSLOT:
-		spin_lock(&core_lock);
 		res = update_memslot((void *)a1, (kvm_memslot *)a2,
 				     (kvm_userspace_memory_region *)a3);
-		spin_unlock(&core_lock);
 		break;
 	case HYP_USER_COPY:
-		spin_lock(&core_lock);
 		res = guest_user_copy(a6, a1, a2);
-		spin_unlock(&core_lock);
 		break;
 	case HYP_READ_LOG:
 		res = read_log();
@@ -314,6 +301,8 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		break;
 #endif // KVM_GUEST_SUPPORT
 	}
+	if (is_apicall(cn))
+		spin_unlock(&core_lock);
 
 	return res;
 }
