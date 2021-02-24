@@ -53,6 +53,7 @@ typedef struct {
 
 typedef struct {
 	uint64_t phys_addr;
+	uint64_t len;
 	uint32_t vmid;
 	uint8_t sha256[32];
 } kvm_page_data;

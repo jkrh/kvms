@@ -88,6 +88,28 @@ int update_guest_state(guest_state_t state);
 int update_memslot(void *kvm, kvm_memslot *slot, kvm_userspace_memory_region *mem);
 
 /**
+ *  @param guest the guest to map to
+ *  @param vaddr virtual address (ipa) to map
+ *  @param paddr physical address to map to
+ *  @param len length of the blob
+ *  @param prot memory protection bits of the blob
+ *  @param type type of memory
+ *  @return zero on success or negative error code on failure
+ */
+int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
+		    uint64_t len, uint64_t prot, uint64_t type);
+
+/**
+ *  @param guest the guest to unmap from
+ *  @param addr virtual address (ipa) to unmap
+ *  @param len length of the blob
+ *  @param notify set to false if the unmap is final; true otherwise
+ *  @return zero on success or error bitfield [0:16 0xF0F0 16:32 PC]
+ */
+int guest_unmap_range(kvm_guest_t *guest, uint64_t addr, uint64_t len,
+		      bool notify);
+
+/**
  * Fetch given guest running state.
  *
  * @param vmid of the guest
@@ -103,7 +125,7 @@ guest_state_t get_guest_state(uint64_t vmid);
  * @return pointer to the page integrity structure,
  *         NULL on error.
  */
-kvm_page_data *get_page_info(kvm_guest_t *guest, uint64_t ipa);
+kvm_page_data *get_range_info(kvm_guest_t *guest, uint64_t ipa);
 
 /**
  * Add page integrity structure for address
@@ -111,9 +133,11 @@ kvm_page_data *get_page_info(kvm_guest_t *guest, uint64_t ipa);
  * @param guest, the guest
  * @param ipa, the guest ipa
  * @param addr, the host physical address
+ * @param len, length of the section
  * @return zero on success, negative errno on error
  */
-int add_page_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr);
+int add_range_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr,
+		   uint64_t len);
 
 /**
  * Free a page integrity structure
@@ -121,19 +145,21 @@ int add_page_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr);
  * @param ipa, the guest ipa
  * @return void
  */
-void free_page_info(kvm_guest_t *guest, uint64_t ipa);
+void free_range_info(kvm_guest_t *guest, uint64_t ipa);
 
 /**
- * Verify page integrity for address
+ * Verify memory integrity for address
  *
  * @param ipa, the guest ipa
  * @param addr, the host physical address the new data is on
+ * @param len, length of the blob
  * @return zero on integrity OK,
  *         -ENOENT on unknown page,
  *         -EINVAL on integrity failure
  *         -errno on generic error
  */
-int verify_page(kvm_guest_t *guest, uint64_t ipa, uint64_t addr);
+int verify_range(kvm_guest_t *guest, uint64_t ipa, uint64_t addr,
+		 uint64_t len);
 
 /**
  * Fetch given guest structure
@@ -166,19 +192,21 @@ int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count);
 int restore_host_mappings(kvm_guest_t *guest);
 
 /**
- * Restore given page back to the host.
+ * Restore given range back to the host.
  *
- * @param vaddr virtual address of the page
- * @param paddr physical address of the page
+ * @param vaddr virtual address of the range
+ * @param paddr physical address of the range
+ * @param len range length
  * @return zero on success or negative error code on failure
  */
-int restore_blinded_page(uint64_t vaddr, uint64_t paddr);
+int restore_blinded_range(uint64_t vaddr, uint64_t paddr, uint64_t len);
 #else
 static inline int restore_host_mappings(kvm_guest_t *guest)
 {
 	return 0;
 }
-static inline int restore_blinded_page(uint64_t vaddr, uint64_t paddr)
+static inline int restore_blinded_range(uint64_t vaddr, uint64_t paddr,
+				       uint64_t len)
 {
 	return 0;
 }

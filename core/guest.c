@@ -10,6 +10,7 @@
 #include "armtrans.h"
 #include "hvccall.h"
 #include "mm.h"
+#include "bits.h"
 
 #include "include/generated/asm-offsets.h"
 
@@ -201,9 +202,148 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 	return guest;
 }
 
+int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
+		    uint64_t len, uint64_t prot, uint64_t type)
+{
+	uint64_t page_vaddr, page_paddr, taddr;
+	int res;
+
+	if (!guest || !vaddr || !paddr || (len % PAGE_SIZE)) {
+		res = -EINVAL;
+		goto out_error;
+	}
+	/*
+	 * Verify that the range is within the guest boundary.
+	 */
+	res = is_range_valid(vaddr, len, guest->slots);
+	if (!res) {
+		ERROR("vmid %x attempting to map invalid range 0x%lx - 0x%lx\n",
+		      guest->vmid, vaddr, vaddr + len);
+		res = -EINVAL;
+		goto out_error;
+	}
+	/*
+	 * Do we know about this area?
+	 */
+	page_vaddr = vaddr;
+	page_paddr = paddr;
+	while (page_vaddr < (vaddr + len)) {
+		/*
+		 * If it's already mapped, bail out. This is not secure,
+		 * so for all remaps force a unmap first so that we can
+		 * measure the existing content.
+		 */
+		taddr = pt_walk(guest->s2_pgd, page_vaddr, NULL,
+				GUEST_TABLE_LEVELS);
+		if ((taddr != ~0UL) && (taddr != page_paddr)) {
+			ERROR("vmid %x 0x%lx already mapped: 0x%lx != 0x%lx\n",
+			      guest->vmid, (uint64_t)page_vaddr,
+			      taddr, page_paddr);
+			res = -EPERM;
+			break;
+		}
+		/*
+		 * If it wasn't mapped and we are mapping it back,
+		 * verify that the content is still the same.
+		 */
+		res = verify_range(guest, page_vaddr, page_paddr, PAGE_SIZE);
+		if (res == -EINVAL)
+			goto out_error;
+
+		page_vaddr += PAGE_SIZE;
+		page_paddr += PAGE_SIZE;
+	}
+	/*
+	 * Request the MMU to tell us if this was touched, if it can.
+	 */
+	bit_set(prot, DBM_BIT);
+
+	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot, type);
+	if (!res)
+		res = blind_host(vaddr, paddr, len);
+
+out_error:
+	return res;
+}
+
+int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
+		      bool measure)
+{
+	uint64_t paddr, map_addr;
+	uint64_t *pte;
+	int res, pc = 0;
+
+	if (!guest || !vaddr || (len % PAGE_SIZE)) {
+		res = 0xF0F0;
+		goto out_error;
+	}
+
+	map_addr = vaddr;
+	while (map_addr < (vaddr + len)) {
+		paddr = pt_walk(guest->s2_pgd, map_addr, &pte,
+				GUEST_TABLE_LEVELS);
+		if (paddr == ~0UL) {
+			res = 0xF0F0;
+			goto out_error;
+		}
+		/*
+		 * If the vm dirty data is never allowed to leak, don't set
+		 * up a swap. Normal clean / file backed page reclaim will
+		 * work and the dirty data can't leak to the swapfile.
+		 *
+		 * If you have a swap, things will still work to the extent
+		 * that we verify that the data comes back from the swap
+		 * intact.
+		 */
+		if (measure) {
+			/*
+			 * This is a mmu notifier chain call and the blob may
+			 * get swapped out or freed. Take a measurement to
+			 * make sure it does not change while out.
+			 */
+			res = add_range_info(guest, vaddr, paddr, PAGE_SIZE);
+			if (res)
+				HYP_ABORT();
+		}
+		/*
+		 * Do not leak guest data
+		 */
+		memset((void *)paddr, 0, PAGE_SIZE);
+		/*
+		 * Detach the page from the guest
+		 */
+		res = unmap_range(guest->s2_pgd, STAGE2, vaddr, PAGE_SIZE);
+		if (res)
+			HYP_ABORT();
+		/*
+		 * Give it back to the host
+		 */
+		res = restore_blinded_range(paddr, paddr, PAGE_SIZE);
+		if (res)
+			HYP_ABORT();
+
+		map_addr += PAGE_SIZE;
+		pc += 1;
+
+		if (pc == 0xFFFF)
+			HYP_ABORT();
+	}
+
+out_error:
+	/*
+	 * If it ended with an error, append info on how many
+	 * pages were actually unmapped.
+	 */
+	if (res)
+		res |= (pc << 16);
+
+	return res;
+
+}
+
 #ifdef HOSTBLINDING
 
-int restore_blinded_page(uint64_t vaddr, uint64_t paddr)
+int restore_blinded_range(uint64_t vaddr, uint64_t paddr, uint64_t len)
 {
 	kvm_guest_t *host;
 
@@ -212,7 +352,7 @@ int restore_blinded_page(uint64_t vaddr, uint64_t paddr)
 		HYP_ABORT();
 
 	return mmap_range(host->s2_pgd, STAGE2, vaddr, paddr,
-			  PAGE_SIZE, PAGE_HYP_RWX, NORMAL_MEMORY);
+			  len, PAGE_HYP_RWX, NORMAL_MEMORY);
 }
 
 int restore_host_mappings(kvm_guest_t *guest)
@@ -432,7 +572,7 @@ static int compfunc(const void *v1, const void *v2)
 	return (val1->phys_addr - val2->phys_addr);
 }
 
-kvm_page_data *get_page_info(kvm_guest_t *guest, uint64_t ipa)
+kvm_page_data *get_range_info(kvm_guest_t *guest, uint64_t ipa)
 {
 	kvm_page_data key, *res;
 
@@ -446,16 +586,17 @@ kvm_page_data *get_page_info(kvm_guest_t *guest, uint64_t ipa)
 	return res;
 }
 
-int add_page_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr)
+int add_range_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr,
+		   uint64_t len)
 {
 	kvm_page_data *res;
 	int ret;
 	bool s = false;
 
-	if (!guest || !ipa || !addr)
+	if (!guest || !ipa || !addr || !len || len % PAGE_SIZE)
 		return -EINVAL;
 
-	res = get_page_info(guest, ipa);
+	res = get_range_info(guest, ipa);
 	if (res)
 		goto use_old;
 
@@ -469,7 +610,8 @@ int add_page_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr)
 
 use_old:
 	res->vmid = guest->vmid;
-	ret = calc_hash(res->sha256, (void *)addr, PAGE_SIZE);
+	res->len = len;
+	ret = calc_hash(res->sha256, (void *)addr, len);
 	if (ret) {
 		memset(res->sha256, 0, 32);
 		res->vmid = 0;
@@ -481,11 +623,11 @@ use_old:
 	return ret;
 }
 
-void free_page_info(kvm_guest_t *guest, uint64_t ipa)
+void free_range_info(kvm_guest_t *guest, uint64_t ipa)
 {
 	kvm_page_data *res;
 
-	res = get_page_info(guest, ipa);
+	res = get_range_info(guest, ipa);
 	if (!res)
 		return;
 
@@ -493,20 +635,20 @@ void free_page_info(kvm_guest_t *guest, uint64_t ipa)
 	memset(res->sha256, 0, 32);
 }
 
-int verify_page(kvm_guest_t *guest, uint64_t ipa, uint64_t addr)
+int verify_range(kvm_guest_t *guest, uint64_t ipa, uint64_t addr, uint64_t len)
 {
 	kvm_page_data *res;
 	uint8_t sha256[32];
 	int ret;
 
-	res = get_page_info(guest, ipa);
+	res = get_range_info(guest, ipa);
 	if (!res)
 		return -ENOENT;
 
 	if (res->vmid != guest->vmid)
 		return -EFAULT;
 
-	ret = calc_hash(sha256, (void *)addr, PAGE_SIZE);
+	ret = calc_hash(sha256, (void *)addr, len);
 	if (ret)
 		return -EFAULT;
 

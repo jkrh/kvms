@@ -162,44 +162,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -ENOENT;
 			break;
 		}
-		if (a4 > PAGE_SIZE) {
-			res = -EINVAL;
-			break;
-		}
-		/*
-		 * We cannot safely allow REMAPs so verify there is no
-		 * existing mapping.
-		 */
-		addr = pt_walk(guest->s2_pgd, a2, NULL, GUEST_TABLE_LEVELS);
-		if ((addr != ~0UL) && (addr != a3)) {
-			ERROR("vmid %x 0x%lx already mapped: 0x%lx != 0x%lx\n",
-				guest->vmid, (uint64_t)a2, (uint64_t)res, a3);
-			res = -EPERM;
-			break;
-		}
-		/*
-		 * Verify that the address is within the guest boundary.
-		 */
-		res = is_range_valid(a2, a4, guest->slots);
-		if (!res) {
-			ERROR("vmid %x attempting to map invalid range 0x%lx - 0x%lx\n",
-			      guest->vmid, (uint64_t)a2, (uint64_t)a2+a4);
-			res = -EINVAL;
-			break;
-		}
-		/*
-		 * Do we know about this page?
-		 */
-		res = verify_page(guest, a2, a3);
-		if (res == -EINVAL)
-			break;
-		/*
-		 * Request the MMU to tell us if this was touched, if it can.
-		 */
-		bit_set(a5, DBM_BIT);
-		res = mmap_range(guest->s2_pgd, STAGE2, a2, a3, a4, a5, a6);
-		if (!res)
-			res = blind_host(a2, a3, a4);
+		res = guest_map_range(guest, a2, a3, a4, a5, a6);
 		break;
 	case HYP_GUEST_UNMAP_STAGE2:
 		guest = get_guest(a1);
@@ -207,53 +170,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -ENOENT;
 			break;
 		}
-		if (a3 > PAGE_SIZE) {
-			res = -EINVAL;
-			break;
-		}
-		addr = pt_walk(guest->s2_pgd, a2, &pte, GUEST_TABLE_LEVELS);
-		if (addr == ~0UL) {
-			res = -EINVAL;
-			break;
-		}
-		/*
-		 * If the page is dirty, skip the unmap and don't allow the
-		 * VM data to get swapped. This better be handled correctly
-		 * in the calling function so that Linux knows about it as
-		 * well.
-		 */
-		if (bit_raised(*pte, AP2_BIT)) {
-			res = -EPERM;
-			break;
-		}
-		if (a4 == 1) {
-			/*
-			 * This is a mmu notifier chain call and the page may
-			 * get swapped out. Take a measurement to make sure it
-			 * does not change while out.
-			 */
-			res = add_page_info(guest, a2, addr);
-			if (res)
-				break;
-		}
-		/*
-		 * Detach the page from the guest
-		 */
-		res = unmap_range(guest->s2_pgd, STAGE2, a2, a3);
-		if (res) {
-			break;
-		}
-		/*
-		 * Do not leak guest data
-		 */
-		memset((void *)addr, 0, PAGE_SIZE);
-		/*
-		 * Give it back to the host
-		 */
-		res = restore_blinded_page(addr, addr);
-		if (res)
-			HYP_ABORT();
-
+		res = guest_unmap_range(guest, a2, a3, a4);
 		break;
 	case HYP_MKYOUNG:
 		guest = get_guest(a1);
