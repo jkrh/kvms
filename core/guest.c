@@ -502,6 +502,9 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 	slot = kern_hyp_va(slot);
 	reg = kern_hyp_va(reg);
 
+	if (slot->npages > 0x100000)
+		return -EINVAL;
+
 	guest = get_guest_by_kvm(kvm);
 	if (!guest)
 		return 0;
