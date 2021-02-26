@@ -282,10 +282,8 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 	while (map_addr < (vaddr + len)) {
 		paddr = pt_walk(guest->s2_pgd, map_addr, &pte,
 				GUEST_TABLE_LEVELS);
-		if (paddr == ~0UL) {
-			res = 0xF0F0;
-			goto out_error;
-		}
+		if (paddr == ~0UL)
+			goto do_loop;
 		/*
 		 * If the vm dirty data is never allowed to leak, don't set
 		 * up a swap. Normal clean / file backed page reclaim will
@@ -322,9 +320,9 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 		if (res)
 			HYP_ABORT();
 
-		map_addr += PAGE_SIZE;
 		pc += 1;
-
+do_loop:
+		map_addr += PAGE_SIZE;
 		if (pc == 0xFFFF)
 			HYP_ABORT();
 	}
