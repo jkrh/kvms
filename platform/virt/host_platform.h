@@ -16,7 +16,7 @@
 #define TABLE_LEVELS    3
 #endif
 
-#define STACK_SIZE	PAGE_SIZE * 4
+#define STACK_SIZE	PAGE_SIZE * 2
 
 #if TABLE_LEVELS == 4
 #define VA_BITS 40
