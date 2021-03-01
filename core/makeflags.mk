@@ -14,11 +14,11 @@ export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(BASE_DIR)/stdlib \
 export CFLAGS := -march=armv8-a+nofp --sysroot=$(TOOLDIR) --no-sysroot-suffix \
 		-fstack-protector-strong -mstrict-align -static -ffreestanding \
 		-fno-hosted -std=c99 -mgeneral-regs-only -mno-omit-leaf-frame-pointer \
-		-Wstack-protector $(TARGET_CFLAGS) $(DEFINES) $(OPTS) \
-		$(INCLUDES) $(WARNINGS)
+		-Wstack-protector $(DEFINES) $(OPTS) $(INCLUDES) $(WARNINGS)
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
 export LDFLAGS := -O1 --gc-sections -L$(BASE_DIR)/tinycrypt/lib \
 		-L$(BASE_DIR)/.objs -nostdlib -lstdlib
+export EXT_CFLAGS := '--sysroot=$(TOOLDIR) --no-sysroot-suffix'
 export SUBMAKEFLAGS := CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC) LD=$(LD) \
-	AR=$(AR) OBJCOPY=$(OBJCOPY) TARGET_CFLAGS=$(TARGET_CFLAGS) \
+	AR=$(AR) OBJCOPY=$(OBJCOPY) OUTPUT_OPTION=$(EXT_CFLAGS) \
 	KERNEL_DIR=$(KERNEL_DIR)
