@@ -5,5 +5,6 @@
 
 #define HOST_VMID	0
 #define KADDR_MASK	0x00FFFFFFFFFFUL
+#define	STACK_SIZE	0x2000
 
 #endif /*__HOST_DEFS_H__*/

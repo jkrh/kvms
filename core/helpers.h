@@ -136,6 +136,15 @@ static inline uint64_t smp_processor_id()
 	return value;
 }
 
+static inline void hexdump(const char *token, uint8_t *data, int len)
+{
+	printf("%s: ", token);
+	for (int i=0; i < len; i++) {
+		printf("%02hhx:", data[i]);
+        }
+	printf("\n");
+}
+
 #define tlbialle1() __asm__ __volatile__("tlbi	alle1\n" : : : "memory");
 
 #define tlbialle1is() __asm__ __volatile__("tlbi	alle1is\n" : : : "memory");

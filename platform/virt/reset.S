@@ -7,10 +7,12 @@
 # x28 = Address where the FDT is loaded
 # x30 = Return address in EL1
 #
+#include "host_defs.h"
+
 .global _start
 _start:
 	adr	x25, __stack
-	add	x25, x25, #0x4000
+	add	x25, x25, STACK_SIZE
 	mov	sp, x25
 	mov	x27, x30
 

@@ -146,6 +146,9 @@ int init_guest(void *kvm)
 #if DEBUGDUMP
 	print_mappings(0, STAGE2, SZ_1G, SZ_1G*5);
 #endif
+
+	dsb();
+	isb();
 	return 0;
 }
 
@@ -240,7 +243,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 			      guest->vmid, (uint64_t)page_vaddr,
 			      taddr, page_paddr);
 			res = -EPERM;
-			break;
+			goto out_error;
 		}
 		/*
 		 * If it wasn't mapped and we are mapping it back,
@@ -301,7 +304,8 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 			 */
 			res = add_range_info(guest, vaddr, paddr, PAGE_SIZE);
 			if (res)
-				HYP_ABORT();
+				ERROR("add_range_info(): guest %d %lld:%d\n",
+				      guest->vmid, vaddr, res);
 		}
 		/*
 		 * Do not leak guest data
@@ -312,7 +316,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 		 */
 		res = unmap_range(guest->s2_pgd, STAGE2, vaddr, PAGE_SIZE);
 		if (res)
-			HYP_ABORT();
+			ERROR("unmap_range(): %lld:%d\n", vaddr, res);
 		/*
 		 * Give it back to the host
 		 */
@@ -324,7 +328,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 do_loop:
 		map_addr += PAGE_SIZE;
 		if (pc == 0xFFFF)
-			HYP_ABORT();
+			ERROR("Unmap page counter overflow");
 	}
 
 out_error:
@@ -486,6 +490,9 @@ int free_guest(void *kvm)
 #if DEBUGDUMP
 	print_mappings(0, STAGE2, SZ_1G, SZ_1G*5);
 #endif
+	dsb();
+	isb();
+
 	return 0;
 }
 
@@ -524,6 +531,9 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 
 	LOG("guest 0x%lx slot 0x%lx - 0x%lx\n", kvm, addr, addr + size);
 	guest->sn++;
+
+	dsb();
+	isb();
 
 	return 0;
 }
@@ -620,6 +630,8 @@ use_old:
 	if (s)
 		qsort(guest->hyp_page_data, guest->pd_index, sizeof(kvm_page_data),
 		      compfunc);
+	dsb();
+	isb();
 
 	return ret;
 }
@@ -634,6 +646,8 @@ void free_range_info(kvm_guest_t *guest, uint64_t ipa)
 
 	res->vmid = 0;
 	memset(res->sha256, 0, 32);
+	dsb();
+	isb();
 }
 
 int verify_range(kvm_guest_t *guest, uint64_t ipa, uint64_t addr, uint64_t len)
