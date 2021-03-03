@@ -1,0 +1,39 @@
+#
+# This docker environment is to ease up building the tools needed
+# for building and running the kvms hypervisor. By using this the
+# user does not need to install all the dependencies and tools to
+# the host.
+#
+# See https://docs.docker.com/engine/install/ and
+# https://docs.docker.com/engine/install/linux-postinstall/ for docker
+# engine setup.
+#
+# Go to the docker folder, meaning the folder with this README 
+# and Dockerfile inside.
+#
+# Copy your host gitconfig, or create a stripped down version:
+
+cp ~/.gitconfig gitconfig
+
+# Build the docker image
+
+docker build --build-arg userid=$(id -u) --build-arg groupid=$(id -g) --build-arg username=$(id -un) -t kvms .
+
+# Run the docker image
+
+export HYP_BUILD_ROOT=<path to your hyp root folder>
+docker run -it --rm \
+		-v $HYP_BUILD_ROOT:/hyp \
+		--env PLATFORM=virt \
+		kvms
+
+# Enter the hyp folder mounted by docker
+
+cd hyp
+
+# Make. First time it will take long time to build: It will fetch and
+# build all the tools needed for building and running the kvms hypervisor
+# code. The following builds will be faster since only the kvms hypervisor
+# itself is being built.
+
+make
