@@ -24,6 +24,8 @@
 #define CALL_TYPE_GUESTCALL	2
 #define CALL_TYPE_KVMCALL	3
 
+#define TTBR_BADDR_MASK     0x0000FFFFFFFFFFFEUL
+
 typedef int hyp_func_t(void *, ...);
 typedef int kvm_func_t(uint64_t, ...);
 
@@ -222,6 +224,34 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		spin_unlock(&core_lock);
 
 	return res;
+}
+
+void print_abort(void)
+{
+	kvm_guest_t *host = NULL;
+	uint64_t ipa, pa, far;
+	uint64_t ttbr1_el1;
+
+	ttbr1_el1 = (read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	host = get_guest(HOST_VMID);
+	far = read_reg(FAR_EL2);
+
+	ERROR("VTTBR_EL2 (0x%012x) ESR_EL2 (0x%012lx) FAR_EL2 (0x%012lx)\n",
+	      read_reg(VTTBR_EL2), read_reg(ESR_EL2), read_reg(FAR_EL2));
+	ERROR("HPFAR_EL2 (0x%012lx)\n", read_reg(HPFAR_EL2));
+
+	ERROR("Host s2 table (0x%012lx)\n", host->s2_pgd);
+	/* Walk IPA from host s1 table */
+	if (ttbr1_el1 != 0) {
+		ipa = pt_walk((struct ptable *)ttbr1_el1,
+			       far, NULL, TABLE_LEVELS);
+		/* Walk PA from host s2 table */
+		pa = pt_walk((struct ptable *)host->s2_pgd,
+			      ipa, NULL, TABLE_LEVELS);
+
+		ERROR("FAR: (0x%012lx) IPA: (0x%012lx) PA: (0x%012lx)\n",
+		      far, ipa, pa);
+	}
 }
 
 NORETURN

@@ -46,14 +46,29 @@ el1_sync:
 	msr	SPSel, #1
 
 	sub	sp, sp, #(8 * 36)
-	save_all_regs
 
+	stp	x0, x1, [sp, #(8 * 0)]
+	str	x30, [sp, #(8 * 30)]
+
+	/* Collect VMID to x0 */
+	mrs	x0, VTTBR_EL2
+	asr	x0, x0, #48
+
+	/* Exception class to x1 */
 	mrs	x1, ESR_EL2
 	and	x1, x1, #0xFC000000
 	asr	x1, x1, #26
-	cmp	x1, #0x20		// Inst abort
-	beq	el1_trap
+
+	/* Fast path for host data abort handling */
+	cmp	x1, #0x24
+	b.ne	1f
+	cmp	x0, #HOST_VMID
+	beq	forward_aarch64sync
+
+1:	save_all_regs
 	cmp	x1, #0x24		// Data abort
+	beq	el1_trap
+	cmp	x1, #0x20		// Inst abort
 	beq	el1_trap
 	cmp	x1, #0x01		// WFI/WFE
 	beq	el1_trap
@@ -73,24 +88,21 @@ el1_sync:
 	beq	el1_trap
 	cmp	x1, #0x16		// HVC execution
 	b.ne	4f			// ??
-	b	2f			// Normal HVC
+	b	3f			// Normal HVC
 
-1:	load_all_regs
+2:	load_all_regs
 	add	sp, sp, #(8 * 36)
 	eret
 
-2:	mrs	x0, VTTBR_EL2		/* Host or guest hvc? */
-	asr	x0, x0, #48
-	cmp	x0, #HOST_VMID
+3:	cmp	x0, #HOST_VMID
 	b.ne	guest_hvc_trap
-	ldp	x0, x1, [sp, #(8 * 0)]	/* Definitely host */
+	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	hvccall
-	b	1b
+	b	2b
 
 4:	mov	x0, #1
 	mov	x1, sp
 	b	dump_state
-	b	1b
 
 	invalid_vector	el2_sync_invalid
 	invalid_vector	el2_irq_invalid
@@ -114,11 +126,9 @@ el2_sync:
 	b	dump_state
 
 smc_trap:
-	mrs	x0, VTTBR_EL2		/* Host or guest smc? */
-	asr	x0, x0, #48
 	cmp	x0, #HOST_VMID
 	b.ne	guest_smc_trap
-	ldp	x0, x1, [sp, #(8 * 0)]	/* Definitely host */
+	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	smccall
 	b	forward_aarch64sync
 
@@ -126,7 +136,6 @@ guest_smc_trap:
 	mov	x0, #3
 	mov	x1, sp
 	b	dump_state
-	b	1b
 
 aarch64sync_eretback:
 	nop				/* Do not remove this nop */
@@ -137,19 +146,23 @@ aarch64sync_eretback:
 
 forward_aarch64sync:
 	save_eret_info
-	adr x1, aarch64sync_eretback
+	adr	x1, aarch64sync_eretback
 	prepare_eretback x0, x1
-	ldr	x0, [sp, #(8 * 0)]
-	load_all_regs
+	ldp	x0, x1, [sp, #(8 * 0)]
 	aarch64sync_forward
 
 el1_trap:
-	mrs	x0, VTTBR_EL2	/* Host or guest? */
-	asr	x0, x0, #48
 	cmp	x0, #HOST_VMID
+	b.ne	3f
+	/*
+	 * Check if came here to serve host data
+	 * abort in verbose debug mode.
+	 */
+	cmp	x1, #0x24
 	b.ne	2f
-	cmp	x1, #0x24	/* Data abort?*/
-	b.ne	1f
+	bl	print_abort
+	load_all_regs
+
 	/*
 	 * If we arrive here from the process
 	 * that owns the guest that's an
@@ -162,7 +175,7 @@ el1_trap:
 	mrs	x2, FAR_EL2
 	bl	map_back_host_page
 	cmp	x0, #1
-	b.ne	1f
+	b.ne	2f
 	/*
 	 * Now since it indeed was an
 	 * abort from the owning process
@@ -174,8 +187,8 @@ el1_trap:
 	ldr	x0, [sp, #(8 * 0)]
 	add	sp, sp, #(8 * 36)
 	eret
-1:	b	forward_aarch64sync
-2:	get_kern_exit	x3, x0
+2:	b	forward_aarch64sync
+3:	get_kern_exit	x3, x0
 	get_vcpu_ptr	x1, x0
 	mov	x0, #ARM_EXCEPTION_TRAP
 	br	x3
@@ -189,7 +202,7 @@ fpsimd_trap:
 	br	x3
 
 el1_irq:
-	msr     SPSel, #1
+	msr	SPSel, #1
 
 	save_clobber_regs
 	get_kern_exit	x3, x0
@@ -207,7 +220,7 @@ guest_hvc_trap:
 	br	x3
 
 el1_error:
-	msr     SPSel, #1
+	msr	SPSel, #1
 
 	save_clobber_regs
 	get_kern_exit	x3, x0

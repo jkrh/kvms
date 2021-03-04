@@ -65,7 +65,6 @@
 .endm
 
 .macro	save_all_regs
-	stp	x0, x1, [sp, #(8 * 0)]
 	stp	x2, x3, [sp, #(8 * 2)]
 	stp	x4, x5, [sp, #(8 * 4)]
 	stp	x6, x7, [sp, #(8 * 6)]
@@ -80,7 +79,6 @@
 	stp	x24, x25, [sp, #(8 * 24)]
 	stp	x26, x27, [sp, #(8 * 26)]
 	stp	x28, x29, [sp, #(8 * 28)]
-	str	x30, [sp, #(8 * 30)]
 .endm
 
 .macro	load_all_regs
