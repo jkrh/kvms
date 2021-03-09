@@ -54,3 +54,15 @@ __enter_el1_warm:
 	msr	spsr_el2, x0
 	clean_all_regs
 	eret
+
+.data
+.global __fdt_addr
+.align	8
+__fdt_addr:
+	.quad   0x000000000000
+
+.data
+.global __lr_addr
+.align	8
+__lr_addr:
+	.quad   0x000000000000

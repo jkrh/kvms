@@ -18,10 +18,10 @@
 
 extern uint64_t entrylock;
 extern uint64_t __stack[];
+extern uint64_t __fdt_addr;
+extern uint64_t __lr_addr;
 
 uint64_t __ret_addr;
-uint64_t __fdt_addr;
-uint64_t __lr_addr;
 uint64_t __stack_chk_guard;
 
 static uint64_t init_index;

@@ -24,9 +24,6 @@ unsigned int smccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case PSCI_CPU_ON_SMC64:
 		psci_reg(cn, a1, a2, a3, a4, a5);
 		break;
-	case 0xFFFFFFFE:
-		LOG("Identity query...\n");
-		break;
 	default:
 		break;
 	}

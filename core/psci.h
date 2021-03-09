@@ -2,9 +2,14 @@
 #ifndef __PSCI_H__
 #define __PSCI_H__
 
+#ifndef __ASSEMBLY__
 #include <stdint.h>
 #include "helpers.h"
+#endif // __ASSEMBLY__
 
+#define PSCI_SMC64		0xC4
+
+#ifndef __ASSEMBLY__
 #define PSCI_VERSION		0x84000000UL
 #define PSCI_CPU_SUSPEND_SMC64	0xC4000001UL
 #define PSCI_CPU_OFF		0x84000002UL
@@ -28,5 +33,6 @@
 
 void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2, u_register_t a3,
 	      u_register_t a4, u_register_t a5);
+#endif // __ASSEMBLY__
 
 #endif // __PSCI_H__

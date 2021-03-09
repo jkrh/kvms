@@ -3,6 +3,7 @@
 #include <host_defs.h>
 
 #include "linuxmacros.h"
+#include <psci.h>
 
 .macro ventry target
 	.rept 31
@@ -61,11 +62,17 @@ el1_sync:
 
 	/* Fast path for host data abort handling */
 	cmp	x1, #0x24
-	b.ne	1f
-	cmp	x0, #HOST_VMID
-	beq	forward_aarch64sync
+	beq	1f
 
-1:	save_all_regs
+	/* Fast path for host SMC handling */
+	cmp	x1, #0x17
+	beq	1f
+	b	2f
+
+1:	cmp	x0, #HOST_VMID
+	beq	host_fastpath
+
+2:	save_all_regs
 	cmp	x1, #0x24		// Data abort
 	beq	el1_trap
 	cmp	x1, #0x20		// Inst abort
@@ -75,7 +82,7 @@ el1_sync:
 	cmp	x1, #0x07		// SVE, SIMD, FP
 	beq	fpsimd_trap
 	cmp	x1, #0x17		// SMC
-	beq	smc_trap
+	beq	guest_smc_trap
 	cmp	x1, #0x18		// Debug trap
 	beq	el1_trap
 	cmp	x1, #0x32		// Software step
@@ -87,20 +94,20 @@ el1_sync:
 	cmp	x1, #0x3C		// BRK
 	beq	el1_trap
 	cmp	x1, #0x16		// HVC execution
-	b.ne	4f			// ??
-	b	3f			// Normal HVC
+	b.ne	5f			// ??
+	b	4f			// Normal HVC
 
-2:	load_all_regs
+3:	load_all_regs
 	add	sp, sp, #(8 * 36)
 	eret
 
-3:	cmp	x0, #HOST_VMID
+4:	cmp	x0, #HOST_VMID
 	b.ne	guest_hvc_trap
 	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	hvccall
-	b	2b
+	b	3b
 
-4:	mov	x0, #1
+5:	mov	x0, #1
 	mov	x1, sp
 	b	dump_state
 
@@ -125,9 +132,25 @@ el2_sync:
 	mov	x1, sp
 	b	dump_state
 
-smc_trap:
-	cmp	x0, #HOST_VMID
-	b.ne	guest_smc_trap
+host_fastpath:
+	cmp	x1, #0x24
+	beq	host_data_abort
+	cmp	x1, #0x17
+	beq	host_smc_trap
+	/* We should never get here */
+	save_all_regs
+	mov	x0, #4
+	mov	x1, sp
+	b	dump_state
+
+host_data_abort:
+	b	host_fastforward
+
+host_smc_trap:
+	ldr	x0, [sp, #(8 * 0)]
+	asr	x0, x0, #24
+	cmp	x0, #PSCI_SMC64
+	b.ne	host_fastforward
 	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	smccall
 	b	forward_aarch64sync
@@ -136,6 +159,10 @@ guest_smc_trap:
 	mov	x0, #3
 	mov	x1, sp
 	b	dump_state
+
+host_fastforward:
+	ldp	x0, x1, [sp, #(8 * 0)]
+	b	forward_aarch64sync
 
 aarch64sync_eretback:
 	nop				/* Do not remove this nop */
@@ -194,11 +221,21 @@ el1_trap:
 	br	x3
 
 fpsimd_trap:
-	get_fpsimd_guest_restore	x3, x0
+	cmp    x0, #HOST_VMID
+	b.ne    4f
+	/* Not implemented */
+	mov    x0, #4
+	mov    x1, sp
+	b    dump_state
+4:	get_fpsimd_guest_restore	x3, x0
 	cmp	x3, #0
-	b.eq	el1_trap
+	beq	5f
 	get_vcpu_ptr	x1, x0
 	mov	x0, #0x7
+	br	x3
+5:	get_kern_exit	x3, x0
+	get_vcpu_ptr	x1, x0
+	mov	x0, #ARM_EXCEPTION_TRAP
 	br	x3
 
 el1_irq:

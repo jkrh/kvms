@@ -292,8 +292,8 @@ void dump_state(uint64_t level, void *sp)
 		ERROR("Unhandled SMC trap at 0x%012lx\n", faddr);
 		break;
 	default:
-		while (1)
-			wfi() break;
+		ERROR("Unhandled exception\n");
+		break;
 	}
 	ERROR("VTTBR_EL2 (0x%012x) ESR_EL2 (0x%012lx) FAR_EL2 (0x%012lx)\n",
 	      read_reg(VTTBR_EL2), read_reg(ESR_EL2), read_reg(FAR_EL2));
