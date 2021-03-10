@@ -1,4 +1,5 @@
 #include <sys/time.h>
+#include <sys/types.h>
 #include <string.h>
 #include <stdint.h>
 #include "helpers.h"
@@ -26,5 +27,27 @@ int gettimeofday(struct timeval *tv, void *tz)
 	val = val / cntfrq_org;
 	tv->tv_sec = val;
 
+	return 0;
+}
+
+int usleep(useconds_t usec)
+{
+	struct timeval now;
+	struct timeval then;
+	int r;
+
+	r = gettimeofday(&now, 0);
+	if (r)
+		return r;
+
+	memcpy(&then, &now, sizeof(struct timeval));
+	then.tv_usec += usec;
+
+	while(now.tv_usec < then.tv_usec) {
+		wfe();
+		r = gettimeofday(&now, 0);
+		if (r)
+			return r;
+	}
 	return 0;
 }
