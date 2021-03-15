@@ -45,3 +45,29 @@ __flush_dcache_area:
 	b.lo	1b
 	dsb	sy
 	ret
+
+.global __flush_icache_area
+.type __flush_icache_area, %function
+__flush_icache_area:
+	sub     sp, sp, #(8 * 4)
+	stp	x0, x1, [sp, #(8 * 0)]
+	stp	x2, x4, [sp, #(8 * 2)]
+	add	x1, x1, x0			// x0: base address, x1: length
+	mrs	x2, ctr_el0
+
+	and	x2, x2, #0xF
+	mov	x3, #4
+	lsl	x3, x3, x2			// x3: the cache line
+	sub	x4, x3, 0x1
+	bic	x4, x0, x4			// x4: aligned base address
+
+ival:	ic	ivau, x4			// invalidate i-line PoU
+	add	x4, x4, x3
+	cmp	x4, x1
+	b.lt	ival
+	dsb	ish
+	isb
+	ldp	x0, x1, [sp, #(8 * 0)]
+	ldp	x1, x2, [sp, #(8 * 2)]
+	add	sp, sp, #(8 * 4)
+	ret

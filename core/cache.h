@@ -6,5 +6,6 @@
 
 void __inval_dcache_area(void *addr, size_t sz);
 void __flush_dcache_area(void *addr, size_t sz);
+void __flush_icache_area(void *addr, size_t sz);
 
 #endif
