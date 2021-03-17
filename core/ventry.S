@@ -176,6 +176,7 @@ forward_aarch64sync:
 	adr	x1, aarch64sync_eretback
 	prepare_eretback x0, x1
 	ldp	x0, x1, [sp, #(8 * 0)]
+	isb
 	aarch64sync_forward
 
 el1_trap:
