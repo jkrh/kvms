@@ -17,9 +17,6 @@
 
 .macro invalid_vector label
 \label:
-	msr	SPSel, #1
-	sub	sp, sp, #(8 * 36)
-	stp	x0, x1, [sp, #(8 * 0)]
 	b	dumpcall
 .endm
 
@@ -222,12 +219,12 @@ el1_trap:
 	br	x3
 
 fpsimd_trap:
-	cmp    x0, #HOST_VMID
-	b.ne    4f
+	cmp	x0, #HOST_VMID
+	b.ne	4f
 	/* Not implemented */
-	mov    x0, #4
-	mov    x1, sp
-	b    dump_state
+	mov	x0, #4
+	mov	x1, sp
+	b	dump_state
 4:	get_fpsimd_guest_restore	x3, x0
 	cmp	x3, #0
 	beq	5f
@@ -277,7 +274,11 @@ el1_error:
 	br	x3
 
 dumpcall:
+	msr	SPSel, #1
+	sub	sp, sp, #(8 * 36)
+	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
+
 	mov	x0, #5
 	mov	x1, sp
 	b	dump_state
