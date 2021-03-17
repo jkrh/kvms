@@ -17,7 +17,8 @@
 
 .macro invalid_vector label
 \label:
-	b 	\label
+	msr	SPSel, #1
+	b	dumpcall
 .endm
 
 __hyp_vectors:
@@ -241,8 +242,13 @@ fpsimd_trap:
 
 el1_irq:
 	msr	SPSel, #1
-
 	save_clobber_regs
+
+	mrs	x0, VTTBR_EL2
+	asr	x0, x0, #48
+	cmp	x0, #HOST_VMID
+	beq	dumpcall
+
 	get_kern_exit	x3, x0
 	get_vcpu_ptr	x1, x0
 	mov	x0, #ARM_EXCEPTION_IRQ
@@ -259,9 +265,20 @@ guest_hvc_trap:
 
 el1_error:
 	msr	SPSel, #1
-
 	save_clobber_regs
+
+	mrs	x0, VTTBR_EL2
+	asr	x0, x0, #48
+	cmp	x0, #HOST_VMID
+	beq	dumpcall
+
 	get_kern_exit	x3, x0
 	get_vcpu_ptr	x1, x0
 	mov	x0, #ARM_EXCEPTION_EL1_SERROR
 	br	x3
+
+dumpcall:
+	save_all_regs
+	mov	x0, #5
+	mov	x1, sp
+	b	dump_state
