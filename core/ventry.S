@@ -18,6 +18,8 @@
 .macro invalid_vector label
 \label:
 	msr	SPSel, #1
+	sub	sp, sp, #(8 * 36)
+	stp	x0, x1, [sp, #(8 * 0)]
 	b	dumpcall
 .endm
 
@@ -48,7 +50,6 @@ el1_sync:
 	msr	SPSel, #1
 
 	sub	sp, sp, #(8 * 36)
-
 	stp	x0, x1, [sp, #(8 * 0)]
 	str	x30, [sp, #(8 * 30)]
 
@@ -124,7 +125,7 @@ el1_sync:
 el2_sync:
 	msr	SPSel, #1
 
-	sub	sp, sp, #(8 * 32)
+	sub	sp, sp, #(8 * 36)
 	save_all_regs
 	/*
 	 * Nothing to handle for time being, so just crash
@@ -139,10 +140,8 @@ host_fastpath:
 	cmp	x1, #0x17
 	beq	host_smc_trap
 	/* We should never get here */
-	save_all_regs
-	mov	x0, #4
-	mov	x1, sp
-	b	dump_state
+	ldp	x0, x1, [sp, #(8 * 0)]
+	b	dumpcall
 
 host_data_abort:
 	b	host_fastforward
