@@ -738,7 +738,8 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			 * map all until the next possibly mapped (level 2)
 			 * block boundary.
 			 */
-			mlen = tvaddr & tdinfo.l2_blk_offt_mask;
+			mlen = tdinfo.l2_blk_size -
+			       (tvaddr & tdinfo.l2_blk_offt_mask);
 			bsize = tdinfo.l2_blk_size;
 		}
 		if (hit) {
