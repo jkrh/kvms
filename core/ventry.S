@@ -49,6 +49,7 @@ el1_sync:
 	sub	sp, sp, #(8 * 36)
 	stp	x0, x1, [sp, #(8 * 0)]
 	str	x30, [sp, #(8 * 30)]
+	stp	x28, x29, [sp, #(8 * 28)]
 
 	/* Collect VMID to x0 */
 	mrs	x0, VTTBR_EL2
@@ -148,6 +149,7 @@ host_smc_trap:
 	asr	x0, x0, #24
 	cmp	x0, #PSCI_SMC64
 	b.ne	host_fastforward
+	save_all_regs
 	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	smccall
 	b	forward_aarch64sync
@@ -161,20 +163,25 @@ host_fastforward:
 	ldp	x0, x1, [sp, #(8 * 0)]
 	b	forward_aarch64sync
 
-aarch64sync_eretback:
-	nop				/* Do not remove this nop */
-	restore_eret_info
+aarch64sync_eret:
 	ldr	x30, [sp, #(8 * 30)]
+	ldp	x28, x29, [sp, #(8 * 28)]
 	add	sp, sp, #(8 * 36)
 	eret
 
+/*
+ * Forward synchronous exception (Lower EL using AArch64) to a platform
+ * specific implementation. x30 (LR) is populated here to enable return
+ * to aarch64sync_eret which will then eret to the point where exception
+ * was taken from. x28 & x29 (two of the callee saved registers) is saved
+ * and restored at this level and can be clobbered by the platform specific
+ * implementation in platform_aarch64sync if need to be.
+ */
 forward_aarch64sync:
-	save_eret_info
-	adr	x1, aarch64sync_eretback
-	prepare_eretback x0, x1
 	ldp	x0, x1, [sp, #(8 * 0)]
+	adr	x30, aarch64sync_eret
 	isb
-	aarch64sync_forward
+	platform_aarch64sync
 
 el1_trap:
 	cmp	x0, #HOST_VMID

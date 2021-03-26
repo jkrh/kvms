@@ -1,3 +1,3 @@
-.macro aarch64sync_forward
-	eret
+.macro platform_aarch64sync
+	ret
 .endm
