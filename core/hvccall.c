@@ -18,13 +18,12 @@
 #include "hyplogs.h"
 #include "heap.h"
 #include "mm.h"
+#include "platform_api.h"
 
 #define CALL_TYPE_UNKNOWN	0
 #define CALL_TYPE_HOSTCALL	1
 #define CALL_TYPE_GUESTCALL	2
 #define CALL_TYPE_KVMCALL	3
-
-#define TTBR_BADDR_MASK     0x0000FFFFFFFFFFFEUL
 
 typedef int hyp_func_t(void *, ...);
 typedef int kvm_func_t(uint64_t, ...);

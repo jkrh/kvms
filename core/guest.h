@@ -6,7 +6,6 @@
 #include <errno.h>
 
 #include "hvccall-defines.h"
-#include "host_platform.h"
 #include "mm.h"
 
 #ifndef NUM_VCPUS

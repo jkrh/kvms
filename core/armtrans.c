@@ -7,6 +7,7 @@
 #include <sys/time.h>
 #include <stdbool.h>
 
+#include "platform_api.h"
 #include "host_platform.h"
 #include "hyplogs.h"
 #include "armtrans.h"
@@ -31,7 +32,6 @@
 
 #define TABLE_OADDR_MASK_4KGRANULE	0x0000FFFFFFFFF000UL
 #define DESCR_ATTR_MASK			0xFFFF00000001FFFFUL
-#define TTBR_BADDR_MASK			0x0000FFFFFFFFFFFEUL
 
 #define MAX_PADDR			VADDR_MASK
 #define MAX_VADDR			0xFFFFFFFFFFFFUL
@@ -100,7 +100,6 @@ typedef enum
 } mmap_change_type;
 
 static uint8_t invalidate;
-struct ptable *host_s2_pgd;
 
 static struct tdinfo_t tdinfo;
 
@@ -1010,11 +1009,10 @@ void table_init(void)
 	__flush_dcache_area((void *)table_props, sizeof(table_props));
 	isb();
 
-	/* Init host side tables */
 	host = get_guest(HOST_VMID);
-	host->s1_pgd = alloc_table(HOST_VMID);
-	host->s2_pgd = alloc_table(HOST_VMID);
-	host_s2_pgd = host->s2_pgd;
+	/* Init host side tables */
+	if (platform_init_host_pgd(host))
+		HYP_ABORT();
 
 	LOG("host info: vmid %x, s1 pgd 0x%lx, s2 pgd 0x%lx\n",
 	    HOST_VMID, (uint64_t)host->s1_pgd, (uint64_t)host->s2_pgd);
@@ -1022,45 +1020,14 @@ void table_init(void)
 
 void enable_mmu(void)
 {
-	uint64_t hcr, sctlr;
-	kvm_guest_t *host;
+	uint64_t sctlr;
 
-	hcr = read_reg(HCR_EL2);
 	tlbialle1is();
 	tlbialle2is();
 	dsbish();
 	isb();
-	/*
-	 * 0: device_sorder
-	 * 1: device_order
-	 * 2: device_gre
-	 * 3: normal, outer/inner no-cache
-	 * 4: normal, wback persistent
-	 * 5: normal, wthrough persistent
-	 * 6: --
-	 * 7: --
-	 */
-	write_reg(MAIR_EL2, 0x0000bbff440c0400);
 
-	if (PLATFORM_VTCR_EL2 != 0)
-		write_reg(VTCR_EL2, PLATFORM_VTCR_EL2);
-
-	if (PLATFORM_TCR_EL2 != 0)
-		write_reg(TCR_EL2, PLATFORM_TCR_EL2);
-
-	host = get_guest(HOST_VMID);
-	write_reg(TTBR0_EL2, (uint64_t)host->s1_pgd);
-	write_reg(VTTBR_EL2, (uint64_t)host->s2_pgd);
-	set_current_vmid(HOST_VMID);
-	host->table_levels = TABLE_LEVELS;
-
-	bit_set(hcr, HCR_VM_BIT);
-	bit_drop(hcr, HCR_NV_BIT);
-	bit_set(hcr, HCR_NV2_BIT);
-	write_reg(HCR_EL2, hcr);
-
-	dsb();
-	isb();
+	platform_mmu_prepare();
 
 	sctlr = read_reg(SCTLR_EL2);
 	bit_set(sctlr, SCTLR_MMU);

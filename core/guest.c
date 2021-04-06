@@ -12,6 +12,7 @@
 #include "mm.h"
 #include "bits.h"
 
+#include "host_platform.h"
 #include "include/generated/asm-offsets.h"
 
 #ifndef KVM_ARCH
@@ -19,8 +20,6 @@
 #define KVM_ARCH_VMID 0
 #define KVM_ARCH_PGD 0
 #endif
-
-#define TTBR_BADDR_MASK	0x0000FFFFFFFFFFFEUL
 
 /*
  * FIXME: calculate vmid offset

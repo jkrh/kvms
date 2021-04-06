@@ -152,6 +152,7 @@ host_smc_trap:
 	save_all_regs
 	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	smccall
+	load_all_regs
 	b	forward_aarch64sync
 
 guest_smc_trap:

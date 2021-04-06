@@ -90,6 +90,8 @@
 #define HOST_STAGE1_LOCK	0x1
 #define HOST_STAGE2_LOCK	0x2
 
+#define TTBR_BADDR_MASK	0x0000FFFFFFFFFFFEUL
+
 void tdinfo_init(void);
 
 /**

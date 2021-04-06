@@ -26,6 +26,18 @@
 #define PLATFORM_TCR_EL2	0x80813519
 #endif
 
+/*
+ * 0: device_sorder
+ * 1: device_order
+ * 2: device_gre
+ * 3: normal, outer/inner no-cache
+ * 4: normal, wback persistent
+ * 5: normal, wthrough persistent
+ * 6: --
+ * 7: --
+ */
+#define PLATFORM_MAIR_EL2 0x0000bbff440c0400
+
 int console_putc(unsigned char);
 
 #endif

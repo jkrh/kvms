@@ -10,6 +10,7 @@
 #include "hyplogs.h"
 #include "bits.h"
 #include "guest.h"
+#include "hvccall.h"
 
 #define PHYS_OFFSET 0x40000000UL
 #define VIRT_UART 0x09000000UL
@@ -136,6 +137,73 @@ int machine_init(void)
 bool machine_init_ready(void)
 {
 	return init_ready;
+}
+
+int platform_init_host_pgd(kvm_guest_t *host)
+{
+
+	if (!host)
+		return -EINVAL;
+
+	host->s1_pgd = alloc_table(HOST_VMID);
+	host->s2_pgd = alloc_table(HOST_VMID);
+
+	if (!host->s1_pgd || !host->s2_pgd)
+		return -ENOMEM;
+
+	return 0;
+}
+
+void platform_early_setup(void)
+{
+	uint64_t hcr_el2, cnthctl_el2;
+
+	/* 64 bit only, Trap SMCs */
+	hcr_el2 = 0;
+	bit_set(hcr_el2, HCR_RW_BIT);
+	bit_set(hcr_el2, HCR_VM_BIT);
+	bit_set(hcr_el2, HCR_NV2_BIT);
+	// bit_set(hcr_el2, hcr_tsc_bit);
+	write_reg(HCR_EL2, hcr_el2);
+
+	/* EL1 timer access */
+	cnthctl_el2 = 0;
+	bit_set(cnthctl_el2, CNTHCTL_EL1PCTEN_BIT);
+	bit_set(cnthctl_el2, CNTHCTL_EL1PCEN_BIT);
+	bit_set(cnthctl_el2, CNTHCTL_ENVTEN_BIT);
+	write_reg(CNTHCTL_EL2, cnthctl_el2);
+	write_reg(CNTVOFF_EL2, 0);
+
+	/* Processor id */
+	write_reg(VPIDR_EL2, read_reg(MIDR_EL1));
+
+	/* Use linux mair */
+	write_reg(MAIR_EL2, PLATFORM_MAIR_EL2);
+
+	isb();
+}
+
+void platform_mmu_prepare(void)
+{
+	kvm_guest_t *host;
+
+	if (PLATFORM_VTCR_EL2 != 0)
+		write_reg(VTCR_EL2, PLATFORM_VTCR_EL2);
+
+	if (PLATFORM_TCR_EL2 != 0)
+		write_reg(TCR_EL2, PLATFORM_TCR_EL2);
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
+
+	write_reg(TTBR0_EL2, (uint64_t)host->s1_pgd);
+	write_reg(VTTBR_EL2, (uint64_t)host->s2_pgd);
+	set_current_vmid(HOST_VMID);
+	host->table_levels = TABLE_LEVELS;
+
+	dsb();
+	isb();
 }
 
 uint32_t platform_get_next_vmid(uint32_t next_vmid)

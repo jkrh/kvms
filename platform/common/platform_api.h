@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "guest.h"
+
 /**
  * machine_init - Initialize host platform.
  *
@@ -37,6 +39,32 @@ int machine_init(void);
  * @return true if initialization is ready, false otherwise.
  */
 bool machine_init_ready(void);
+
+/**
+ * platform_init_host_pgd - Initialize host platform pgd.
+ *
+ * This function should populate the host mapping table (Page Global Directory)
+ * base addresses for 1) the EL2 (stage1 only) mapping host->s1_pgd and 2) the
+ * stage 2 mapping for the host virtual machine mapping host->s2_pgd.
+ *
+ * @host: Virtual machine (kvm) structure for the host.
+ * @return zero if succesfully initialized,
+ * 	   other than zero in case of error.
+ */
+int platform_init_host_pgd(kvm_guest_t *host);
+
+/**
+ * platform_early_setup - Initial platform specific setup.
+ */
+void platform_early_setup(void);
+
+/**
+ * platform_mmu_prepare - Platform specific MMU preparation.
+ *
+ * Set up PGD registers, enable needed features and traps.
+ * Make system ready for enabling MMU.
+ */
+void platform_mmu_prepare(void);
 
 /**
  * platform_get_next_vmid - Get next valid VMID.

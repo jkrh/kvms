@@ -37,33 +37,6 @@
 	stp	x2, x3, [sp, #(8 * 2)]
 .endm
 
-.macro	prepare_eretback reg eretback
-	mrs	\reg, spsr_el2
-	orr	\reg, \reg, #(1 << 0)
-	bic	\reg, \reg, #(1 << 1)
-	bic	\reg, \reg, #(1 << 2)
-	orr	\reg, \reg, #(1 << 3)
-	msr	spsr_el2, \reg
-	msr	elr_el2, \eretback
-.endm
-
-.macro	save_eret_info
-	mrs	x1, elr_el2
-	str	x1, [sp, #(8 * 31)]
-	mrs	x1, spsr_el2
-	str	x1, [sp, #(8 * 32)]
-.endm
-
-.macro	restore_eret_info
-	str	x1, [sp, #(8 * 1)]
-	ldr	x1, [sp, #(8 * 31)]
-	add x1, x1, #4
-	msr	elr_el2, x1
-	ldr	x1, [sp, #(8 * 32)]
-	msr	spsr_el2, x1
-	ldr	x1, [sp, #(8 * 1)]
-.endm
-
 .macro	save_all_regs
 	stp	x2, x3, [sp, #(8 * 2)]
 	stp	x4, x5, [sp, #(8 * 4)]
@@ -78,7 +51,6 @@
 	stp	x22, x23, [sp, #(8 * 22)]
 	stp	x24, x25, [sp, #(8 * 24)]
 	stp	x26, x27, [sp, #(8 * 26)]
-	stp	x28, x29, [sp, #(8 * 28)]
 .endm
 
 .macro	load_all_regs

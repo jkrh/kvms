@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <sys/time.h>
 
+#include "platform_api.h"
 #include "host_platform.h"
 #include "hyplogs.h"
 #include "armtrans.h"
@@ -29,38 +30,8 @@ static uint8_t *__my_sp;
 
 int early_setup(void)
 {
-	uint64_t hcr_el2, cptr_el2, cnthctl_el2;
 
-	/* 64 bit only, Trap SMCs */
-	hcr_el2 = read_reg(HCR_EL2);
-	bit_set(hcr_el2, HCR_RW_BIT);
-	bit_drop(hcr_el2, HCR_VM_BIT);
-	bit_drop(hcr_el2, HCR_TWI_BIT);
-	bit_drop(hcr_el2, HCR_TWE_BIT);
-
-	// bit_set(hcr_el2, hcr_tsc_bit);
-	write_reg(HCR_EL2, hcr_el2);
-
-	/* Disable traps */
-	cptr_el2 = read_reg(CPTR_EL2);
-	bit_drop(cptr_el2, CPTR_TCPAC_BIT);
-	bit_drop(cptr_el2, CPTR_TTA_BIT);
-	bit_drop(cptr_el2, CPTR_TFP_BIT);
-	write_reg(CPTR_EL2, cptr_el2);
-
-	/* EL1 timer access */
-	cnthctl_el2 = read_reg(CNTHCTL_EL2);
-	bit_set(cnthctl_el2, CNTHCTL_EL1PCTEN_BIT);
-	bit_set(cnthctl_el2, CNTHCTL_EL1PCEN_BIT);
-	bit_set(cnthctl_el2, CNTHCTL_ENVTEN_BIT);
-	write_reg(CNTHCTL_EL2, cnthctl_el2);
-	write_reg(CNTVOFF_EL2, 0);
-
-	/* Processor id */
-	write_reg(VPIDR_EL2, read_reg(MIDR_EL1));
-
-	/* Stage 2 cleanup */
-	write_reg(VTTBR_EL2, 0);
+	platform_early_setup();
 
 	/* Exception vector */
 	__asm__ __volatile__("adr	x0, __hyp_vectors\n"
