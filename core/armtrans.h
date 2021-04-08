@@ -56,13 +56,16 @@
 #define STAGE1 0
 #define STAGE2 1
 
-/* Stage 1 MAIR_EL2 slot. Standard linux allocation */
-#define DEVICE_STRONGORDER	0
-#define DEVICE_ORDER		1
-#define DEVICE_GRE		2
-#define NORMAL_NOCACHE		3
-#define NORMAL_WBACK_P		4
-#define NORMAL_WT_P		5
+/*
+ * Stage 1 MAIR_EL2 slot. Standard linux allocation on
+ * virt, platform specific otherwise.
+ */
+#define DEVICE_STRONGORDER	PLAT_DEVICE_STRONGORDER
+#define DEVICE_ORDER		PLAT_DEVICE_ORDER
+#define DEVICE_GRE		PLAT_DEVICE_GRE
+#define NORMAL_NOCACHE		PLAT_NORMAL_NOCACHE
+#define NORMAL_WBACK_P		PLAT_NORMAL_WBACK_P
+#define NORMAL_WT_P		PLAT_NORMAL_WT_P
 #define NORMAL_MEMORY NORMAL_WBACK_P
 #define DEVICE_MEMORY DEVICE_ORDER
 #define INVALID_MEMORY		16

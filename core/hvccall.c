@@ -62,16 +62,6 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 * Stage 1 and 2 host side mappings
 	 */
 	case HYP_HOST_MAP_STAGE1:
-		/*
-		 * If we assume that for now our guest is always virt,
-		 * and virt has the device area below 0x4000 0000, we
-		 * can hardcode the type.
-		 */
-		if (a2 < 0x40000000)
-			a5 = DEVICE_GRE;
-		else
-			a5 = NORMAL_MEMORY;
-
 		res = mmap_range(NULL, STAGE1, a1, a2, a3, a4, a5);
 		/*
 		 * kern_hyp_va: MSB WATCH

@@ -36,6 +36,13 @@
  * 6: --
  * 7: --
  */
+#define PLAT_DEVICE_STRONGORDER 0
+#define PLAT_DEVICE_ORDER 1
+#define PLAT_DEVICE_GRE 2
+#define PLAT_NORMAL_NOCACHE 3
+#define PLAT_NORMAL_WBACK_P 4
+#define PLAT_NORMAL_WT_P 5
+
 #define PLATFORM_MAIR_EL2 0x0000bbff440c0400
 
 int console_putc(unsigned char);
