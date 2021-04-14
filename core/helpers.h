@@ -32,10 +32,25 @@
 				     : "r"(value));                            \
 	} while (0);
 
+/* Resolve el1 stage 1 va */
+
 #define ats1e1r(va)                                                            \
 	({                                                                     \
 		uint64_t value;                                                \
 		__asm__ __volatile__("at	s1e1r, %[vaddr]\n"             \
+				     "mrs	%[paddr], PAR_EL1\n"           \
+				     : [paddr] "=r"(value)                     \
+				     : [vaddr] "r"(va)                         \
+				     :);                                       \
+		value;                                                         \
+	})
+
+/* Resolve el2 stage 1 va */
+
+#define ats1e2r(va)                                                            \
+	({                                                                     \
+		uint64_t value;                                                \
+		__asm__ __volatile__("at	s1e2r, %[vaddr]\n"             \
 				     "mrs	%[paddr], PAR_EL1\n"           \
 				     : [paddr] "=r"(value)                     \
 				     : [vaddr] "r"(va)                         \
