@@ -124,7 +124,9 @@ el2_sync:
 	msr	SPSel, #1
 
 	sub	sp, sp, #(8 * 36)
+	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
+
 	/*
 	 * Nothing to handle for time being, so just crash
 	 */
