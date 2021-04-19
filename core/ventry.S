@@ -12,7 +12,7 @@
 	b	\target
 .endm
 
-	.text
+	.section .vectors
 	.align 11
 
 .macro invalid_vector label
