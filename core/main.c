@@ -73,10 +73,6 @@ void enter_el1_warm(kernel_func_t *entry_addr)
 void hyp_warm_entry(uint64_t core_index)
 {
 	kvm_guest_t *host;
-	uint8_t *stack;
-
-	stack = platfrom_get_stack_ptr(core_index);
-	__inval_dcache_area(stack - STACK_SIZE, STACK_SIZE);
 
 	early_setup();
 	enable_mmu();
