@@ -124,7 +124,11 @@ int init_guest(void *kvm)
 		if (!guest)
 			return -ENOSPC;
 
-		guest->s2_pgd = alloc_table(guest->vmid);
+		/*
+		 * VMID is not allocated yet, so use host
+		 * tracking and a separate free.
+		 */
+		guest->s2_pgd = alloc_table(HOST_VMID);
 		if (!guest->s2_pgd) {
 			free_guest(guest);
 			return -ENOMEM;
