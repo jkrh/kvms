@@ -3,7 +3,10 @@ SECTIONS
 {
 	. = 0x100000000;
 	._reset . : { ../../.objs/reset.o(.text) }
-	.text : ALIGN(8) { *(.text) }
+	.text : ALIGN(8) {
+		*(.text)
+		*(.vectors)
+	}
 	.data : ALIGN(8) { *(.data) }
 	.bss : ALIGN(16) { *(.bss COMMON) }
 	xlat_table (NOLOAD) : ALIGN(16) {
