@@ -561,7 +561,7 @@ out_finalize:
 	tp->entries[noff] |= prot;
 
 	/* Type of memory we refer to */
-	tp->entries[noff] |= type << 2;
+	tp->entries[noff] |= type << TYPE_SHIFT;
 
 	/* Validify it */
 	bit_set(tp->entries[noff], VALID_TABLE_BIT);
@@ -899,6 +899,7 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			}
 			block.pgd = block.guest->s2_pgd;
 			prot &= PROT_MASK_STAGE2;
+			type &= TYPE_MASK_STAGE2 >> TYPE_SHIFT;
 			break;
 		case STAGE1:
 			if (hostflags & HOST_STAGE1_LOCK)
@@ -906,6 +907,7 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 
 			block.pgd = block.guest->s1_pgd;
 			prot &= PROT_MASK_STAGE1;
+			type &= TYPE_MASK_STAGE1 >> TYPE_SHIFT;
 			break;
 		default:
 			return -EINVAL;
@@ -916,6 +918,7 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			block.guest = get_guest_by_s2pgd(pgd);
 			block.pgd = pgd;
 			prot &= PROT_MASK_STAGE2;
+			type &= TYPE_MASK_STAGE2 >> TYPE_SHIFT;
 
 			if ((block.guest == host) &&
 			    (hostflags & HOST_STAGE2_LOCK))
@@ -925,6 +928,7 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			block.guest = get_guest_by_s1pgd(pgd);
 			block.pgd = pgd;
 			prot &= PROT_MASK_STAGE1;
+			type &= TYPE_MASK_STAGE1 >> TYPE_SHIFT;
 
 			if ((block.guest == host) &&
 			    (hostflags & HOST_STAGE1_LOCK))

@@ -211,7 +211,8 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		    uint64_t len, uint64_t prot, uint64_t type)
 {
-	uint64_t page_vaddr, page_paddr, taddr;
+	uint64_t page_vaddr, page_paddr, taddr, *pte;
+	uint64_t maptype, mapprot, mc = 0;
 	int res;
 
 	if (!guest || !vaddr || !paddr || (len % PAGE_SIZE)) {
@@ -239,7 +240,8 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		 * so for all remaps force a unmap first so that we can
 		 * measure the existing content.
 		 */
-		taddr = pt_walk(guest->s2_pgd, page_vaddr, NULL,
+		pte = NULL;
+		taddr = pt_walk(guest->s2_pgd, page_vaddr, &pte,
 				GUEST_TABLE_LEVELS);
 		if ((taddr != ~0UL) && (taddr != page_paddr)) {
 			ERROR("vmid %x 0x%lx already mapped: 0x%lx != 0x%lx\n",
@@ -247,6 +249,18 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 			      taddr, page_paddr);
 			res = -EPERM;
 			goto out_error;
+		}
+		/*
+		 * Track identical existing mappings
+		 */
+		if (pte) {
+			maptype = (*pte & TYPE_MASK_STAGE2) >> TYPE_SHIFT;
+			mapprot = (*pte & PROT_MASK_STAGE2);
+			if ((taddr == page_paddr) && (maptype == type) &&
+			    (mapprot == prot)) {
+				mc++;
+				continue;
+			}
 		}
 		/*
 		 * If it wasn't mapped and we are mapping it back,
@@ -259,6 +273,15 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		page_vaddr += PAGE_SIZE;
 		page_paddr += PAGE_SIZE;
 	}
+	/*
+	 * If we had already mapped this area as per the request,
+	 * this is probably smp related trap we already served. Don't
+	 * hinder the guest progress by remapping again and doing
+	 * the full break-before-make cycle.
+	 */
+	if (len == (mc * PAGE_SIZE))
+		return 0;
+
 	/*
 	 * Request the MMU to tell us if this was touched, if it can.
 	 */
