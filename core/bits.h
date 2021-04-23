@@ -15,6 +15,7 @@
 #define NSTABLE_BIT     63
 
 /* For block and page entries, stage 1 and 2 */
+#define PTE_SHARED 49 /* Res0: our magic marker */
 #define DBM_BIT 51
 #define CONTIGUOUS_BIT 52
 #define PXN_BIT 53

@@ -288,7 +288,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	bit_set(prot, DBM_BIT);
 
 	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot, type);
-	if (!res)
+	if (!res && !bit_raised(prot, PTE_SHARED))
 		res = blind_host(vaddr, paddr, len);
 
 out_error:
@@ -386,7 +386,7 @@ int restore_blinded_range(uint64_t vaddr, uint64_t paddr, uint64_t len)
 int restore_host_mappings(kvm_guest_t *guest)
 {
 	uint64_t slot_start, slot_end, size;
-	uint64_t slot_addr;
+	uint64_t slot_addr, *pte;
 	kvm_guest_t *host;
 	int i, res;
 
@@ -408,8 +408,12 @@ int restore_host_mappings(kvm_guest_t *guest)
 
 		slot_end = slot_start;
 		while (slot_end <= (slot_start + size)) {
-			slot_addr = pt_walk(guest->s2_pgd, slot_end, NULL, 4);
+			slot_addr = pt_walk(guest->s2_pgd, slot_end, &pte, 4);
 			if (slot_addr == ~0UL) {
+				slot_end += PAGE_SIZE;
+				continue;
+			}
+			if (pte && bit_raised(*pte, PTE_SHARED)) {
 				slot_end += PAGE_SIZE;
 				continue;
 			}
