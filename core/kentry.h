@@ -4,7 +4,7 @@
 
 #include "guest.h"
 
-void __enter_el1_cold(kernel_func_t *);
-void __enter_el1_warm(kernel_func_t *);
+void __enter_el1_cold(kernel_func_t *, void *);
+void __enter_el1_warm(kernel_func_t *, void *);
 
 #endif

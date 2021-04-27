@@ -46,6 +46,7 @@ void enter_el1_cold(void)
 	kernel_func_t *start_addr;
 	kvm_guest_t *guest;
 	uint64_t vmid, core_index;
+	uint8_t *stack;
 
 	core_index = smp_processor_id();
 	vmid = get_current_vmid();
@@ -55,7 +56,8 @@ void enter_el1_cold(void)
 	if (!start_addr)
 		start_addr = (kernel_func_t *)__ret_addr;
 
-	__enter_el1_cold(start_addr);
+	stack = platfrom_get_stack_ptr(core_index);
+	__enter_el1_cold(start_addr, (void *)stack);
 
 	HYP_ABORT();
 	while(1)
@@ -64,7 +66,12 @@ void enter_el1_cold(void)
 
 void enter_el1_warm(kernel_func_t *entry_addr)
 {
-	__enter_el1_warm(entry_addr);
+	uint64_t core_index;
+	uint8_t *stack;
+
+	core_index = smp_processor_id();
+	stack = platfrom_get_stack_ptr(core_index);
+	__enter_el1_warm(entry_addr, (void *)stack);
 
 	HYP_ABORT();
 }

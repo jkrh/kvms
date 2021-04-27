@@ -39,6 +39,7 @@ __enter_el1_cold:
 	msr	elr_el2, x0
 	mov	x0, #0x3c5
 	msr	spsr_el2, x0
+	mov	sp, x1
 	clean_all_regs
 	adr	x21, __fdt_addr
 	ldr	x21, [x21]
@@ -50,6 +51,7 @@ __enter_el1_cold:
 .type __enter_el1_warm, %function
 __enter_el1_warm:
 	msr	elr_el2, x0
+	mov	sp, x1
 	clean_all_regs
 	eret
 
