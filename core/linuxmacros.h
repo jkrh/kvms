@@ -51,6 +51,8 @@
 	stp	x22, x23, [sp, #(8 * 22)]
 	stp	x24, x25, [sp, #(8 * 24)]
 	stp	x26, x27, [sp, #(8 * 26)]
+	stp	x28, x29, [sp, #(8 * 28)]
+	str	x30, [sp, #(8 * 30)]
 .endm
 
 .macro	load_all_regs

@@ -2,6 +2,7 @@
 #include <mmacros.S>
 #include <host_defs.h>
 
+#include "pt_regs.h"
 #include "linuxmacros.h"
 #include <psci.h>
 
@@ -46,10 +47,8 @@ __hyp_vectors:
 el1_sync:
 	msr	SPSel, #1
 
-	sub	sp, sp, #(8 * 36)
+	sub	sp, sp, #(8 * PT_REGS_SIZE)
 	stp	x0, x1, [sp, #(8 * 0)]
-	str	x30, [sp, #(8 * 30)]
-	stp	x28, x29, [sp, #(8 * 28)]
 
 	/* Collect VMID to x0 */
 	mrs	x0, VTTBR_EL2
@@ -98,7 +97,7 @@ el1_sync:
 	b	4f			// Normal HVC
 
 3:	load_all_regs
-	add	sp, sp, #(8 * 36)
+	add	sp, sp, #(8 * PT_REGS_SIZE)
 	eret
 
 4:	cmp	x0, #HOST_VMID
@@ -123,7 +122,7 @@ el1_sync:
 el2_sync:
 	msr	SPSel, #1
 
-	sub	sp, sp, #(8 * 36)
+	sub	sp, sp, #(8 * PT_REGS_SIZE)
 	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
 
@@ -166,24 +165,13 @@ host_fastforward:
 	ldp	x0, x1, [sp, #(8 * 0)]
 	b	forward_aarch64sync
 
-aarch64sync_eret:
-	ldr	x30, [sp, #(8 * 30)]
-	ldp	x28, x29, [sp, #(8 * 28)]
-	add	sp, sp, #(8 * 36)
-	eret
-
 /*
  * Forward synchronous exception (Lower EL using AArch64) to a platform
- * specific implementation. x30 (LR) is populated here to enable return
- * to aarch64sync_eret which will then eret to the point where exception
- * was taken from. x28 & x29 (two of the callee saved registers) is saved
- * and restored at this level and can be clobbered by the platform specific
- * implementation in platform_aarch64sync if need to be.
+ * implementation in platform_aarch64sync
  */
 forward_aarch64sync:
 	ldp	x0, x1, [sp, #(8 * 0)]
-	adr	x30, aarch64sync_eret
-	isb
+	add	sp, sp, #(8 * PT_REGS_SIZE)
 	platform_aarch64sync
 
 el1_trap:
@@ -220,7 +208,7 @@ el1_trap:
 	 */
 	load_all_regs
 	ldr	x0, [sp, #(8 * 0)]
-	add	sp, sp, #(8 * 36)
+	add	sp, sp, #(8 * PT_REGS_SIZE)
 	eret
 2:	b	forward_aarch64sync
 3:	get_kern_exit	x3, x0
@@ -285,7 +273,7 @@ el1_error:
 
 dumpcall:
 	msr	SPSel, #1
-	sub	sp, sp, #(8 * 36)
+	sub	sp, sp, #(8 * PT_REGS_SIZE)
 	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
 
