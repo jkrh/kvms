@@ -6,7 +6,8 @@
 #include <stdio.h>
 
 #include "hyplogs.h"
-#include "commondefines.h"
+#include "host_platform.h"
+#include "host_defs.h"
 
 #define read_reg(r)                                                            \
 	__extension__({                                                        \
@@ -141,12 +142,9 @@ static inline uint64_t smp_processor_id()
 {
 	uint64_t value;
 
-	__asm__ __volatile__("mrs	%[v], mpidr_el1\n"
-			     "and	%[v], %[v], #0xff00\n"
-			     "lsr	%[v], %[v], #8\n"
-			     : [v] "=r"(value)
-			     :
-			     :);
+	value = read_reg(mpidr_el1);
+	value &= PLAT_CPU_AFF_MASK;
+	value = value >> PLAT_CPU_AFF_SHIFT;
 
 	return value;
 }

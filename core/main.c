@@ -25,7 +25,6 @@ extern uint64_t __lr_addr;
 uint64_t __ret_addr;
 uint64_t __stack_chk_guard;
 
-static uint64_t init_index;
 static uint8_t *__my_sp;
 
 int early_setup(void)
@@ -95,6 +94,7 @@ void __stack_chk_fail(void)
 int main(int argc UNUSED, char **argv UNUSED)
 {
 	struct timeval tv;
+	uint64_t init_index;
 	int res;
 
 	__asm__ __volatile__("str	x26, %[__lr_addr]\n"
@@ -106,6 +106,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 			       [__lr_addr] "m"(__lr_addr)
 			     : "memory");
 
+	init_index = smp_processor_id();
 	gettimeofday(&tv, NULL);
 	platform_console_init();
 	LOG("HYP: core %d started at %ldus\n", init_index, tv.tv_usec);

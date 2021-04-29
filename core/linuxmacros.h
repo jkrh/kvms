@@ -7,8 +7,8 @@
 
 #include "include/generated/asm-offsets.h"
 #include "hvccall-defines.h"
+#include "host_defs.h"
 
-#define PRINTME	0xcd
 #define ARM_EXCEPTION_IRQ 0
 #define ARM_EXCEPTION_EL1_SERROR 1
 #define ARM_EXCEPTION_TRAP 2
@@ -27,8 +27,8 @@
 
 .macro smp_processor_id reg
 	mrs	\reg, mpidr_el1
-	and	\reg, \reg, #0xff00
-	lsr	\reg, \reg, #8
+	and	\reg, \reg, #PLAT_CPU_AFF_MASK
+	lsr	\reg, \reg, #PLAT_CPU_AFF_SHIFT
 .endm
 
 .macro save_clobber_regs
