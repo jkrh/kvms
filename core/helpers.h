@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 #include "hyplogs.h"
+#include "commondefines.h"
 #include "host_platform.h"
 #include "host_defs.h"
 
