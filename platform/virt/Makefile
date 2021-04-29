@@ -9,7 +9,7 @@ KERNEL_OPTS := root=/dev/vda2 console=ttyAMA0 mem=3G nokaslr loglevel=8 rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd
-NETWORK := -nic user,id=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
+NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
 
 LINK := -T ld.out -Ttext=0x100001000
 LDFLAGS := $(LDFLAGS) $(LINK)
