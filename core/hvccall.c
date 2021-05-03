@@ -18,6 +18,7 @@
 #include "hyplogs.h"
 #include "heap.h"
 #include "mm.h"
+#include "kjump.h"
 #include "platform_api.h"
 
 #define CALL_TYPE_UNKNOWN	0
@@ -35,6 +36,19 @@ extern uint64_t hyp_text_start;
 extern uint64_t hyp_text_end;
 extern uint64_t core_lock;
 uint64_t crash_lock;
+uint64_t hostflags;
+
+int set_lockflags(uint64_t flags)
+{
+	if (flags & HOST_STAGE2_LOCK)
+		hostflags |= HOST_STAGE2_LOCK;
+	if (flags & HOST_STAGE1_LOCK)
+		hostflags |= HOST_STAGE1_LOCK;
+	if (flags & HOST_KVM_CALL_LOCK)
+		hostflags |= HOST_KVM_CALL_LOCK;
+
+	return 0;
+}
 
 static int is_apicall(uint64_t cn)
 {
@@ -51,7 +65,11 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	    register_t a4, register_t a5, register_t a6, register_t a7,
 	    register_t a8, register_t a9)
 {
+	kvm_guest_t *guest = NULL;
+	uint64_t *pte = NULL;
 	int64_t res = -EINVAL;
+	bool retried = false;
+	hyp_func_t *func;
 	uint64_t addr;
 
 	if (is_apicall(cn))
@@ -102,12 +120,6 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_HOST_SET_LOCKFLAGS:
 		res = set_lockflags(a1);
 		break;
-
-#ifdef KVM_GUEST_SUPPORT
-	uint64_t *pte = NULL;
-	hyp_func_t *func;
-	kvm_guest_t *guest = NULL;
-
 	/*
 	 * Control functions
 	 */
@@ -197,17 +209,22 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 */
 	default:
 		cn = (uint64_t)kern_hyp_va((void *)cn);
-		if ((cn >= hyp_text_start) && (cn < hyp_text_end)) {
+do_retry:
+		if (is_jump_valid(cn)) {
 			func = (hyp_func_t *)cn;
 			res = func((void *)a1, a2, a3, a4, a5, a6, a7, a8, a9);
-		} else
-			ERROR("unknown hyp call 0x%lx\n", cn);
+		} else {
+			if ((cn >= hyp_text_start) && (cn < hyp_text_end) &&
+			   !(hostflags & HOST_KVM_CALL_LOCK) && !retried) {
+				res = add_jump(cn);
+				if (!res) {
+					retried = true;
+					goto do_retry;
+				}
+			}
+			res = -EPERM;
+		}
 		break;
-#else
-	default:
-		ERROR("unknown hyp call 0x%lx\n", cn);
-		break;
-#endif // KVM_GUEST_SUPPORT
 	}
 	if (is_apicall(cn))
 		spin_unlock(&core_lock);

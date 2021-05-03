@@ -91,9 +91,6 @@
 #define S2_IWB			0x3 /* Inner Write-Back Cacheable */
 #define S2_NGNRE		0x4 /* nGnR, EWA */
 
-#define HOST_STAGE1_LOCK	0x1
-#define HOST_STAGE2_LOCK	0x2
-
 #define TTBR_BADDR_MASK	0x0000FFFFFFFFFFFEUL
 
 void tdinfo_init(void);
@@ -108,15 +105,6 @@ void table_init(void);
  * invoked first to populate the host page tables.
  */
 void enable_mmu(void);
-
-/**
- * Set hypervisor lock flags. Currently this allows locking host stage
- * 1 or 2 mappings.
- *
- * @param flags, the lock flags. See definitions above.
- * @return zero on success or negative error code on failure
- */
-int set_lockflags(uint64_t);
 
 /**
  * Allocate a page table structure

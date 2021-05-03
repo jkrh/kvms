@@ -59,7 +59,7 @@ struct ptable
 struct ptable tables[NUM_TABLES] ALIGN(PAGE_SIZE) SECTION("xlat_table");
 uint16_t table_props[NUM_TABLES] SECTION("xlat_table");
 
-static uint64_t hostflags;
+extern uint64_t hostflags;
 int debugflags = 0;
 
 /*
@@ -860,16 +860,6 @@ static struct ptable *host_pgd(uint64_t stage)
 	default:
 		return NULL;
 	}
-}
-
-int set_lockflags(uint64_t flags)
-{
-	if (flags & HOST_STAGE2_LOCK)
-		hostflags |= HOST_STAGE2_LOCK;
-	if (flags & HOST_STAGE1_LOCK)
-		hostflags |= HOST_STAGE1_LOCK;
-
-	return 0;
 }
 
 int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
