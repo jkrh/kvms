@@ -74,14 +74,12 @@ Testing on the virt platform:
 
 SHORT TERM TODO
 ----------------
-1) Testing, testing, testing and debugging
+1) Testing, testing, testing and debugging, especially on memory pressure
 2) Analysis of the kvm callback functions in terms of whether or not further
    hardening is required
-3) Protection of the critical shared memory blobs (vcpu, kvm and few others)
-4) Testing the behavior on the host memory pressure
-5) Proper 5.10 LTS kernel patch
-6) Some HVC calls need to be made 'fused', ie available only once during the
-   bootup
-7) HVC kernel callback interface should be hardened and only function entry
-   points must be callable
-8) Further harden the virtio-mapback
+3) Protection of the critical shared memory blobs (vcpu, kvm and few others),
+   don't allow active VM kvm/vcpu remaps
+4) Proper 5.10 LTS kernel patch
+5) set_memory_encrypted,decrypted into guest HVCs
+6) Only allow kernel addresses (PHYS_OFFSET - (PHYS_OFFSET + RAM)) addresses
+   to be stage2 mapped
