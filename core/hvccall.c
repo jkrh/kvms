@@ -50,7 +50,7 @@ int set_lockflags(uint64_t flags)
 	return 0;
 }
 
-static int is_apicall(uint64_t cn)
+int is_apicall(uint64_t cn)
 {
 	if ((cn >= HYP_FIRST_GUESTCALL) &&
 	    (cn <= HYP_LAST_GUESTCALL))
@@ -59,6 +59,26 @@ static int is_apicall(uint64_t cn)
 	    (cn <= HYP_LAST_HOSTCALL))
 		return CALL_TYPE_GUESTCALL;
 	return CALL_TYPE_UNKNOWN;
+}
+
+int guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
+		  register_t a4, register_t a5, register_t a6, register_t a7,
+		  register_t a8, register_t a9)
+{
+	int res = -EINVAL;
+
+	spin_lock(&core_lock);
+	switch(cn) {
+	case HYP_SET_GUEST_MEMORY_BLINDED:
+		res = remove_host_range(a1, a2);
+		break;
+	case HYP_SET_GUEST_MEMORY_OPEN:
+		res = restore_host_range(a1, a2);
+		break;
+	}
+	spin_unlock(&core_lock);
+
+	return res;
 }
 
 int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
@@ -71,6 +91,11 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	bool retried = false;
 	hyp_func_t *func;
 	uint64_t addr;
+	uint32_t vmid;
+
+	vmid = get_current_vmid();
+	if (vmid != HOST_VMID)
+		return guest_hvccall(cn, a1, a2, a3, a4, a5, a6, a7, a8, a9);
 
 	if (is_apicall(cn))
 		spin_lock(&core_lock);

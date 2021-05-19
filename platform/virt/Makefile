@@ -10,6 +10,7 @@ WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
+QEMUDEBUGOPTS := guest_errors,unimp
 
 LINK := -T ld.out -Ttext=0x100001000
 LDFLAGS := $(LDFLAGS) $(LINK)
@@ -17,7 +18,8 @@ LDFLAGS := $(LDFLAGS) $(LINK)
 AS_SOURCES := reset.S
 C_SOURCES := host_platform.c
 
-QEMUOPTS := -machine virt,virtualization=on,secure=off,gic-version=3,highmem=off \
+QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) \
+	    -machine virt,virtualization=on,secure=off,gic-version=3,highmem=off \
 	    -cpu max,sve=off -m 4G -smp 4 -mem-path $(DEVMEM)                    \
 	    $(DEBUGOPTS) -kernel $(KERNEL) -append '$(KERNEL_OPTS)'              \
 	    $(NETWORK) $(BOOTIMG)

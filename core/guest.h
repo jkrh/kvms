@@ -179,34 +179,4 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd);
  */
 int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count);
 
-/**
- * Restore host mappings after blinded guest exit
- *
- * @param guest, the exiting guest
- * @return zero on success or negative error code on failure
- */
-#ifdef HOSTBLINDING
-int restore_host_mappings(kvm_guest_t *guest);
-
-/**
- * Restore given range back to the host.
- *
- * @param vaddr virtual address of the range
- * @param paddr physical address of the range
- * @param len range length
- * @return zero on success or negative error code on failure
- */
-int restore_blinded_range(uint64_t vaddr, uint64_t paddr, uint64_t len);
-#else
-static inline int restore_host_mappings(kvm_guest_t *guest)
-{
-	return 0;
-}
-static inline int restore_blinded_range(uint64_t vaddr, uint64_t paddr,
-				       uint64_t len)
-{
-	return 0;
-}
-#endif // HOSTBLINDING
-
 #endif // __KVM_GUEST_H__

@@ -9,6 +9,7 @@
 #define HOST_KVM_CALL_LOCK	0x4
 
 #define HYP_ABORT() hyp_abort(__func__, __FILE__, __LINE__)
+
 void hyp_abort(const char *func, const char *file, int line);
 
 /**

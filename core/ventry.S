@@ -250,12 +250,23 @@ el1_irq:
 
 guest_hvc_trap:
 	ldp	x0, x1, [sp, #(8 * 0)]
+	bl	is_apicall
+	cmp	x0, #0
+	bne	6f
+	ldp	x0, x1, [sp, #(8 * 0)]
+	load_all_regs
 	bl	psci_reg
 	load_all_regs
 	get_kern_exit	x3, x0
 	get_vcpu_ptr	x1, x0
 	mov	x0, #ARM_EXCEPTION_TRAP
 	br	x3
+6:	ldp	x0, x1, [sp, #(8 * 0)]
+	load_all_regs
+	bl	hvccall
+	load_all_regs
+	add	sp, sp, #(8 * PT_REGS_SIZE)
+	eret
 
 el1_error:
 	msr	SPSel, #1

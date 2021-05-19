@@ -80,6 +80,7 @@ SHORT TERM TODO
 3) Protection of the critical shared memory blobs (vcpu, kvm and few others),
    don't allow active VM kvm/vcpu remaps
 4) Proper 5.10 LTS kernel patch
-5) set_memory_encrypted,decrypted into guest HVCs
-6) Only allow kernel addresses (PHYS_OFFSET - (PHYS_OFFSET + RAM)) addresses
+5) Only allow kernel addresses (PHYS_OFFSET - (PHYS_OFFSET + RAM)) addresses
    to be stage2 mapped
+6) Fuzz the guest input devices in order to prevent the easiest attacks for
+   the malicious host.

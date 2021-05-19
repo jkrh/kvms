@@ -23,6 +23,7 @@ typedef uint64_t gfn_t;
 #define addr_to_fn(x) (x / PAGE_SIZE)
 
 #define MAX_KVM_HYP_REGIONS 64
+
 typedef struct {
 	uint64_t vaddr;
 	uint64_t paddr;
@@ -57,15 +58,6 @@ typedef struct {
 	uint32_t vmid;
 	uint8_t sha256[32];
 } kvm_page_data;
-
-#ifdef HOSTBLINDING
-int blind_host(uint64_t ipa, uint64_t paddr, size_t len);
-#else
-static inline int blind_host(uint64_t ipa, uint64_t paddr, size_t len)
-{
-	return 0;
-}
-#endif
 
 /**
  * Translate kernel memory address to hyp address
@@ -127,4 +119,49 @@ int add_kvm_hyp_region(uint64_t vaddr, uint64_t paddr, uint64_t size);
 
 int remove_kvm_hyp_region(uint64_t vaddr);
 
-#endif
+#ifdef HOSTBLINDING
+/**
+ * Remove mappings from the host
+ *
+ * @param uint64_t ipa, ipa/phys address to remove
+ * @param uint64_t len, length of the section
+ * @return zero on success or negative error code on failure
+ */
+int remove_host_range(uint64_t ipa, size_t len);
+
+/**
+ * Restore given range back to the host from current vmid
+ *
+ * @param uint64_t gpa, the guest physical address
+ * @param uint64_t len, length of the section
+ * @return zero on success or negative error code on failure
+ */
+int restore_host_range(uint64_t gpa, uint64_t len);
+
+/**
+ * Restore host mappings after blinded guest exit
+ *
+ * @param guest, the exiting guest
+ * @return zero on success or negative error code on failure
+ */
+int restore_host_mappings(void *guest);
+
+#else
+static inline int remove_host_range(uint64_t paddr, size_t len)
+{
+	return 0;
+}
+
+static inline int restore_host_range(uint64_t gpa, uint64_t len)
+{
+	return 0;
+}
+
+static inline int restore_host_mappings(void *guest)
+{
+	return 0;
+}
+
+#endif // HOSTBLINDING
+
+#endif // __MM_H__

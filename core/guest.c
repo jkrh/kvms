@@ -302,8 +302,8 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 
 	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
-	if (!res && !bit_raised(prot, PTE_SHARED))
-		res = blind_host(vaddr, paddr, len);
+	if (!res)
+		res = remove_host_range(paddr, len);
 
 out_error:
 	return res;
@@ -314,7 +314,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 {
 	uint64_t paddr, map_addr;
 	uint64_t *pte;
-	int res, pc = 0;
+	int res = -EINVAL, pc = 0;
 
 	if (!guest || !vaddr || (len % PAGE_SIZE)) {
 		res = 0xF0F0;
@@ -360,7 +360,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 		/*
 		 * Give it back to the host
 		 */
-		res = restore_blinded_range(paddr, paddr, PAGE_SIZE);
+		res = restore_host_range(paddr, PAGE_SIZE);
 		if (res)
 			HYP_ABORT();
 
@@ -382,126 +382,6 @@ out_error:
 	return res;
 
 }
-
-#ifdef HOSTBLINDING
-
-int restore_blinded_range(uint64_t vaddr, uint64_t paddr, uint64_t len)
-{
-	kvm_guest_t *host;
-
-	host = get_guest(HOST_VMID);
-	if (!host)
-		HYP_ABORT();
-
-	return mmap_range(host->s2_pgd, STAGE2, vaddr, paddr,
-			  len, PAGE_HYP_RWX, S2_NORMAL_MEMORY);
-}
-
-int restore_host_mappings(kvm_guest_t *guest)
-{
-	uint64_t slot_start, slot_end, size;
-	uint64_t slot_addr, *pte;
-	kvm_guest_t *host;
-	int i, res;
-
-	if (!guest)
-		return -EINVAL;
-
-	host = get_guest(HOST_VMID);
-	if (!host)
-		HYP_ABORT();
-
-	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
-		if (!guest->slots[i].slot.npages)
-			continue;
-
-		slot_start = fn_to_addr(guest->slots[i].slot.base_gfn);
-		size = guest->slots[i].slot.npages * PAGE_SIZE;
-
-		/* See where the slot is in the memory */
-
-		slot_end = slot_start;
-		while (slot_end <= (slot_start + size)) {
-			slot_addr = pt_walk(guest->s2_pgd, slot_end, &pte, 4);
-			if (slot_addr == ~0UL) {
-				slot_end += PAGE_SIZE;
-				continue;
-			}
-			if (pte && bit_raised(*pte, PTE_SHARED)) {
-				slot_end += PAGE_SIZE;
-				continue;
-			}
-			/*
-			 * Now we know that the slot_end points to a page
-			 * at addr that was stolen from the host. Restore
-			 * it and make sure there is no information leak
-			 * on it.
-			 * Note: devices better not have s2 maps. Only
-			 * virtio or regular pagefaulting will work.
-			 */
-			memset((void *)slot_addr, 0, PAGE_SIZE);
-			res = mmap_range(host->s2_pgd, STAGE2, slot_addr, slot_addr,
-					 PAGE_SIZE, PAGE_HYP_RWX, S2_NORMAL_MEMORY);
-			if (res)
-				HYP_ABORT();
-
-			slot_end += PAGE_SIZE;
-		}
-	}
-	return 0;
-}
-
-bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
-{
-	kvm_guest_t *guest = NULL;
-	kvm_guest_t *host = NULL;
-	uint64_t ipa;
-
-	/* Check if we have such guest */
-	guest = get_guest_by_s1pgd((struct ptable *)ttbr0_el1);
-	if (guest == NULL)
-		return false;
-
-#ifndef HOSTBLINDING_DEV
-	/*
-	 * Data abort from the owning process of VM.
-	 * Feature under development. Do not allow
-	 * mapping back the host page unless
-	 * HOSTBLINDING_DEV is defined.
-	 */
-	HYP_ABORT();
-#endif //HOSTBLINDING_DEV
-
-	/*
-	 * Stage 1 pgd of the process that owns the VM.
-	 * We should be able to find the IPA from there.
-	 */
-	ipa = pt_walk(guest->s1_pgd, far_el2, NULL, TABLE_LEVELS);
-	if (ipa == ~0UL)
-		return false;
-
-	host = get_guest(vmid);
-	if (host == NULL)
-		return false;
-
-	LOG("map back v:0x%lx -> p:0x%lx\n", far_el2, ipa);
-
-	ipa = ipa & PAGE_MASK;
-
-	/* 1:1 mapping - TODO the parameters from platform map */
-	if (mmap_range(host->s2_pgd, STAGE2, ipa, ipa, PAGE_SIZE,
-		      ((SH_NO<<8)|PAGE_HYP_RWX), (S2_NORMAL_MEMORY)))
-		HYP_ABORT();
-
-	return true;
-}
-#else
-bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1,
-				      uint64_t far_el2)
-{
-	return false;
-}
-#endif //HOSTBLINDING
 
 int free_guest(void *kvm)
 {
