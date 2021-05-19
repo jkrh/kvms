@@ -142,7 +142,7 @@ int init_guest(void *kvm)
 	pgd = KVM_GET_PGD_PTR(kvm);
 	*pgd = (uint64_t)guest->s2_pgd;
 	guest->kvm = kvm;
-	guest->table_levels = GUEST_TABLE_LEVELS;
+	guest->table_levels = TABLE_LEVELS;
 
 	/* Save the current VM process stage1 PGD */
 	guest->s1_pgd = (struct ptable *)read_reg(TTBR0_EL1);
@@ -209,10 +209,10 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 }
 
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
-		    uint64_t len, uint64_t prot, uint64_t type)
+		    uint64_t len, uint64_t prot)
 {
 	uint64_t page_vaddr, page_paddr, taddr, *pte;
-	uint64_t maptype, mapprot, mc = 0;
+	uint64_t newtype, maptype, mapprot, mc = 0;
 	int res;
 
 	if (!guest || !vaddr || !paddr || (len % PAGE_SIZE)) {
@@ -229,6 +229,9 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		res = -EINVAL;
 		goto out_error;
 	}
+
+	newtype = (prot & TYPE_MASK_STAGE2);
+
 	/*
 	 * Do we know about this area?
 	 */
@@ -242,21 +245,31 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		 */
 		pte = NULL;
 		taddr = pt_walk(guest->s2_pgd, page_vaddr, &pte,
-				GUEST_TABLE_LEVELS);
+				TABLE_LEVELS);
 		if ((taddr != ~0UL) && (taddr != page_paddr)) {
 			ERROR("vmid %x 0x%lx already mapped: 0x%lx != 0x%lx\n",
 			      guest->vmid, (uint64_t)page_vaddr,
 			      taddr, page_paddr);
+			/*
+			 * TODO: Find and fix the issue causing this error
+			 * during guest boot. Memory related to this issue
+			 * is initially mapped by do_xor_speed calling
+			 * xor_8regs_2 (uses pages got by __get_free_pages).
+			 * Later on the guest boot the same physical pages
+			 * get mapped without unmapping them first and we
+			 * end up here.
+			 *
 			res = -EPERM;
 			goto out_error;
+			*/
 		}
 		/*
 		 * Track identical existing mappings
 		 */
 		if (pte) {
-			maptype = (*pte & TYPE_MASK_STAGE2) >> TYPE_SHIFT;
+			maptype = (*pte & TYPE_MASK_STAGE2);
 			mapprot = (*pte & PROT_MASK_STAGE2);
-			if ((taddr == page_paddr) && (maptype == type) &&
+			if ((taddr == page_paddr) && (maptype == newtype) &&
 			    (mapprot == prot)) {
 				mc++;
 				continue;
@@ -287,7 +300,8 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	 */
 	bit_set(prot, DBM_BIT);
 
-	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot, type);
+	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot,
+			 KERNEL_MATTR);
 	if (!res && !bit_raised(prot, PTE_SHARED))
 		res = blind_host(vaddr, paddr, len);
 
@@ -310,7 +324,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 	map_addr = vaddr;
 	while (map_addr < (vaddr + len)) {
 		paddr = pt_walk(guest->s2_pgd, map_addr, &pte,
-				GUEST_TABLE_LEVELS);
+				TABLE_LEVELS);
 		if (paddr == ~0UL)
 			goto do_loop;
 		/*
@@ -380,7 +394,7 @@ int restore_blinded_range(uint64_t vaddr, uint64_t paddr, uint64_t len)
 		HYP_ABORT();
 
 	return mmap_range(host->s2_pgd, STAGE2, vaddr, paddr,
-			  len, PAGE_HYP_RWX, NORMAL_MEMORY);
+			  len, PAGE_HYP_RWX, S2_NORMAL_MEMORY);
 }
 
 int restore_host_mappings(kvm_guest_t *guest)
@@ -427,7 +441,7 @@ int restore_host_mappings(kvm_guest_t *guest)
 			 */
 			memset((void *)slot_addr, 0, PAGE_SIZE);
 			res = mmap_range(host->s2_pgd, STAGE2, slot_addr, slot_addr,
-					 PAGE_SIZE, PAGE_HYP_RWX, NORMAL_MEMORY);
+					 PAGE_SIZE, PAGE_HYP_RWX, S2_NORMAL_MEMORY);
 			if (res)
 				HYP_ABORT();
 
@@ -475,8 +489,8 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	ipa = ipa & PAGE_MASK;
 
 	/* 1:1 mapping - TODO the parameters from platform map */
-	if (mmap_range(host->s2_pgd, STAGE2, ipa, ipa,
-		       PAGE_SIZE, ((SH_NO<<8)|PAGE_HYP_RWX), (S2_OWB|S2_IWB)))
+	if (mmap_range(host->s2_pgd, STAGE2, ipa, ipa, PAGE_SIZE,
+		      ((SH_NO<<8)|PAGE_HYP_RWX), (S2_NORMAL_MEMORY)))
 		HYP_ABORT();
 
 	return true;

@@ -92,7 +92,7 @@ nextmap:
 
 	perms = PAGE_HYP_RWX;
 	res = mmap_range(NULL, STAGE2, PHYS_OFFSET, PHYS_OFFSET, SZ_1G * 3,
-			 perms, S2_IWB);
+			 perms, S2_NORMAL_MEMORY);
 	if (res)
 		goto error;
 

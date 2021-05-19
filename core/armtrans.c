@@ -59,6 +59,9 @@ struct ptable
 struct ptable tables[NUM_TABLES] ALIGN(PAGE_SIZE) SECTION("xlat_table");
 uint16_t table_props[NUM_TABLES] SECTION("xlat_table");
 
+static uint64_t kmaidx2pmaidx[8];
+static bool need_hyp_s1_init = true;
+
 extern uint64_t hostflags;
 int debugflags = 0;
 
@@ -102,6 +105,46 @@ typedef enum
 static uint8_t invalidate;
 
 static struct tdinfo_t tdinfo;
+
+static void setup_hyp_stage1(void)
+{
+	uint64_t kmair, pmair;
+	uint8_t kmairt[8], pmairt[8], i, j;
+
+	/*
+	 * Read in the kernel and platform memory attribute indirection
+	 * setting.
+	 */
+	kmair = read_reg(MAIR_EL1);
+	pmair = read_reg(MAIR_EL2);
+	for (i = 0; i < 8; i++) {
+		kmairt[i] = (kmair >> (8*i)) & 0xFF;
+		pmairt[i] = (pmair >> (8*i)) & 0xFF;
+	}
+
+	/* Create the translation */
+	for (i = 0; i < 8; i++) {
+		for (j = 0; j < 8; j++) {
+			if (kmairt[i] == pmairt[j]) {
+				kmaidx2pmaidx[i] = (j << TYPE_SHIFT);
+				break;
+			}
+		}
+		if (j >= 8)
+			HYP_ABORT();
+	}
+
+}
+
+static uint8_t k2p_mattrindx(uint8_t attridx)
+{
+	if (need_hyp_s1_init) {
+		setup_hyp_stage1();
+		need_hyp_s1_init = false;
+	}
+
+	return kmaidx2pmaidx[(attridx >> TYPE_SHIFT)];
+}
 
 void tdinfo_init(void)
 {
@@ -435,10 +478,10 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 
 	if (block->stage == STAGE1) {
 		block->prot = *block->ptep & PROT_MASK_STAGE1;
-		block->type = (*block->ptep & TYPE_MASK_STAGE1) >> 2;
+		block->type = (*block->ptep & TYPE_MASK_STAGE1);
 	} else {
 		block->prot = *block->ptep & PROT_MASK_STAGE2;
-		block->type = (*block->ptep & TYPE_MASK_STAGE2) >> 2;
+		block->type = (*block->ptep & TYPE_MASK_STAGE2);
 	}
 
 	offt = paddr - block->paddr;
@@ -561,7 +604,7 @@ out_finalize:
 	tp->entries[noff] |= prot;
 
 	/* Type of memory we refer to */
-	tp->entries[noff] |= type << TYPE_SHIFT;
+	tp->entries[noff] |= type;
 
 	/* Validify it */
 	bit_set(tp->entries[noff], VALID_TABLE_BIT);
@@ -889,15 +932,19 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			}
 			block.pgd = block.guest->s2_pgd;
 			prot &= PROT_MASK_STAGE2;
-			type &= TYPE_MASK_STAGE2 >> TYPE_SHIFT;
+			if (type == KERNEL_MATTR)
+				type = (TYPE_MASK_STAGE2 & prot);
 			break;
 		case STAGE1:
 			if (hostflags & HOST_STAGE1_LOCK)
 				return -EPERM;
 
 			block.pgd = block.guest->s1_pgd;
+			if (type == KERNEL_MATTR) {
+				type = (TYPE_MASK_STAGE1 & prot);
+				type = k2p_mattrindx(type);
+			}
 			prot &= PROT_MASK_STAGE1;
-			type &= TYPE_MASK_STAGE1 >> TYPE_SHIFT;
 			break;
 		default:
 			return -EINVAL;
@@ -907,8 +954,9 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		case STAGE2:
 			block.guest = get_guest_by_s2pgd(pgd);
 			block.pgd = pgd;
+			if (type == KERNEL_MATTR)
+				type = (TYPE_MASK_STAGE2 & prot);
 			prot &= PROT_MASK_STAGE2;
-			type &= TYPE_MASK_STAGE2 >> TYPE_SHIFT;
 
 			if ((block.guest == host) &&
 			    (hostflags & HOST_STAGE2_LOCK))
@@ -917,8 +965,11 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		case STAGE1:
 			block.guest = get_guest_by_s1pgd(pgd);
 			block.pgd = pgd;
+			if (type == KERNEL_MATTR){
+				type = (TYPE_MASK_STAGE1 & prot);
+				type = k2p_mattrindx(type);
+			}
 			prot &= PROT_MASK_STAGE1;
-			type &= TYPE_MASK_STAGE1 >> TYPE_SHIFT;
 
 			if ((block.guest == host) &&
 			    (hostflags & HOST_STAGE1_LOCK))

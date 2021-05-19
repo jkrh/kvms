@@ -80,7 +80,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 * Stage 1 and 2 host side mappings
 	 */
 	case HYP_HOST_MAP_STAGE1:
-		res = mmap_range(NULL, STAGE1, a1, a2, a3, a4, a5);
+		res = mmap_range(NULL, STAGE1, a1, a2, a3, a4, KERNEL_MATTR);
 		/*
 		 * kern_hyp_va: MSB WATCH
 		 *
@@ -108,7 +108,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 #endif // HOSTBLINDING_DEV
 		break;
 	case HYP_HOST_MAP_STAGE2:
-		res = mmap_range(NULL, STAGE2, a1, a2, a3, a4, a5);
+		res = mmap_range(NULL, STAGE2, a1, a2, a3, a4, KERNEL_MATTR);
 		break;
 	case HYP_HOST_BOOTSTEP:
 	/*	res = hyp_bootstep(a1, a2, a3, a4, a5, a6);*/
@@ -165,7 +165,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -ENOENT;
 			break;
 		}
-		res = guest_map_range(guest, a2, a3, a4, a5, a6);
+		res = guest_map_range(guest, a2, a3, a4, a5);
 		break;
 	case HYP_GUEST_UNMAP_STAGE2:
 		guest = get_guest(a1);
@@ -181,7 +181,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -ENOENT;
 			break;
 		}
-		addr = pt_walk(guest->s2_pgd, a2, &pte, GUEST_TABLE_LEVELS);
+		addr = pt_walk(guest->s2_pgd, a2, &pte, TABLE_LEVELS);
 		if (addr != ~0UL) {
 			bit_set(*pte, AF_BIT);
 			res = 0;

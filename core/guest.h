@@ -25,8 +25,6 @@
 #define MAX_PAGING_BLOCKS 131072
 #endif
 
-#define GUEST_TABLE_LEVELS 4
-
 typedef int kernel_func_t(uint64_t, ...);
 
 typedef enum {
@@ -96,7 +94,7 @@ int update_memslot(void *kvm, kvm_memslot *slot, kvm_userspace_memory_region *me
  *  @return zero on success or negative error code on failure
  */
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
-		    uint64_t len, uint64_t prot, uint64_t type);
+		    uint64_t len, uint64_t prot);
 
 /**
  *  @param guest the guest to unmap from

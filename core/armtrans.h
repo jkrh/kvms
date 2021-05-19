@@ -28,7 +28,7 @@
  */
 
 #define PROT_MASK_STAGE1	0x600000000003E0
-#define PROT_MASK_STAGE2	0x6A0000000003FC
+#define PROT_MASK_STAGE2	0x6A0000000003C0
 #define TYPE_MASK_STAGE1	0x1C
 #define TYPE_MASK_STAGE2	0x3C
 #define TYPE_SHIFT		2
@@ -61,15 +61,16 @@
  * Stage 1 MAIR_EL2 slot. Standard linux allocation on
  * virt, platform specific otherwise.
  */
-#define DEVICE_STRONGORDER	PLAT_DEVICE_STRONGORDER
-#define DEVICE_ORDER		PLAT_DEVICE_ORDER
-#define DEVICE_GRE		PLAT_DEVICE_GRE
-#define NORMAL_NOCACHE		PLAT_NORMAL_NOCACHE
-#define NORMAL_WBACK_P		PLAT_NORMAL_WBACK_P
-#define NORMAL_WT_P		PLAT_NORMAL_WT_P
+#define DEVICE_STRONGORDER	(PLAT_DEVICE_STRONGORDER << TYPE_SHIFT)
+#define DEVICE_ORDER		(PLAT_DEVICE_ORDER << TYPE_SHIFT)
+#define DEVICE_GRE		(PLAT_DEVICE_GRE << TYPE_SHIFT)
+#define NORMAL_NOCACHE		(PLAT_NORMAL_NOCACHE << TYPE_SHIFT)
+#define NORMAL_WBACK_P		(PLAT_NORMAL_WBACK_P << TYPE_SHIFT)
+#define NORMAL_WT_P		(PLAT_NORMAL_WT_P << TYPE_SHIFT)
 #define NORMAL_MEMORY NORMAL_WBACK_P
 #define DEVICE_MEMORY DEVICE_ORDER
-#define INVALID_MEMORY		16
+#define INVALID_MEMORY		1 << 6
+#define KERNEL_MATTR		1 << 7
 
 /* Shareability SH [9:8], Stage 1 and 2 */
 #define SH_SHIFT		0x8
@@ -78,18 +79,31 @@
 #define SH_INN			0x3
 
 /* Stage 2 MemAttr[3:2] */
-#define ST2_DEVICE		0x0
-#define S2_ONONE		0x4
-#define S2_OWT			0x8
-#define S2_OWB			0xC
+#define S2_DEVICE		(0x0 << TYPE_SHIFT)
+#define S2_ONONE		(0x4 << TYPE_SHIFT)
+#define S2_OWT			(0x8 << TYPE_SHIFT)
+#define S2_OWB			(0xC << TYPE_SHIFT)
 /* Stage 2 MemAttr[1:0] Meaning when MemAttr[3:2] == 0b00 */
-#define S2_DEV_NGNRE		0x1 /* Device-nGnRE */
-#define S2_DEV_NGNRNE		0x0 /* Device-nGnRnE */
+#define NGNRNE		(0x0 << TYPE_SHIFT)
+#define NGNRE		(0x1 << TYPE_SHIFT)
+#define NGRE		(0x2 << TYPE_SHIFT)
+#define GRE		(0x3 << TYPE_SHIFT)
 /* Stage 2 MemAttr[1:0] Meaning when MemAttr[3:2] != 0b00 */
-#define S2_INONE		0x1 /* Inner Non-cacheable */
-#define S2_IWT			0x2 /* Inner Write-Through Cacheable */
-#define S2_IWB			0x3 /* Inner Write-Back Cacheable */
-#define S2_NGNRE		0x4 /* nGnR, EWA */
+/* Inner Non-cacheable */
+#define S2_INONE		(0x1 << TYPE_SHIFT)
+/* Inner Write-Through Cacheable */
+#define S2_IWT			(0x2 << TYPE_SHIFT)
+/* Inner Write-Back Cacheable */
+#define S2_IWB			(0x3 << TYPE_SHIFT)
+
+/* Stage 2 normal memory attributes */
+#define S2_NORMAL_MEMORY	(S2_OWB | S2_IWB)
+
+/* Stage 2 device memory attributes */
+#define S2_DEV_NGNRNE		(S2_DEVICE | NGNRNE)
+#define S2_DEV_NGNRE		(S2_DEVICE | NGNRE)
+#define S2_DEV_NGRE		(S2_DEVICE | NGRE)
+#define S2_DEV_GRE		(S2_DEVICE | GRE)
 
 #define TTBR_BADDR_MASK	0x0000FFFFFFFFFFFEUL
 
@@ -170,7 +184,8 @@ void print_tables(uint64_t vmid);
  * @param paddr physical address to map to
  * @param length page aligned length of the mapping
  * @param prot memory protection attributes (see above)
- * @param type type of the memory (see above)
+ * @param type type of the memory. In case of KERNEL_MATTR
+ *             the type is embedded in prot parameter.
  * @return zero or success or negative error code on failure
  */
 int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
