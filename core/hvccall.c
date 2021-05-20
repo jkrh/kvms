@@ -154,12 +154,16 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_SET_HYP_TXT:
 		hyp_text_start = (uint64_t)kern_hyp_va((void *)a1);
 		hyp_text_end = (uint64_t)kern_hyp_va((void *)a2);
-		LOG("hyp text is at 0x%lx - 0x%lx\n",
-			hyp_text_start, hyp_text_end);
-
 		__guest_exit = (hyp_func_t *)(a3 & CALL_MASK);
 		__fpsimd_guest_restore = (hyp_func_t *)(a4 & CALL_MASK);
 
+		if (hyp_text_end <= hyp_text_start)
+			HYP_ABORT();
+		if (!__guest_exit)
+			HYP_ABORT();
+
+		LOG("hyp text is at 0x%lx - 0x%lx\n", hyp_text_start,
+						      hyp_text_end);
 		LOG("guest exit is at offset 0x%lx\n", (uint64_t)__guest_exit);
 		LOG("simd_guest_restore is at offset 0x%lx\n",
 			(uint64_t)__fpsimd_guest_restore);
