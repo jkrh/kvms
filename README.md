@@ -27,17 +27,33 @@ kvm kernel code minimal, only adding handful of hooks into it. ~95% of the
 kvm code is intact and the hypervisor calls it directly as it needs the
 guests to execute.
 
-The current state of the code is that the regular KVM guests execute somewhat
-reliably on multiple ARM64 systems. The 'host blinding' feature does run, but
-all in all it's still work in progress and may crash and burn at places
-especially if you play with untested QEMU cmdline. The required kernel patch
-currently provided under patches/ is a mock-up and it will soon be cleaned up
-for 5.10 LTS releases, mostly moving the required new functions into a
-separate c file.
+The current state of the code is that the regular KVM guests execute reliably
+on multiple ARM64 systems. There are two 'host blinding' (aka detach the
+guest from the host memory) models implemented in the code:
+1) 'Memory encryption' model (used by AMD SEV/Intel TDX/IBM S390) with the HW
+   support for the memory encryption) where the guests inform the hypervisor
+   about the pages that were allocated for the guest <-> host communications.
+   This model requires patching the guest kernel. There is a sample patch
+   provided in the patches/ dir and it's based on extending the ARM64
+   architecture by claiming that it supports 'memory encyption' and running
+   through the same hooks as the other architectures with the actual memory
+   encryption support.
+2) A model where we trap to the hypervisor when the host touches the guest
+   memory. This model does not require patching the guest kernel but it is
+   somewhat less secure. During the trap prior to mapping the page back to
+   the host the hypervisor checks that:
+   - The trapping host process is a known virtual machine QEMU process in
+     the host and that it is a known client with a correct run state.
+   - The memory being mapped back is dedicated guest device memory (not RAM).
+   - We are still in the middle of the quest kernel initialization phase.
 
 QEMU host emulation based development environment is provided in the source
-tree and it operates on top of the 'virt' machine. Both the kernel and the
+tree and it operates on top of the 'virt' machine. The host kernel and the
 hypervisor can be stepped through via a relatively comfortable environment.
+The KVM quest debugging with gdb works on the hardware but exposes a bug in
+QEMU we have not investigated: setting hardware breakpoints makes the
+execution extremely slow (instruction execution becomes heavier and heavier
+over time if a breakpoint is set). Stepping works fine.
 
 
 Building and running on QEMU:
