@@ -49,4 +49,9 @@
 #define STR(x) #x
 #define XSTR(s) STR(s)
 
+#ifndef __ASSEMBLY__
+extern int __kvms_hvc_cmd(unsigned long cmd, ...);
+extern uint64_t __kvms_hvc_get(unsigned long cmd, ...);
+#endif // __ASSEMBLY__
+
 #endif // __HYP_API__

@@ -1,34 +1,38 @@
-From a3eb04e4d92cfc9a271720719343fecc40ca0957 Mon Sep 17 00:00:00 2001
+From 54772461f1fbef4ecaa4f2372d47e6160152b942 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 ---
  arch/arm64/configs/defconfig      |  10 +
  arch/arm64/include/asm/kvm_asm.h  |  24 ++
  arch/arm64/include/asm/kvm_host.h |  19 +-
- arch/arm64/include/asm/kvm_hyp.h  |  13 +
- arch/arm64/include/asm/kvm_mmu.h  |  67 +++--
+ arch/arm64/include/asm/kvm_hyp.h  |  13 ++
+ arch/arm64/include/asm/kvm_mmu.h  |  67 ++++--
  arch/arm64/kernel/asm-offsets.c   |   7 +
  arch/arm64/kernel/head.S          |  16 +-
  arch/arm64/kvm/Makefile           |   2 +-
  arch/arm64/kvm/arm.c              |  33 ++-
- arch/arm64/kvm/ext-guest.c        | 419 ++++++++++++++++++++++++++++++
+ arch/arm64/kvm/ext-guest.c        | 360 ++++++++++++++++++++++++++++++
  arch/arm64/kvm/ext-guest.h        |  21 ++
- arch/arm64/kvm/hvccall-defines.h  |  38 +++
+ arch/arm64/kvm/hvccall-defines.h  |  57 +++++
+ arch/arm64/kvm/hyp/Makefile       |   2 +-
  arch/arm64/kvm/hyp/entry.S        |  13 +-
+ arch/arm64/kvm/hyp/kvms-hvci.S    |  11 +
  arch/arm64/kvm/hyp/nvhe/switch.c  |  15 +-
  arch/arm64/kvm/hyp/nvhe/tlb.c     |  11 +-
  arch/arm64/kvm/hyp/pgtable.c      |  24 +-
  arch/arm64/kvm/hyp/vgic-v3-sr.c   |   6 +
- arch/arm64/kvm/mmu.c              |  94 +++++--
+ arch/arm64/kvm/mmu.c              |  94 +++++---
  arch/arm64/kvm/reset.c            |   7 +-
  arch/arm64/lib/copy_template.S    |   9 +
- 20 files changed, 748 insertions(+), 100 deletions(-)
+ 22 files changed, 720 insertions(+), 101 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
+ create mode 100644 arch/arm64/kvm/hyp/kvms-hvci.S
 
 diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
 index 5cfe3cf6f2ac..fa9bd1e9608f 100644
@@ -472,10 +476,10 @@ index a1c2c955474e..375c256677bc 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..17d49df704ec
+index 000000000000..cdd212a7993b
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,360 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -511,59 +515,40 @@ index 000000000000..17d49df704ec
 +int create_guest_mapping(u32 vmid, unsigned long start, unsigned long phys,
 +			 unsigned long size, u64 prot)
 +{
-+	register int ret asm ("x0");
++	int err;
 +
 +	start = PAGE_ALIGN(start);
 +	phys = PAGE_ALIGN(phys);
 +	size = PAGE_ALIGN(size);
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_GUEST_MAP_STAGE2) "\n"
-+		"mov	x1, %[vmid]\n"
-+		"mov	x2, %[start]\n"
-+		"mov	x3, %[phys]\n"
-+		"mov	x4, %[size]\n"
-+		"mov	x5, %[prot]\n"
-+		"mov	x6, 0x2\n"
-+		"hvc	#0\n"
-+		:
-+		: [vmid]"r"(vmid), [start]"r"(start), [phys]"r"(phys),
-+		  [size]"r"(size), [prot]"r"(prot)
-+		: "memory", "x0", "x1", "x2", "x3", "x4", "x5", "x6");
++	err = __kvms_hvc_cmd(HYP_GUEST_MAP_STAGE2, vmid, start, phys, size,
++			     prot);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
-+	return ret;
++	return err;
 +}
 +
 +void handle_access_fault(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
 +{
 +	u32 vmid = vcpu->kvm->arch.mmu.vmid.vmid;
++	int err;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_MKYOUNG) "\n"
-+		"mov	x1, %[vmid]\n"
-+		"mov	x2, %[fault_ipa]\n"
-+		"hvc	#0\n"
-+		:
-+		: [vmid]"r"(vmid), [fault_ipa]"r"(fault_ipa)
-+		: "memory", "x0", "x1", "x2");
++	err = __kvms_hvc_cmd(HYP_MKYOUNG, vmid, fault_ipa);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +}
 +
 +int update_hyp_memslots(struct kvm *kvm, struct kvm_memory_slot *slot,
 +			const struct kvm_userspace_memory_region *mem)
 +{
-+	register int ret asm ("x0");
++	int err;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_UPDATE_GUEST_MEMSLOT) "\n"
-+		"mov	x1, %[kvm]\n"
-+		"mov	x2, %[slot]\n"
-+		"mov	x3, %[mem]\n"
-+		"hvc	#0\n"
-+		:
-+		: [kvm]"r"(kvm), [slot]"r"(slot), [mem]"r"(mem)
-+		: "memory", "x0", "x1", "x2", "x3");
++	err = __kvms_hvc_cmd(HYP_UPDATE_GUEST_MEMSLOT, kvm, slot, mem);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
-+	return ret;
++	return err;
 +}
 +
 +static void __unmap_stage2_range(struct kvm_s2_mmu *mmu,
@@ -571,29 +556,22 @@ index 000000000000..17d49df704ec
 +				 u64 size,
 +				 u64 measure)
 +{
-+	register int ret asm ("x0");
 +	u32 vmid = mmu->vmid.vmid;
 +	u64 npages;
++	int err;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_GUEST_UNMAP_STAGE2) "\n"
-+		"mov	x1, %[vmid]\n"
-+		"mov	x2, %[start]\n"
-+		"mov	x3, %[size]\n"
-+		"mov	x4, %[measure]\n"
-+		"hvc	#0\n"
-+		:
-+		: [vmid]"r"(vmid), [start]"r"(start),
-+		  [size]"r"(size), [measure]"r"(measure)
-+		: "memory", "x0", "x1", "x2", "x3", "x4");
++	err = __kvms_hvc_cmd(HYP_GUEST_UNMAP_STAGE2, vmid, start,
++			     size, measure);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
 +	/*
 +	 * If the hyp returned an error it did not fully unmap the
 +	 * blob, either the section was not completely mapped OR we
 +	 * hit a dirty page.
 +	 */
-+	if ((ret & 0xFFFF) == 0xF0F0) {
-+		npages = (size / PAGE_SIZE) - (ret >> 16);
++	if ((err & 0xFFFF) == 0xF0F0) {
++		npages = (size / PAGE_SIZE) - (err >> 16);
 +		if (npages) {
 +			pr_warn("Unmap request %p/%llu fell short \
 +				%llu pages\n", (void *)start, size,
@@ -617,45 +595,31 @@ index 000000000000..17d49df704ec
 +int __create_hyp_mappings(unsigned long start, unsigned long size,
 +			  unsigned long phys, enum kvm_pgtable_prot prot)
 +{
-+	register int ret asm ("x0");
 +	struct hyp_map_data data = {
 +		.phys   = ALIGN_DOWN(phys, PAGE_SIZE),
 +	};
++	int err;
 +
-+	ret = hyp_map_set_prot_attr(prot, &data);
-+	if (ret)
-+		return ret;
++	err = hyp_map_set_prot_attr(prot, &data);
++	if (err)
++		return err;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_HOST_MAP_STAGE1) "\n"
-+		"mov	x1, %[start]\n"
-+		"mov	x2, %[phys]\n"
-+		"mov	x3, %[size]\n"
-+		"mov	x4, %[prot]\n"
-+		"mov	x5, 0x2\n"
-+		"hvc	#0\n"
-+		:
-+		: [start]"r"(start), [phys]"r"(phys), [size]"r"(size),
-+		  [prot]"r"(data.attr)
-+		: "memory", "x0", "x1", "x2", "x3", "x4", "x5");
++	err = __kvms_hvc_cmd(HYP_HOST_MAP_STAGE1, start, phys, size, prot);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
-+	return ret;
++	return err;
 +}
 +
 +static int __clean_hyp_mappings(void *start, size_t size)
 +{
-+	register int ret asm ("x0");
++	int err;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_HOST_UNMAP_STAGE1) "\n"
-+		"mov	x1, %[start]\n"
-+		"mov	x2, %[size]\n"
-+		"hvc	#0\n"
-+		:
-+		: [start]"r"(start), [size]"r"(size)
-+		: "memory", "x0", "x1", "x2");
++	err = __kvms_hvc_cmd(HYP_HOST_UNMAP_STAGE1, start, size);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
-+	return ret;
++	return err;
 +}
 +
 +int clean_hyp_mappings(void *from, void *to)
@@ -675,36 +639,26 @@ index 000000000000..17d49df704ec
 +{
 +	unsigned long start = kern_hyp_va((unsigned long)__ts);
 +	unsigned long end = kern_hyp_va((unsigned long)__te);
-+	unsigned long exit = (unsigned long)kvm_ksym_ref_nvhe(__guest_exit);
-+	register int ret asm ("x0");
++	unsigned long *guest_exit = kvm_ksym_ref(__guest_exit);
++	int err;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_SET_HYP_TXT) "\n"
-+		"mov	x1, %[start]\n"
-+		"mov	x2, %[end]\n"
-+		"mov	x3, %[exit]\n"
-+		"mov	x4, 0x0\n"
-+		"hvc	#0\n"
-+		: "=r"(ret)
-+		: [start]"r"(start), [end]"r"(end), [exit]"r"(exit)
-+		: "memory", "x1", "x2", "x3", "x4");
++	err = __kvms_hvc_cmd(HYP_SET_HYP_TXT, start, end,
++			     guest_exit, NULL);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
-+	return ret;
++	return err;
 +}
 +
 +static int __kvm_init_guest(struct kvm *kvm)
 +{
-+	register int ret asm ("x0");
++	int err;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_INIT_GUEST) "\n"
-+		"mov	x1, %[kvm]\n"
-+		"hvc	#0\n"
-+		: "=r"(ret)
-+		: [kvm]"r"(kvm)
-+		: "x1");
++	err = __kvms_hvc_cmd(HYP_INIT_GUEST, kvm);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
-+	return ret;
++	return err;
 +}
 +
 +int kvm_init_guest(struct kvm *kvm)
@@ -738,17 +692,13 @@ index 000000000000..17d49df704ec
 +
 +static int __kvm_free_guest(struct kvm *kvm)
 +{
-+	register int ret asm ("x0");
++	int err;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_FREE_GUEST) "\n"
-+		"mov	x1, %[kvm]\n"
-+		"hvc	#0\n"
-+		: "=r"(ret)
-+		: [kvm]"r"(kvm)
-+		: "x1");
++	err = __kvms_hvc_cmd(HYP_FREE_GUEST, kvm);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
-+	return ret;
++	return err;
 +}
 +
 +int kvm_free_guest(struct kvm *kvm)
@@ -795,21 +745,16 @@ index 000000000000..17d49df704ec
 +	unsigned long id;
 +	unsigned long sym;
 +	unsigned long tpidr_el2;
++	int err;
 +
 +	id = smp_processor_id();
 +	sym = (unsigned long)kvm_ksym_ref(CHOOSE_NVHE_SYM(__per_cpu_start));
 +	tpidr_el2 = (unsigned long)this_cpu_ptr_nvhe_sym(__per_cpu_start) -
 +		    sym;
 +
-+	__asm__ __volatile__ (
-+		"mov	x0, " XSTR(HYP_SET_TPIDR) "\n"
-+		"mov	x1, %[tpidr_el2]\n"
-+		"mov	x2, %[id]\n"
-+		"mov	x3, %[sym]\n"
-+		"hvc    #0\n"
-+		:
-+		: [tpidr_el2]"r"(tpidr_el2),[id]"r"(id),[sym]"r"(sym)
-+		: "x0", "x1","x2","x4");
++	err = __kvms_hvc_cmd(HYP_SET_TPIDR, tpidr_el2, id, sym);
++	if (err)
++		pr_err("kvm: %s failed: %d\n", __func__, err);
 +}
 +
 +int ext_hyp_init(void)
@@ -924,32 +869,38 @@ index 000000000000..c727772cc7b0
 +void unmap_stage2_range_sec(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size);
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..cc43518ea359
+index 000000000000..40a3a2064076
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,57 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef __HYP_API__
 +#define __HYP_API__
 +/*
 + * Base addressing for data sharing
 + */
-+#define KERNEL_MAP	0xFFFFFFF000000000UL
-+#define KERN_VA_MASK	0x0000000FFFFFFFFFUL
-+#define KERNEL_BASE	0x4000000000UL
++#define KERNEL_MAP	0xFFFFFFF000000000
++#define KERN_VA_MASK	0x0000000FFFFFFFFF
++#define CALL_MASK	KERN_VA_MASK
++#define KERNEL_BASE	0x4000000000
 +
 +/*
 + * Host protection support
 + */
++#define HYP_FIRST_HOSTCALL		0x8000
 +#define HYP_HOST_MAP_STAGE1		0x8000
 +#define HYP_HOST_MAP_STAGE2		0x8001
 +#define HYP_HOST_UNMAP_STAGE1		0x8002
 +#define HYP_HOST_UNMAP_STAGE2		0x8003
 +#define HYP_HOST_BOOTSTEP		0x8004
 +#define HYP_HOST_GET_VMID		0x8005
++#define HYP_HOST_SET_LOCKFLAGS		0x8006
++#define HYP_LAST_HOSTCALL		HYP_HOST_SET_LOCKFLAGS
 +
 +/*
 + * KVM guest support
 + */
++#define HYP_FIRST_GUESTCALL		0x9000
 +#define HYP_READ_MDCR_EL2		0x9000
 +#define HYP_SET_HYP_TXT			0x9001
 +#define HYP_SET_TPIDR			0x9002
@@ -961,11 +912,34 @@ index 000000000000..cc43518ea359
 +#define HYP_SET_WORKMEM			0x9008
 +#define HYP_USER_COPY			0x9009
 +#define HYP_MKYOUNG			0x900A
++#define HYP_SET_GUEST_MEMORY_OPEN	0x900B
++#define HYP_SET_GUEST_MEMORY_BLINDED	0x900C
++#define HYP_LAST_GUESTCALL		HYP_SET_GUEST_MEMORY_BLINDED
++
++/*
++ * Misc
++ */
++#define HYP_READ_LOG			0xA000
 +
 +#define STR(x) #x
 +#define XSTR(s) STR(s)
 +
++#ifndef __ASSEMBLY__
++extern int __kvms_hvc_cmd(unsigned long cmd, ...);
++extern uint64_t __kvms_hvc_get(unsigned long cmd, ...);
++#endif // __ASSEMBLY__
++
 +#endif // __HYP_API__
+diff --git a/arch/arm64/kvm/hyp/Makefile b/arch/arm64/kvm/hyp/Makefile
+index 4a81eddabcd8..d9bde57dc08c 100644
+--- a/arch/arm64/kvm/hyp/Makefile
++++ b/arch/arm64/kvm/hyp/Makefile
+@@ -10,4 +10,4 @@ subdir-ccflags-y := -I$(incdir)				\
+ 		    -DDISABLE_BRANCH_PROFILING		\
+ 		    $(DISABLE_STACKLEAK_PLUGIN)
+ 
+-obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o smccc_wa.o
++obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o smccc_wa.o kvms-hvci.o
 diff --git a/arch/arm64/kvm/hyp/entry.S b/arch/arm64/kvm/hyp/entry.S
 index 0c66a1d408fd..129c75a7e1b0 100644
 --- a/arch/arm64/kvm/hyp/entry.S
@@ -1010,6 +984,23 @@ index 0c66a1d408fd..129c75a7e1b0 100644
  
  	set_loaded_vcpu xzr, x2, x3
  
+diff --git a/arch/arm64/kvm/hyp/kvms-hvci.S b/arch/arm64/kvm/hyp/kvms-hvci.S
+new file mode 100644
+index 000000000000..4339c8f6fcb6
+--- /dev/null
++++ b/arch/arm64/kvm/hyp/kvms-hvci.S
+@@ -0,0 +1,11 @@
++#include <asm/alternative.h>
++#include <asm/assembler.h>
++#include <linux/linkage.h>
++
++SYM_FUNC_START(__kvms_hvc_cmd)
++	hvc	#0
++	ret
++
++SYM_FUNC_START(__kvms_hvc_get)
++	hvc	#0
++	ret
 diff --git a/arch/arm64/kvm/hyp/nvhe/switch.c b/arch/arm64/kvm/hyp/nvhe/switch.c
 index 6624596846d3..f9c92c42c013 100644
 --- a/arch/arm64/kvm/hyp/nvhe/switch.c
