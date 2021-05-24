@@ -1,4 +1,4 @@
-From 54772461f1fbef4ecaa4f2372d47e6160152b942 Mon Sep 17 00:00:00 2001
+From 2fde504d3764c9842d9d51a9f14dbc4b3c1dfbf3 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -11,11 +11,11 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/include/asm/kvm_host.h |  19 +-
  arch/arm64/include/asm/kvm_hyp.h  |  13 ++
  arch/arm64/include/asm/kvm_mmu.h  |  67 ++++--
- arch/arm64/kernel/asm-offsets.c   |   7 +
+ arch/arm64/kernel/asm-offsets.c   |   8 +
  arch/arm64/kernel/head.S          |  16 +-
  arch/arm64/kvm/Makefile           |   2 +-
  arch/arm64/kvm/arm.c              |  33 ++-
- arch/arm64/kvm/ext-guest.c        | 360 ++++++++++++++++++++++++++++++
+ arch/arm64/kvm/ext-guest.c        | 357 ++++++++++++++++++++++++++++++
  arch/arm64/kvm/ext-guest.h        |  21 ++
  arch/arm64/kvm/hvccall-defines.h  |  57 +++++
  arch/arm64/kvm/hyp/Makefile       |   2 +-
@@ -28,7 +28,8 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kvm/mmu.c              |  94 +++++---
  arch/arm64/kvm/reset.c            |   7 +-
  arch/arm64/lib/copy_template.S    |   9 +
- 22 files changed, 720 insertions(+), 101 deletions(-)
+ virt/kvm/kvm_main.c               |   2 +-
+ 23 files changed, 719 insertions(+), 102 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -307,10 +308,10 @@ index 331394306cce..62290e9cb8fd 100644
  #endif /* __ASSEMBLY__ */
  #endif /* __ARM64_KVM_MMU_H__ */
 diff --git a/arch/arm64/kernel/asm-offsets.c b/arch/arm64/kernel/asm-offsets.c
-index 7d32fc959b1a..78df08e2de3e 100644
+index 7d32fc959b1a..5cfe9282c5b6 100644
 --- a/arch/arm64/kernel/asm-offsets.c
 +++ b/arch/arm64/kernel/asm-offsets.c
-@@ -110,6 +110,13 @@ int main(void)
+@@ -110,6 +110,14 @@ int main(void)
    DEFINE(CPU_APGAKEYLO_EL1,	offsetof(struct kvm_cpu_context, sys_regs[APGAKEYLO_EL1]));
    DEFINE(HOST_CONTEXT_VCPU,	offsetof(struct kvm_cpu_context, __hyp_running_vcpu));
    DEFINE(HOST_DATA_CONTEXT,	offsetof(struct kvm_host_data, host_ctxt));
@@ -321,6 +322,7 @@ index 7d32fc959b1a..78df08e2de3e 100644
 +  DEFINE(KVM_S2MMU_PGD,		offsetof(struct kvm_s2_mmu, pgd_phys));
 +  DEFINE(KVM_ARCH_PGD,		offsetof(struct kvm_arch, mmu) + offsetof(struct kvm_s2_mmu, pgd_phys));
 +  DEFINE(KVM_ARCH_VMID,		offsetof(struct kvm_arch, mmu) + offsetof(struct kvm_s2_mmu, vmid));
++  DEFINE(KVM_ARCH_VCPU_SIZE,	sizeof(struct kvm_vcpu));
  #endif
  #ifdef CONFIG_CPU_PM
    DEFINE(CPU_CTX_SP,		offsetof(struct cpu_suspend_ctx, sp));
@@ -476,10 +478,10 @@ index a1c2c955474e..375c256677bc 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..cdd212a7993b
+index 000000000000..7be9099002a1
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,360 @@
+@@ -0,0 +1,357 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -562,9 +564,6 @@ index 000000000000..cdd212a7993b
 +
 +	err = __kvms_hvc_cmd(HYP_GUEST_UNMAP_STAGE2, vmid, start,
 +			     size, measure);
-+	if (err)
-+		pr_err("kvm: %s failed: %d\n", __func__, err);
-+
 +	/*
 +	 * If the hyp returned an error it did not fully unmap the
 +	 * blob, either the section was not completely mapped OR we
@@ -639,7 +638,7 @@ index 000000000000..cdd212a7993b
 +{
 +	unsigned long start = kern_hyp_va((unsigned long)__ts);
 +	unsigned long end = kern_hyp_va((unsigned long)__te);
-+	unsigned long *guest_exit = kvm_ksym_ref(__guest_exit);
++	unsigned long *guest_exit = kvm_ksym_ref_nvhe(__guest_exit);
 +	int err;
 +
 +	err = __kvms_hvc_cmd(HYP_SET_HYP_TXT, start, end,
@@ -1471,6 +1470,19 @@ index 488df234c49a..c83d8b563f30 100644
  	cmp	count, #16
  	/*When memory length is less than 16, the accessed are not aligned.*/
  	b.lo	.Ltiny15
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index ed4d2e3a0071..04b3175e9cf6 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -4823,7 +4823,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+ 	if (!vcpu_align)
+ 		vcpu_align = __alignof__(struct kvm_vcpu);
+ 	kvm_vcpu_cache =
+-		kmem_cache_create_usercopy("kvm_vcpu", vcpu_size, vcpu_align,
++		kmem_cache_create_usercopy("kvm_vcpu", vcpu_size, PAGE_SIZE,
+ 					   SLAB_ACCOUNT,
+ 					   offsetof(struct kvm_vcpu, arch),
+ 					   sizeof_field(struct kvm_vcpu, arch),
 -- 
 2.25.1
 
