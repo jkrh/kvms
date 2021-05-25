@@ -103,6 +103,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 	struct timeval tv;
 	uint64_t init_index;
 	int res;
+	kvm_guest_t *host;
 
 	__asm__ __volatile__("str	x26, %[__lr_addr]\n"
 			     "str	x27, %[__ret_addr]\n"
@@ -121,7 +122,10 @@ int main(int argc UNUSED, char **argv UNUSED)
 	if (init_index == 0) {
 		tdinfo_init();
 		table_init();
-		res = machine_init();
+		host = get_guest(HOST_VMID);
+		if (!host)
+			HYP_ABORT();
+		res = machine_init(host);
 		if (res)
 			return res;
 	} else {

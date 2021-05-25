@@ -105,7 +105,13 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 * Stage 1 and 2 host side mappings
 	 */
 	case HYP_HOST_MAP_STAGE1:
-		res = mmap_range(NULL, STAGE1, a1, a2, a3, a4, KERNEL_MATTR);
+		guest = get_guest(HOST_VMID);
+		if (!guest) {
+			res = -ENOENT;
+			break;
+		}
+		res = mmap_range(guest->s1_pgd, STAGE1, a1, a2, a3, a4,
+				 KERNEL_MATTR);
 		/*
 		 * kern_hyp_va: MSB WATCH
 		 *
@@ -133,7 +139,13 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 #endif // HOSTBLINDING_DEV
 		break;
 	case HYP_HOST_MAP_STAGE2:
-		res = mmap_range(NULL, STAGE2, a1, a2, a3, a4, KERNEL_MATTR);
+		guest = get_guest(HOST_VMID);
+		if (!guest) {
+			res = -ENOENT;
+			break;
+		}
+		res = mmap_range(guest->s2_pgd, STAGE2, a1, a2, a3, a4,
+				 KERNEL_MATTR);
 		break;
 	case HYP_HOST_BOOTSTEP:
 	/*	res = hyp_bootstep(a1, a2, a3, a4, a5, a6);*/

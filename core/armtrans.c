@@ -910,75 +910,80 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 {
 	kvm_guest_t *host = get_guest(HOST_VMID);
 	mblockinfo_t block;
+	uint64_t attr, nattr, val, *pte;
 
-	if (!host)
+	if (!host || !pgd)
 		HYP_ABORT();
 
 	memset(&block, 0, sizeof(block));
 
-	if (!pgd) {
-		block.guest = host;
+	switch (stage) {
+	case STAGE2:
+		block.guest = get_guest_by_s2pgd(pgd);
+		block.pgd = pgd;
+		if (type == KERNEL_MATTR)
+			type = (TYPE_MASK_STAGE2 & prot);
+		prot &= PROT_MASK_STAGE2;
 
-		switch (stage) {
-		case STAGE2:
-			if (hostflags & HOST_STAGE2_LOCK)
-				return -EPERM;
-
-			/* Only allow unmap or 1:1 mapping for the host */
-			if ((vaddr != paddr) && paddr) {
-				ERROR("invalid host st2 mapping 0x%lx - 0x%lx\n",
-				      vaddr, paddr);
-				return -EINVAL;
-			}
-			block.pgd = block.guest->s2_pgd;
-			prot &= PROT_MASK_STAGE2;
-			if (type == KERNEL_MATTR)
-				type = (TYPE_MASK_STAGE2 & prot);
+		if (block.guest != host)
 			break;
-		case STAGE1:
-			if (hostflags & HOST_STAGE1_LOCK)
-				return -EPERM;
 
-			block.pgd = block.guest->s1_pgd;
-			if (type == KERNEL_MATTR) {
-				type = (TYPE_MASK_STAGE1 & prot);
-				type = k2p_mattrindx(type);
-			}
-			prot &= PROT_MASK_STAGE1;
-			break;
-		default:
+		/* Unmap and 1:1 mapping allowed for the host */
+		if ((vaddr != paddr) && paddr) {
+			ERROR("Invalid host s2 map 0x%lx - 0x%lx\n",
+				vaddr, paddr);
 			return -EINVAL;
 		}
-	} else {
-		switch (stage) {
-		case STAGE2:
-			block.guest = get_guest_by_s2pgd(pgd);
-			block.pgd = pgd;
-			if (type == KERNEL_MATTR)
-				type = (TYPE_MASK_STAGE2 & prot);
-			prot &= PROT_MASK_STAGE2;
 
-			if ((block.guest == host) &&
-			    (hostflags & HOST_STAGE2_LOCK))
-				return -EPERM;
+		if (!(hostflags & HOST_STAGE2_LOCK))
 			break;
-		case STAGE1:
-			block.guest = get_guest_by_s1pgd(pgd);
-			block.pgd = pgd;
-			if (type == KERNEL_MATTR){
-				type = (TYPE_MASK_STAGE1 & prot);
-				type = k2p_mattrindx(type);
-			}
-			prot &= PROT_MASK_STAGE1;
+		/*
+		 * Reducing permissions allowed for locked
+		 * kernel stage2 mapping.
+		 */
+		pt_walk(block.pgd, vaddr, &pte, TABLE_LEVELS);
+		attr = (*pte &
+			(PROT_MASK_STAGE2 | TYPE_MASK_STAGE2));
+		nattr = (type | prot);
+		/* Remap with same parameters denied */
+		if (nattr == attr)
+			return -EPERM;
 
-			if ((block.guest == host) &&
-			    (hostflags & HOST_STAGE1_LOCK))
+		/* Write permission */
+		if (nattr & S2AP_WRITE) {
+			if (!(attr & S2AP_WRITE))
 				return -EPERM;
-			break;
-		default:
-			return -EINVAL;
 		}
+
+		/* Exec permission */
+		val = (nattr & S2_EXEC_MASK);
+		if (val != S2_EXEC_NONE) {
+			if (val != (attr & S2_EXEC_MASK))
+				return -EPERM;
+		}
+
+		nattr &= ~(S2AP_MASK | S2_EXEC_MASK);
+		attr &= ~(S2AP_MASK | S2_EXEC_MASK);
+		if (attr != nattr)
+			return -EPERM;
+		break;
+	case STAGE1:
+		block.guest = get_guest_by_s1pgd(pgd);
+		block.pgd = pgd;
+		if (type == KERNEL_MATTR) {
+			type = (TYPE_MASK_STAGE1 & prot);
+			type = k2p_mattrindx(type);
+		}
+		prot &= PROT_MASK_STAGE1;
+
+		if ((block.guest == host) &&
+			(hostflags & HOST_STAGE1_LOCK))
+			return -EPERM;
+		break;
+	default:
+		return -EINVAL;
 	}
+
 	if (!block.pgd || !block.guest || (length % PAGE_SIZE))
 		return -EINVAL;
 

@@ -57,10 +57,11 @@ static const memmap base_memmap[] = {
 	{ 0, 0 },
 };
 
-int machine_virt(void)
+int machine_virt(kvm_guest_t *host)
 {
 	int stage = STAGE1, res = 0, i;
 	uint64_t perms, type;
+	struct ptable *pgd;
 
 nextmap:
 	i = 0;
@@ -68,12 +69,14 @@ nextmap:
 		if (stage == STAGE2) {
 			perms = PAGE_HYP_RW;
 			type = S2_DEV_NGNRE;
+			pgd = host->s2_pgd;
 		} else {
 			perms = PAGE_KERNEL_RW;
 			type = DEVICE_MEMORY;
+			pgd = host->s1_pgd;
 		}
 
-		res = mmap_range(NULL, stage, base_memmap[i].addr,
+		res = mmap_range(pgd, stage, base_memmap[i].addr,
 				 base_memmap[i].addr, base_memmap[i].len,
 				 perms, type);
 		if (res)
@@ -85,14 +88,14 @@ nextmap:
 		goto nextmap;
 	}
 	perms = PAGE_KERNEL_RWX;
-	res = mmap_range(NULL, STAGE1, PHYS_OFFSET, PHYS_OFFSET, SZ_1G * 4,
-			 perms, NORMAL_MEMORY);
+	res = mmap_range(host->s1_pgd, STAGE1, PHYS_OFFSET, PHYS_OFFSET,
+			 SZ_1G * 4, perms, NORMAL_MEMORY);
 	if (res)
 		goto error;
 
 	perms = PAGE_HYP_RWX;
-	res = mmap_range(NULL, STAGE2, PHYS_OFFSET, PHYS_OFFSET, SZ_1G * 3,
-			 perms, S2_NORMAL_MEMORY);
+	res = mmap_range(host->s2_pgd, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
+			 SZ_1G * 3, perms, S2_NORMAL_MEMORY);
 	if (res)
 		goto error;
 
@@ -123,12 +126,12 @@ int console_putc(unsigned char c)
 	return _IO_putc((int)c, NULL);
 }
 
-int machine_init(void)
+int machine_init(kvm_guest_t *host)
 {
 	int res;
 
 	init_ready = false;
-	res = machine_virt();
+	res = machine_virt(host);
 	init_ready = true;
 
 	return res;
