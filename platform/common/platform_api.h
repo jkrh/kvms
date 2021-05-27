@@ -23,10 +23,11 @@
  * At persent only 1:1 IPA->PHY mapping is supported for
  * host stage 2 memory mapping.
  *
+ * @host: Virtual machine (kvm) structure for the host.
  * @return zero if succesfully initialized,
  * 	   other than zero in case of error.
  */
-int machine_init(void);
+int machine_init(kvm_guest_t *host);
 
 /**
  * machine_init_ready - Return the host platform initialization status.
