@@ -61,6 +61,9 @@ test: | module-test
 module-test:
 	python scripts/module-test.py $(MODULE)
 
+android-qemu:
+	./scripts/build-android-qemu.sh
+
 package:
 	$(MAKE) -C platform/$(PLATFORM)/tools/sign
 
