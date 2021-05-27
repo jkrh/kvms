@@ -1,0 +1,226 @@
+From 98195c00338ff51bd053b4035f9cfb5c27105478 Mon Sep 17 00:00:00 2001
+From: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+Date: Thu, 27 May 2021 10:05:14 +0300
+Subject: [PATCH] ranchu devices support to virt machine 5.2.0
+
+---
+ hw/arm/virt.c         | 126 +++++++++++++++++++++++++++++++++++++++++-
+ include/hw/arm/virt.h |   6 ++
+ 2 files changed, 131 insertions(+), 1 deletion(-)
+
+diff --git a/hw/arm/virt.c b/hw/arm/virt.c
+index 27dbeb549e..8f1a544614 100644
+--- a/hw/arm/virt.c
++++ b/hw/arm/virt.c
+@@ -46,6 +46,8 @@
+ #include "net/net.h"
+ #include "sysemu/device_tree.h"
+ #include "sysemu/numa.h"
++#include "sysemu/ranchu.h"
++
+ #include "sysemu/runstate.h"
+ #include "sysemu/sysemu.h"
+ #include "sysemu/tpm.h"
+@@ -112,6 +114,12 @@
+ 
+ #define PLATFORM_BUS_NUM_IRQS 64
+ 
++static QemuDeviceTreeSetupFunc virt_device_tree_setup_func;
++void qemu_device_tree_setup_callback2(QemuDeviceTreeSetupFunc setup_func)
++{
++    virt_device_tree_setup_func = setup_func;
++}
++
+ /* Legacy RAM limit in GB (< version 4.0) */
+ #define LEGACY_RAMLIMIT_GB 255
+ #define LEGACY_RAMLIMIT_BYTES (LEGACY_RAMLIMIT_GB * GiB)
+@@ -154,6 +162,11 @@ static const MemMapEntry base_memmap[] = {
+     [VIRT_PVTIME] =             { 0x090a0000, 0x00010000 },
+     [VIRT_MMIO] =               { 0x0a000000, 0x00000200 },
+     /* ...repeating for a total of NUM_VIRTIO_TRANSPORTS, each of that size */
++    [RANCHU_GOLDFISH_FB] =      { 0x0a020000, 0x00000100 },
++    [RANCHU_GOLDFISH_AUDIO] =   { 0x0a030000, 0x00000100 },
++    [RANCHU_GOLDFISH_BATTERY] = { 0x0a040000, 0x00001000 },
++    [RANCHU_GOLDFISH_EVDEV] =   { 0x0a050000, 0x00001000 },
++    [RANCHU_GOLDFISH_PIPE] =    { 0x0a060000, 0x00002000 },
+     [VIRT_PLATFORM_BUS] =       { 0x0c000000, 0x02000000 },
+     [VIRT_SECURE_MEM] =         { 0x0e000000, 0x01000000 },
+     [VIRT_PCIE_MMIO] =          { 0x10000000, 0x2eff0000 },
+@@ -189,6 +202,11 @@ static const int a15irqmap[] = {
+     [VIRT_SECURE_UART] = 8,
+     [VIRT_ACPI_GED] = 9,
+     [VIRT_MMIO] = 16, /* ...to 16 + NUM_VIRTIO_TRANSPORTS - 1 */
++    [RANCHU_GOLDFISH_FB] = 17,
++    [RANCHU_GOLDFISH_BATTERY] = 18,
++    [RANCHU_GOLDFISH_AUDIO] = 19,
++    [RANCHU_GOLDFISH_EVDEV] = 20,
++    [RANCHU_GOLDFISH_PIPE] = 21,
+     [VIRT_GIC_V2M] = 48, /* ...to 48 + NUM_GICV2M_SPIS - 1 */
+     [VIRT_SMMU] = 74,    /* ...to 74 + NUM_SMMU_IRQS - 1 */
+     [VIRT_PLATFORM_BUS] = 112, /* ...to 112 + PLATFORM_BUS_NUM_IRQS -1 */
+@@ -240,10 +258,21 @@ static void create_fdt(VirtMachineState *vms)
+     vms->fdt = fdt;
+ 
+     /* Header */
+-    qemu_fdt_setprop_string(fdt, "/", "compatible", "linux,dummy-virt");
++    qemu_fdt_setprop_string(fdt, "/", "compatible", "linux,ranchu");
+     qemu_fdt_setprop_cell(fdt, "/", "#address-cells", 0x2);
+     qemu_fdt_setprop_cell(fdt, "/", "#size-cells", 0x2);
+ 
++        /* Firmware node */
++    qemu_fdt_add_subnode(fdt, "/firmware");
++    qemu_fdt_add_subnode(fdt, "/firmware/android");
++    qemu_fdt_setprop_string(fdt, "/firmware/android", "compatible", "android,firmware");
++    qemu_fdt_setprop_string(fdt, "/firmware/android", "hardware", "ranchu");
++
++   if (virt_device_tree_setup_func) {
++        virt_device_tree_setup_func(fdt);
++    }
++    
++
+     /* /chosen must exist for load_dtb to fill in necessary properties later */
+     qemu_fdt_add_subnode(fdt, "/chosen");
+     create_kaslr_seed(vms, "/chosen");
+@@ -736,6 +765,62 @@ static void create_gic(VirtMachineState *vms)
+     }
+ }
+ 
++static void init_simple_device(DeviceState *dev,
++                               const VirtMachineState *vms,
++                               int devid, const char *sysbus_name,
++                               const char *compat,
++                               int num_compat_strings,
++                               const char *clocks, int num_clocks)
++{
++    int irq = vms->irqmap[devid];
++    hwaddr base = vms->memmap[devid].base;
++    hwaddr size = vms->memmap[devid].size;
++    char *nodename;
++    int i;
++    int compat_sz = 0;
++    int clocks_sz = 0;
++
++    SysBusDevice *s = SYS_BUS_DEVICE(dev);
++    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
++    sysbus_mmio_map(s, 0, base);
++
++    sysbus_connect_irq(s, 0, qdev_get_gpio_in(vms->gic, irq));
++
++    for (i = 0; i < num_compat_strings; i++) {
++        compat_sz += strlen(compat + compat_sz) + 1;
++    }
++
++    for (i = 0; i < num_clocks; i++) {
++        clocks_sz += strlen(clocks + clocks_sz) + 1;
++    }
++
++    nodename = g_strdup_printf("/%s@%" PRIx64, sysbus_name, base);
++    qemu_fdt_add_subnode(vms->fdt, nodename);
++    qemu_fdt_setprop(vms->fdt, nodename, "compatible", compat, compat_sz);
++    qemu_fdt_setprop_sized_cells(vms->fdt, nodename, "reg", 2, base, 2, size);
++    if (irq) {
++        qemu_fdt_setprop_cells(vms->fdt, nodename, "interrupts",
++                               GIC_FDT_IRQ_TYPE_SPI, irq,
++                               GIC_FDT_IRQ_FLAGS_LEVEL_HI);
++    }
++    if (num_clocks) {
++        qemu_fdt_setprop_cells(vms->fdt, nodename, "clocks",
++                               vms->clock_phandle, vms->clock_phandle);
++        qemu_fdt_setprop(vms->fdt, nodename, "clock-names",
++                         clocks, clocks_sz);
++    }
++    g_free(nodename);
++}
++
++static void create_simple_device(const VirtMachineState *vms,
++                                 int devid, const char *sysbus_name,
++                                 const char *compat, int num_compat_strings,
++                                 const char *clocks, int num_clocks)
++{
++    DeviceState *dev = qdev_new(sysbus_name);
++    init_simple_device(dev, vms, devid, sysbus_name, compat,
++                       num_compat_strings, clocks, num_clocks);
++}
+ static void create_uart(const VirtMachineState *vms, int uart,
+                         MemoryRegion *mem, Chardev *chr)
+ {
+@@ -1963,7 +2048,14 @@ static void machvirt_init(MachineState *machine)
+ 
+     fdt_add_pmu_nodes(vms);
+ 
++    const char *virtio_console_env =
++        getenv("ANDROID_EMULATOR_USE_VIRTIO_CONSOLE");
++
++    if (virtio_console_env && !strcmp("1", virtio_console_env)) {
++        // ignore uart creation, since it crashes on some aarch64 hosts
++    } else {
+     create_uart(vms, VIRT_UART, sysmem, serial_hd(0));
++    }
+ 
+     if (vms->secure) {
+         create_secure_ram(vms, secure_sysmem, secure_tag_sysmem);
+@@ -1981,12 +2073,44 @@ static void machvirt_init(MachineState *machine)
+ 
+     create_pcie(vms);
+ 
++    if (machine_usb(machine)) {
++        PCIBus *pci_bus = (PCIBus*)object_resolve_path_type("", TYPE_PCI_BUS, NULL);
++        if (!pci_bus)
++            error_report("No PCI bus available to add USB OHCI controller to.");
++        else
++            pci_create_simple(pci_bus, -1, "pci-ohci");
++    }
++
++    {
++        PCIBus *pci_bus = (PCIBus*)object_resolve_path_type("", TYPE_PCI_BUS, NULL);
++        if (!pci_bus)
++            error_report("No PCI bus available to add goldfish_address_space device to.");
++        pci_create_simple(pci_bus, PCI_DEVFN(11,0), "goldfish_address_space");
++    }
++
++
+     if (has_ged && aarch64 && firmware_loaded && virt_is_acpi_enabled(vms)) {
+         vms->acpi_dev = create_acpi_ged(vms);
+     } else {
+         create_gpio(vms);
+     }
+ 
++    create_simple_device(vms, RANCHU_GOLDFISH_FB, "goldfish_fb",
++                         "google,goldfish-fb\0"
++                         "generic,goldfish-fb", 2, 0, 0);
++    create_simple_device(vms, RANCHU_GOLDFISH_BATTERY, "goldfish_battery",
++                         "google,goldfish-battery\0"
++                         "generic,goldfish-battery", 2, 0, 0);
++    create_simple_device(vms, RANCHU_GOLDFISH_AUDIO, "goldfish_audio",
++                         "google,goldfish-audio\0"
++                         "generic,goldfish-audio", 2, 0, 0);
++    create_simple_device(vms, RANCHU_GOLDFISH_EVDEV, "goldfish-events",
++                         "google,goldfish-events-keypad\0"
++                         "generic,goldfish-events-keypad", 2, 0, 0);
++    create_simple_device(vms, RANCHU_GOLDFISH_PIPE, "goldfish_pipe",
++                         "google,android-pipe\0"
++                         "generic,android-pipe", 2, 0, 0);
++
+      /* connect powerdown request */
+      vms->powerdown_notifier.notify = virt_powerdown_req;
+      qemu_register_powerdown_notifier(&vms->powerdown_notifier);
+diff --git a/include/hw/arm/virt.h b/include/hw/arm/virt.h
+index aad6d69841..b7b415e1ff 100644
+--- a/include/hw/arm/virt.h
++++ b/include/hw/arm/virt.h
+@@ -71,6 +71,12 @@ enum {
+     VIRT_SMMU,
+     VIRT_UART,
+     VIRT_MMIO,
++    RANCHU_GOLDFISH_FB,
++    RANCHU_GOLDFISH_BATTERY,
++    RANCHU_GOLDFISH_AUDIO,
++    RANCHU_GOLDFISH_EVDEV,
++    RANCHU_GOLDFISH_PIPE,
++    RANCHU_GOLDFISH_SYNC,
+     VIRT_RTC,
+     VIRT_FW_CFG,
+     VIRT_PCIE,
+-- 
+2.25.1
+
