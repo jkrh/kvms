@@ -16,3 +16,6 @@
 [submodule "oss/linux"]
 	path = oss/linux
 	url = https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+[submodule "oss/qemu-android"]
+	path = oss/qemu-android
+	url = https://android.googlesource.com/platform/external/qemu
