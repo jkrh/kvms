@@ -8,6 +8,25 @@
 TOOLDIR=$BASE_DIR/buildtools
 QEMU_USER=`which qemu-aarch64-static`
 QEMU_PATCHFILE="$BASE_DIR/patches/0001-target-ranchu-add-support-for-android-ranchu-board.patch"
+
+if [ "x$STATIC" = "x1" ]; then
+echo "Static build"
+SSTATIC="--enable-static"
+QSTATIC="--static"
+else
+echo "Full sysroot build"
+SSTATIC=""
+QSTATIC=""
+fi
+
+if [ "x$OPENGL" = "x1" ]; then
+echo "OpenGL enabled"
+OPENGL="--enable-opengl"
+else
+echo "OpenGL disabled"
+OPENGL="--disable-opengl"
+fi
+
 set -e
 
 #
@@ -75,7 +94,7 @@ do_spice()
 	sudo rm -rf spice-0.14.3
 	wget https://www.spice-space.org/download/releases/spice-server/spice-0.14.3.tar.bz2
 	tar xf spice-0.14.3.tar.bz2
-	sudo -E chroot . sh -c "cd spice-0.14.3; ./configure --prefix=/usr --enable-static --disable-celt051 ; make -j$NJOBS ; make install"
+	sudo -E chroot . sh -c "cd spice-0.14.3; ./configure --prefix=/usr $SSTATIC --disable-celt051 ; make -j$NJOBS ; make install"
 }
 
 do_qemu()
@@ -85,8 +104,8 @@ do_qemu()
 	mkdir -p $BASE_DIR/oss/ubuntu/qemu/build
 	cd $BASE_DIR/oss/ubuntu
 	sed -i '4159i spice_libs="  $spice_libs -L/usr/lib/aarch64-linux-gnu -lopus -ljpeg -lm"' qemu/configure
-	sudo -E chroot . sh -c "cd qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --enable-spice --static"
-	sudo -E chroot . sh -c "cd qemu/build; make -j$NJOBS"
+	sudo -E chroot . sh -c "cd qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --enable-spice $OPENGL $QSTATIC"
+	sudo -E chroot . sh -c "cd qemu/build; make -j$NJOBS; make install"
 }
 do_clean
 do_sysroot
