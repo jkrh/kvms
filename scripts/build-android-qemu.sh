@@ -41,7 +41,7 @@ trap cleanup SIGHUP SIGINT SIGTERM EXIT
 do_clean()
 {
 	sudo rm -rf $BASE_DIR/oss/ubuntu
-	cd $BASE_DIR/oss/qemu; git clean -xfd || true
+	cd $BASE_DIR/oss/qemu; sudo git clean -xfd || true
 }
 
 do_patch()
@@ -85,7 +85,7 @@ do_qemu()
 	mkdir -p $BASE_DIR/oss/ubuntu/qemu/build
 	cd $BASE_DIR/oss/ubuntu
 	sed -i '4159i spice_libs="  $spice_libs -L/usr/lib/aarch64-linux-gnu -lopus -ljpeg -lm"' qemu/configure
-	sudo -E chroot . sh -c "cd qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --enable-opengl --enable-spice --static"
+	sudo -E chroot . sh -c "cd qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --enable-spice --static"
 	sudo -E chroot . sh -c "cd qemu/build; make -j$NJOBS"
 }
 do_clean

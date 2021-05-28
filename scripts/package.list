@@ -1,6 +1,3 @@
-#autoconf
-#automake
-#libtool
 python-six
 python-pyparsing
 ninja-build
