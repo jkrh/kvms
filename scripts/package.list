@@ -1,3 +1,7 @@
+autoconf
+automake
+libtool
+libwayland-dev
 python-six
 python-pyparsing
 ninja-build

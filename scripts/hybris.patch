@@ -1,0 +1,31 @@
+diff --git a/hybris/configure.ac b/hybris/configure.ac
+index ebb8ffa..1500799 100644
+--- a/hybris/configure.ac
++++ b/hybris/configure.ac
+@@ -320,7 +320,6 @@ AC_CONFIG_FILES([
+ 	hwc2/libhwc2.pc
+ 	opencl/Makefile
+ 	opencl/OpenCL.pc
+-	tests/Makefile
+ ])
+ 
+ AM_COND_IF([WANT_WAYLAND_EGL], [AC_CONFIG_FILES([egl/platforms/common/wayland-egl.pc])])
+diff --git a/hybris/tests/Makefile.am b/hybris/tests/Makefile.am
+index ccad0cc..71d1b1f 100644
+--- a/hybris/tests/Makefile.am
++++ b/hybris/tests/Makefile.am
+@@ -245,13 +245,13 @@ test_camera_CXXFLAGS += \
+ endif
+ if WANT_WAYLAND_EGL
+ test_camera_LDADD = \
++	$(WAYLAND_CLIENT_LIBS)
+ 	$(top_builddir)/common/libhybris-common.la \
+ 	$(top_builddir)/egl/libEGL.la \
+ 	$(top_builddir)/glesv2/libGLESv2.la \
+ 	$(top_builddir)/camera/libcamera.la \
+ 	$(top_builddir)/input/libis.la \
+ 	$(top_builddir)/egl/platforms/common/libwayland-egl.la \
+-	$(WAYLAND_CLIENT_LIBS)
+ else
+ test_camera_LDADD = \
+ 	$(top_builddir)/common/libhybris-common.la \
