@@ -303,3 +303,15 @@ libbluetooth-dev
 libcap-dev
 libjpeg8-dev
 libspice-protocol-dev
+libsdl2-2.0-0
+libsdl2-dev
+libdrm-common
+libdrm2
+libexpat1
+libffi7
+libwayland-server0
+libgbm1
+libepoxy0
+libepoxy-dev
+libvirglrenderer1
+libvirglrenderer-dev

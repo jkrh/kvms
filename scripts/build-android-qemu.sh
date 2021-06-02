@@ -12,7 +12,7 @@ QEMU_PATCHFILE="$BASE_DIR/patches/0001-target-ranchu-add-support-for-android-ran
 if [ "x$STATIC" = "x1" ]; then
 echo "Static build"
 SSTATIC="--enable-static"
-QSTATIC="--static"
+QSTATIC="--disable-libudev --disable-xkbcommon --static"
 else
 echo "Full sysroot build"
 SSTATIC=""
@@ -25,6 +25,30 @@ OPENGL="--enable-opengl"
 else
 echo "OpenGL disabled"
 OPENGL="--disable-opengl"
+fi
+
+if [ "x$SPICE" = "x1" ]; then
+echo "Spice enabled"
+SPICE="--enable-spice"
+else
+echo "Spice disabled"
+SPICE="--disable-spice"
+fi
+
+if [ "x$SDL" = "x0" ]; then
+echo "SDL disabled"
+SDL="--disable-sdl --audio-drv-list="
+else
+echo "SDL enabled"
+SDL="--enable-sdl --audio-drv-list=sdl"
+fi
+
+if [ "x$VIRGL" = "x0" ]; then
+echo "VIRGL disabled"
+VIRGL="--disable-virglrenderer"
+else
+echo "VIRGL enabled"
+VIRGL="--enable-virglrenderer"
 fi
 
 set -e
@@ -85,6 +109,7 @@ do_sysroot()
 	echo "nameserver 8.8.8.8" > etc/resolv.conf
 	cp $QEMU_USER usr/bin
 	sudo chmod a+rwx tmp
+	sudo mknod $CHROOTDIR/dev/urandom  c 1 9
 	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get update
 	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get -y install $PKGLIST
 }
@@ -105,7 +130,7 @@ do_qemu()
 	mkdir -p $BASE_DIR/oss/ubuntu/build/qemu/build
 	cd $BASE_DIR/oss/ubuntu/build
 	sed -i '/spice-server &&/i spice_libs="  -L/usr/lib/aarch64-linux-gnu -lgobject-2.0 -lgmodule-2.0 -lglib-2.0 $spice_libs -lopus -ljpeg -lm"' qemu/configure
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --enable-spice $OPENGL $QSTATIC"
+	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
 	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; make -j$NJOBS; make install"
 }
 
