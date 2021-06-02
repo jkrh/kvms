@@ -104,7 +104,7 @@ do_qemu()
 	sudo mount --bind $BASE_DIR/oss/qemu $BASE_DIR/oss/ubuntu/build/qemu
 	mkdir -p $BASE_DIR/oss/ubuntu/build/qemu/build
 	cd $BASE_DIR/oss/ubuntu/build
-	sed -i '4159i spice_libs="  $spice_libs -L/usr/lib/aarch64-linux-gnu -lopus -ljpeg -lm"' qemu/configure
+	sed -i '/spice-server &&/i spice_libs="  -L/usr/lib/aarch64-linux-gnu -lgobject-2.0 -lgmodule-2.0 -lglib-2.0 $spice_libs -lopus -ljpeg -lm"' qemu/configure
 	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --enable-spice $OPENGL $QSTATIC"
 	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; make -j$NJOBS; make install"
 }
