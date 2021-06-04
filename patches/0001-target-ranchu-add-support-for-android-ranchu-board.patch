@@ -1,4 +1,4 @@
-From 5af18e56c3b6ec85db82285dfcc68470a7db71b6 Mon Sep 17 00:00:00 2001
+From 4f1864a683180ccf7a2436644fa77f73e3aa1cd8 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 26 May 2021 15:49:22 +0300
 Subject: [PATCH] target/ranchu: add support for android 'ranchu' board
@@ -11,26 +11,53 @@ to modern QEMU (6.0+). The code is a rought prototype.
 
 Status:
 - board declaration ok
-- moved to gicv3 (for kvm/hardware invocation)
+- moved to gicv3 (for hw, ok)
 - framebuffer ported
+- battery ported
+- audio ported
+- events ported
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
  default-configs/devices/arm-softmmu.mak   |   1 +
- hw/arm/Kconfig                            |  32 +
+ hw/arm/Kconfig                            |  35 +
  hw/arm/meson.build                        |   1 +
- hw/arm/ranchu.c                           | 729 ++++++++++++++++++++++
+ hw/arm/ranchu.c                           | 729 +++++++++++++++++
+ hw/audio/Kconfig                          |   3 +
+ hw/audio/goldfish_audio.c                 | 508 ++++++++++++
+ hw/audio/meson.build                      |   1 +
  hw/display/Kconfig                        |   3 +
- hw/display/goldfish_fb.c                  | 549 ++++++++++++++++
+ hw/display/goldfish_fb.c                  | 549 +++++++++++++
  hw/display/meson.build                    |   1 +
+ hw/input/Kconfig                          |   3 +
+ hw/input/goldfish_events.c                | 954 ++++++++++++++++++++++
+ hw/input/goldfish_events_common.c         | 293 +++++++
+ hw/input/goldfish_events_common.h         | 259 ++++++
+ hw/input/goldfish_rotary.c                | 131 +++
+ hw/input/meson.build                      |   1 +
+ hw/misc/Kconfig                           |   3 +
+ hw/misc/goldfish_battery.c                | 452 ++++++++++
+ hw/misc/goldfish_battery.h                |  84 ++
+ hw/misc/meson.build                       |   1 +
  include/hw/display/goldfish_fb.h          |  25 +
  include/hw/display/goldfish_fb_template.h |  93 +++
- include/sysemu/ranchu.h                   |  41 ++
- 10 files changed, 1475 insertions(+)
+ include/hw/input/android_keycodes.h       |  30 +
+ include/hw/input/linux_keycodes.h         | 510 ++++++++++++
+ include/sysemu/ranchu.h                   |  41 +
+ 25 files changed, 4711 insertions(+)
  create mode 100644 hw/arm/ranchu.c
+ create mode 100644 hw/audio/goldfish_audio.c
  create mode 100644 hw/display/goldfish_fb.c
+ create mode 100644 hw/input/goldfish_events.c
+ create mode 100644 hw/input/goldfish_events_common.c
+ create mode 100644 hw/input/goldfish_events_common.h
+ create mode 100644 hw/input/goldfish_rotary.c
+ create mode 100644 hw/misc/goldfish_battery.c
+ create mode 100644 hw/misc/goldfish_battery.h
  create mode 100644 include/hw/display/goldfish_fb.h
  create mode 100644 include/hw/display/goldfish_fb_template.h
+ create mode 100644 include/hw/input/android_keycodes.h
+ create mode 100644 include/hw/input/linux_keycodes.h
  create mode 100644 include/sysemu/ranchu.h
 
 diff --git a/default-configs/devices/arm-softmmu.mak b/default-configs/devices/arm-softmmu.mak
@@ -46,10 +73,10 @@ index 0500156a0c..00a7be4c26 100644
  CONFIG_EXYNOS4=y
  CONFIG_HIGHBANK=y
 diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
-index 8c37cf00da..5f71537662 100644
+index 8c37cf00da..a381e26a69 100644
 --- a/hw/arm/Kconfig
 +++ b/hw/arm/Kconfig
-@@ -29,6 +29,38 @@ config ARM_VIRT
+@@ -29,6 +29,41 @@ config ARM_VIRT
      select ACPI_NVDIMM
      select ACPI_APEI
  
@@ -84,6 +111,9 @@ index 8c37cf00da..5f71537662 100644
 +    select ACPI_NVDIMM
 +    select ACPI_APEI
 +    select GOLDFISH_FB
++    select GOLDFISH_BATTERY
++    select GOLDFISH_AUDIO
++    select GOLDFISH_EVENTS
 +
  config CHEETAH
      bool
@@ -835,6 +865,540 @@ index 0000000000..39499f5964
 +}
 +
 +DEFINE_MACHINE("ranchu", ranchu_machine_init)
+diff --git a/hw/audio/Kconfig b/hw/audio/Kconfig
+index e9c6fed826..2924680708 100644
+--- a/hw/audio/Kconfig
++++ b/hw/audio/Kconfig
+@@ -50,3 +50,6 @@ config CS4231
+ 
+ config MARVELL_88W8618
+     bool
++
++config GOLDFISH_AUDIO
++    bool
+diff --git a/hw/audio/goldfish_audio.c b/hw/audio/goldfish_audio.c
+new file mode 100644
+index 0000000000..ec3da6d16c
+--- /dev/null
++++ b/hw/audio/goldfish_audio.c
+@@ -0,0 +1,508 @@
++/* Copyright (C) 2007-2008 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#include "qemu/osdep.h"
++#include "hw/hw.h"
++#include "audio/audio.h"
++#include "hw/sysbus.h"
++#include "qemu/error-report.h"
++#include "hw/irq.h"
++
++#define TYPE_GOLDFISH_AUDIO "goldfish_audio"
++#define GOLDFISH_AUDIO(obj) OBJECT_CHECK(struct goldfish_audio_state, (obj), TYPE_GOLDFISH_AUDIO)
++
++#ifdef __GNUC__
++#define audio_MIN(a, b) ( __extension__ ({      \
++    __typeof (a) ta = a;                        \
++    __typeof (b) tb = b;                        \
++    ((ta)>(tb)?(tb):(ta));                      \
++}))
++
++#define audio_MAX(a, b) ( __extension__ ({      \
++    __typeof (a) ta = a;                        \
++    __typeof (b) tb = b;                        \
++    ((ta)<(tb)?(tb):(ta));                      \
++}))
++#else
++#define audio_MIN(a, b) ((a)>(b)?(b):(a))
++#define audio_MAX(a, b) ((a)<(b)?(b):(a))
++#endif
++
++enum {
++	/* audio status register */
++	AUDIO_INT_STATUS	= 0x00,
++	/* set this to enable IRQ */
++	AUDIO_INT_ENABLE	= 0x04,
++	/* set these to specify buffer addresses */
++	AUDIO_SET_WRITE_BUFFER_1 = 0x08,
++	AUDIO_SET_WRITE_BUFFER_2 = 0x0C,
++	/* set number of bytes in buffer to write */
++	AUDIO_WRITE_BUFFER_1  = 0x10,
++	AUDIO_WRITE_BUFFER_2  = 0x14,
++
++	/* true if audio input is supported */
++	AUDIO_READ_SUPPORTED = 0x18,
++	/* buffer to use for audio input */
++	AUDIO_SET_READ_BUFFER = 0x1C,
++
++	/* driver writes number of bytes to read */
++	AUDIO_START_READ  = 0x20,
++
++	/* number of bytes available in read buffer */
++	AUDIO_READ_BUFFER_AVAILABLE  = 0x24,
++
++	/* for 64-bit guest CPUs only */
++	AUDIO_SET_WRITE_BUFFER_1_HIGH = 0x28,
++	AUDIO_SET_WRITE_BUFFER_2_HIGH = 0x30,
++	AUDIO_SET_READ_BUFFER_HIGH = 0x34,
++
++	/* AUDIO_INT_STATUS bits */
++
++	/* this bit set when it is safe to write more bytes to the buffer */
++	AUDIO_INT_WRITE_BUFFER_1_EMPTY	= 1U << 0,
++	AUDIO_INT_WRITE_BUFFER_2_EMPTY	= 1U << 1,
++	AUDIO_INT_READ_BUFFER_FULL      = 1U << 2,
++};
++
++struct goldfish_audio_buff {
++    uint64_t  address;
++    uint32_t  length;
++    uint8_t*  data;
++    uint32_t  capacity;
++    uint32_t  offset;
++};
++
++
++struct goldfish_audio_state {
++    SysBusDevice parent;
++
++    bool input;
++    bool output;
++
++    MemoryRegion iomem;
++    qemu_irq irq;
++
++    // buffer flags
++    uint32_t int_status;
++    // irq enable mask for int_status
++    uint32_t int_enable;
++
++    // number of bytes available in the read buffer
++    uint32_t read_buffer_available;
++
++    // set to 0 or 1 to indicate which buffer we are writing from, or -1 if both buffers are empty
++    int8_t current_buffer;
++
++    // current data to write
++    struct goldfish_audio_buff  out_buffs[2];
++    struct goldfish_audio_buff  in_buff;
++
++    // for QEMU sound output
++    QEMUSoundCard card;
++    SWVoiceOut *voice;
++    SWVoiceIn*  voicein;
++};
++
++static void
++goldfish_audio_buff_init( struct goldfish_audio_buff*  b )
++{
++    b->address  = 0;
++    b->length   = 0;
++    b->data     = NULL;
++    b->capacity = 0;
++    b->offset   = 0;
++}
++
++static void
++goldfish_audio_buff_reset( struct goldfish_audio_buff*  b )
++{
++    b->offset = 0;
++    b->length = 0;
++}
++
++static uint32_t
++goldfish_audio_buff_length( struct goldfish_audio_buff*  b )
++{
++    return b->length;
++}
++
++static void
++goldfish_audio_buff_ensure( struct goldfish_audio_buff*  b, uint32_t  size )
++{
++    if (b->capacity < size) {
++        b->data     = g_realloc(b->data, size);
++        b->capacity = size;
++    }
++}
++
++static void
++goldfish_audio_buff_set_address( struct goldfish_audio_buff*  b, uint32_t  addr )
++{
++    b->address = deposit64(b->address, 0, 32, addr);
++}
++
++static void
++goldfish_audio_buff_set_address_high( struct goldfish_audio_buff*  b,
++                                      uint32_t  addr )
++{
++    b->address = deposit64(b->address, 32, 32, addr);
++}
++
++static void
++goldfish_audio_buff_set_length( struct goldfish_audio_buff*  b, uint32_t  len )
++{
++    b->length = len;
++    b->offset = 0;
++    goldfish_audio_buff_ensure(b, len);
++}
++
++static void
++goldfish_audio_buff_read( struct goldfish_audio_buff*  b )
++{
++    cpu_physical_memory_read(b->address, b->data, b->length);
++}
++
++static void
++goldfish_audio_buff_write( struct goldfish_audio_buff*  b )
++{
++    cpu_physical_memory_write(b->address, b->data, b->length);
++}
++
++static int
++goldfish_audio_buff_available( struct goldfish_audio_buff*  b )
++{
++    return b->length - b->offset;
++}
++
++static int
++goldfish_audio_buff_recv( struct goldfish_audio_buff*  b, int  avail, struct goldfish_audio_state*  s )
++{
++    int     missing = b->length - b->offset;
++    int     avail2 = (avail > missing) ? missing : avail;
++    int     read;
++
++    read = AUD_read(s->voicein, b->data + b->offset, avail2 );
++    if (read == 0)
++        return 0;
++
++    cpu_physical_memory_write(b->address + b->offset, b->data + b->offset,
++            read);
++    b->offset += read;
++
++    return read;
++}
++
++/* update this whenever you change the goldfish_audio_state structure */
++#define  AUDIO_STATE_SAVE_VERSION  3
++
++static void enable_audio(struct goldfish_audio_state *s, int enable)
++{
++    if (s->voice != NULL) {
++        goldfish_audio_buff_reset( &s->out_buffs[0] );
++        goldfish_audio_buff_reset( &s->out_buffs[1] );
++    }
++
++    if (s->voicein) {
++        AUD_set_active_in (s->voicein, (enable & AUDIO_INT_READ_BUFFER_FULL) != 0);
++        goldfish_audio_buff_reset( &s->in_buff );
++    }
++    s->current_buffer = -1;
++}
++
++static void start_read(struct goldfish_audio_state *s, uint32_t count)
++{
++    //printf( "... goldfish audio start_read, count=%d\n", count );
++    goldfish_audio_buff_set_length( &s->in_buff, count );
++    s->read_buffer_available = count;
++}
++
++static uint64_t goldfish_audio_read(void *opaque, hwaddr offset, unsigned size)
++{
++    uint64_t ret;
++    struct goldfish_audio_state *s = opaque;
++    switch(offset) {
++        case AUDIO_INT_STATUS:
++            // return current buffer status flags
++            ret = s->int_status & s->int_enable;
++            if(ret) {
++                qemu_irq_lower(s->irq);
++            }
++            return ret;
++
++	case AUDIO_READ_SUPPORTED:
++            return (s->voicein != NULL);
++
++	case AUDIO_READ_BUFFER_AVAILABLE:
++            goldfish_audio_buff_write( &s->in_buff );
++	    return s->read_buffer_available;
++
++        default:
++            error_report ("goldfish_audio_read: Bad offset 0x" TARGET_FMT_plx,
++                    offset);
++            return 0;
++    }
++}
++
++static void goldfish_audio_write_buffer(struct goldfish_audio_state *s,
++        unsigned int buf, uint32_t length)
++{
++    if (s->current_buffer == -1)
++        s->current_buffer = buf;
++    goldfish_audio_buff_set_length(&s->out_buffs[buf], length);
++    goldfish_audio_buff_read(&s->out_buffs[buf]);
++    AUD_set_active_out(s->voice, 1);
++}
++
++static void goldfish_audio_write(void *opaque, hwaddr offset, uint64_t val,
++        unsigned size)
++{
++    struct goldfish_audio_state *s = opaque;
++
++    switch(offset) {
++        case AUDIO_INT_ENABLE:
++            /* enable buffer empty interrupts */
++            enable_audio(s, val);
++            s->int_enable = val;
++            s->int_status = (AUDIO_INT_WRITE_BUFFER_1_EMPTY | AUDIO_INT_WRITE_BUFFER_2_EMPTY);
++            qemu_set_irq(s->irq, s->int_status & s->int_enable);
++            break;
++        case AUDIO_SET_WRITE_BUFFER_1:
++            /* save pointer to buffer 1 */
++            goldfish_audio_buff_set_address( &s->out_buffs[0], val );
++            break;
++        case AUDIO_SET_WRITE_BUFFER_1_HIGH:
++            /* save pointer to buffer 1 */
++            goldfish_audio_buff_set_address_high( &s->out_buffs[0], val );
++            break;
++        case AUDIO_SET_WRITE_BUFFER_2:
++            /* save pointer to buffer 2 */
++            goldfish_audio_buff_set_address( &s->out_buffs[1], val );
++            break;
++        case AUDIO_SET_WRITE_BUFFER_2_HIGH:
++            /* save pointer to buffer 2 */
++            goldfish_audio_buff_set_address_high( &s->out_buffs[1], val );
++            break;
++        case AUDIO_WRITE_BUFFER_1:
++            /* record that data in buffer 1 is ready to write */
++            goldfish_audio_write_buffer(s, 0, val);
++            s->int_status &= ~AUDIO_INT_WRITE_BUFFER_1_EMPTY;
++            break;
++        case AUDIO_WRITE_BUFFER_2:
++            /* record that data in buffer 2 is ready to write */
++            goldfish_audio_write_buffer(s, 1, val);
++            s->int_status &= ~AUDIO_INT_WRITE_BUFFER_2_EMPTY;
++            break;
++
++        case AUDIO_SET_READ_BUFFER:
++            /* save pointer to the read buffer */
++            goldfish_audio_buff_set_address( &s->in_buff, val );
++            break;
++
++        case AUDIO_START_READ:
++            start_read(s, val);
++            s->int_status &= ~AUDIO_INT_READ_BUFFER_FULL;
++            qemu_set_irq(s->irq, s->int_status & s->int_enable);
++            break;
++
++        case AUDIO_SET_READ_BUFFER_HIGH:
++            /* save pointer to the read buffer */
++            goldfish_audio_buff_set_address_high( &s->in_buff, val );
++            break;
++
++        default:
++            error_report ("goldfish_audio_write: Bad offset 0x" TARGET_FMT_plx,
++                    offset);
++    }
++}
++
++static bool goldfish_audio_flush(struct goldfish_audio_state *s, int buf,
++        int *free, uint32_t *new_status)
++{
++    struct goldfish_audio_buff *b = &s->out_buffs[buf];
++    int to_write = audio_MIN(b->length, *free);
++
++    if (!to_write)
++        return false;
++
++    int written = AUD_write(s->voice, b->data + b->offset, to_write);
++    if (!written)
++        return false;
++
++    b->offset += written;
++    b->length -= written;
++    *free -= written;
++
++    /* If buffer is drained, set corresponding status bit. */
++    if (!goldfish_audio_buff_length(b))
++        *new_status |= buf ? AUDIO_INT_WRITE_BUFFER_2_EMPTY :
++                AUDIO_INT_WRITE_BUFFER_1_EMPTY;
++
++    return true;
++}
++
++static void goldfish_audio_callback(void *opaque, int free)
++{
++    struct goldfish_audio_state *s = opaque;
++    uint32_t new_status = 0;
++
++    if (s->current_buffer != -1) {
++        int8_t i = s->current_buffer;
++        int8_t j = (i + 1) % 2;
++
++        goldfish_audio_flush(s, i, &free, &new_status);
++        goldfish_audio_flush(s, j, &free, &new_status);
++
++        if (!goldfish_audio_buff_length(&s->out_buffs[i])) {
++            if (goldfish_audio_buff_length(&s->out_buffs[j])) {
++                s->current_buffer = j;
++            } else {
++                s->current_buffer = -1;
++            }
++        }
++    }
++
++    if (free) /* out of samples, pause playback */
++        AUD_set_active_out(s->voice, 0);
++
++    if (new_status && new_status != s->int_status) {
++        s->int_status |= new_status;
++        qemu_set_irq(s->irq, s->int_status & s->int_enable);
++    }
++}
++
++static void
++goldfish_audio_in_callback(void *opaque, int avail)
++{
++    struct goldfish_audio_state *s = opaque;
++    int new_status = 0;
++
++    if (goldfish_audio_buff_available( &s->in_buff ) == 0 )
++        return;
++
++    while (avail > 0) {
++        int  read = goldfish_audio_buff_recv( &s->in_buff, avail, s );
++        if (read == 0)
++            break;
++
++        avail -= read;
++
++        if (goldfish_audio_buff_available( &s->in_buff) == 0) {
++            new_status |= AUDIO_INT_READ_BUFFER_FULL;
++            break;
++        }
++    }
++
++    if (new_status && new_status != s->int_status) {
++        s->int_status |= new_status;
++        qemu_set_irq(s->irq, s->int_status & s->int_enable);
++    }
++}
++
++static const MemoryRegionOps goldfish_audio_iomem_ops = {
++    .read = goldfish_audio_read,
++    .write = goldfish_audio_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++    .impl.min_access_size = 4,
++    .impl.max_access_size = 4,
++};
++
++static void goldfish_audio_realize(DeviceState *dev, Error **errp)
++{
++    SysBusDevice *sbdev = SYS_BUS_DEVICE(dev);
++    struct goldfish_audio_state *s = GOLDFISH_AUDIO(dev);
++    struct audsettings as;
++
++    /* MMIO must be set up regardless of whether the initialization of input
++     * and output voices is successful or not. Otherwise, an assertion error
++     * will occur in sysbus_mmio_map_common() (hw/core/sysbus.c).
++     */
++    memory_region_init_io(&s->iomem, OBJECT(s), &goldfish_audio_iomem_ops, s,
++            "goldfish_audio", 0x100);
++    sysbus_init_mmio(sbdev, &s->iomem);
++    sysbus_init_irq(sbdev, &s->irq);
++
++    /* Skip all the rest if both audio input and output are disabled. */
++    if (!s->output && !s->input) {
++        return;
++    }
++
++    AUD_register_card( "goldfish_audio", &s->card);
++
++    if (s->output) {
++        as.freq = 44100;
++        as.nchannels = 2;
++        as.fmt = AUDIO_FORMAT_S16;
++        as.endianness = AUDIO_HOST_ENDIANNESS;
++        s->voice = AUD_open_out (
++            &s->card,
++            NULL,
++            "goldfish_audio",
++            s,
++            goldfish_audio_callback,
++            &as
++            );
++        if (!s->voice) {
++            error_report("warning: opening audio output failed");
++        } else {
++            goldfish_audio_buff_init( &s->out_buffs[0] );
++            goldfish_audio_buff_init( &s->out_buffs[1] );
++        }
++    }
++
++    if (s->input) {
++        as.freq       = 8000;
++        as.nchannels  = 1;
++        as.fmt        = AUDIO_FORMAT_S16;
++        as.endianness = AUDIO_HOST_ENDIANNESS;
++        s->voicein = AUD_open_in (
++            &s->card,
++            NULL,
++            "goldfish_audio_in",
++            s,
++            goldfish_audio_in_callback,
++            &as
++            );
++        if (!s->voicein) {
++            error_report("warning: opening audio input failed");
++        } else {
++            goldfish_audio_buff_init( &s->in_buff );
++        }
++    }
++}
++
++static Property goldfish_audio_properties[] = {
++    DEFINE_PROP_BOOL("input", struct goldfish_audio_state, input, true),
++    DEFINE_PROP_BOOL("output", struct goldfish_audio_state, output, true),
++    DEFINE_PROP_END_OF_LIST(),
++};
++
++static void goldfish_audio_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = goldfish_audio_realize;
++    dc->desc = "goldfish audio";
++    device_class_set_props(dc, goldfish_audio_properties);
++}
++
++static const TypeInfo goldfish_audio_info = {
++    .name          = TYPE_GOLDFISH_AUDIO,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(struct goldfish_audio_state),
++    .class_init    = goldfish_audio_class_init,
++};
++
++static void goldfish_audio_register(void)
++{
++    type_register_static(&goldfish_audio_info);
++}
++
++type_init(goldfish_audio_register);
+diff --git a/hw/audio/meson.build b/hw/audio/meson.build
+index 32c42bdebe..1b8e39f5a2 100644
+--- a/hw/audio/meson.build
++++ b/hw/audio/meson.build
+@@ -13,3 +13,4 @@ softmmu_ss.add(when: 'CONFIG_PL041', if_true: files('pl041.c', 'lm4549.c'))
+ softmmu_ss.add(when: 'CONFIG_SB16', if_true: files('sb16.c'))
+ softmmu_ss.add(when: 'CONFIG_VT82C686', if_true: files('via-ac97.c'))
+ softmmu_ss.add(when: 'CONFIG_WM8750', if_true: files('wm8750.c'))
++softmmu_ss.add(when: 'CONFIG_GOLDFISH_AUDIO', if_true: files('goldfish_audio.c'))
 diff --git a/hw/display/Kconfig b/hw/display/Kconfig
 index ca46b5830e..897d1ce4f1 100644
 --- a/hw/display/Kconfig
@@ -1416,6 +1980,2259 @@ index 9d79e3951d..f9765417f8 100644
  
  softmmu_ss.add(when: 'CONFIG_BLIZZARD', if_true: files('blizzard.c'))
  softmmu_ss.add(when: 'CONFIG_EXYNOS4', if_true: files('exynos4210_fimd.c'))
+diff --git a/hw/input/Kconfig b/hw/input/Kconfig
+index 55865bb386..f179a081d8 100644
+--- a/hw/input/Kconfig
++++ b/hw/input/Kconfig
+@@ -46,3 +46,6 @@ config TSC210X
+ 
+ config LASIPS2
+     select PS2
++
++config GOLDFISH_EVENTS
++    bool
+diff --git a/hw/input/goldfish_events.c b/hw/input/goldfish_events.c
+new file mode 100644
+index 0000000000..e7ff47c77b
+--- /dev/null
++++ b/hw/input/goldfish_events.c
+@@ -0,0 +1,954 @@
++/*
++ * Goldfish 'events' device model
++ *
++ * Copyright (C) 2007-2008 The Android Open Source Project
++ * Copyright (c) 2014 Linaro Limited
++ *
++ * This software is licensed under the terms of the GNU General Public
++ * License version 2, as published by the Free Software Foundation, and
++ * may be copied, distributed, and modified under those terms.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "hw/sysbus.h"
++#include "ui/input.h"
++#include "ui/console.h"
++#include "hw/input/android_keycodes.h"
++#include "hw/input/linux_keycodes.h"
++#include "hw/input/goldfish_events_common.h"
++
++#include "hw/input/goldfish_events.h"
++
++typedef struct {
++    const char *name;
++    int value;
++} GoldfishEventCodeInfo;
++
++static const GoldfishEventCodeInfo ev_abs_codes_table[] = {
++    EV_CODE(ABS_X),
++    EV_CODE(ABS_Y),
++    EV_CODE(ABS_Z),
++    EV_CODE(ABS_MT_SLOT),
++    EV_CODE(ABS_MT_TOUCH_MAJOR),
++    EV_CODE(ABS_MT_TOUCH_MINOR),
++    EV_CODE(ABS_MT_WIDTH_MAJOR),
++    EV_CODE(ABS_MT_WIDTH_MINOR),
++    EV_CODE(ABS_MT_ORIENTATION),
++    EV_CODE(ABS_MT_POSITION_X),
++    EV_CODE(ABS_MT_POSITION_Y),
++    EV_CODE(ABS_MT_TOOL_TYPE),
++    EV_CODE(ABS_MT_BLOB_ID),
++    EV_CODE(ABS_MT_TRACKING_ID),
++    EV_CODE(ABS_MT_PRESSURE),
++    EV_CODE(ABS_MT_DISTANCE),
++    EV_CODE(ABS_MAX),
++    EV_CODE_END,
++};
++
++static const GoldfishEventCodeInfo ev_rel_codes_table[] = {
++    EV_CODE(REL_X),
++    EV_CODE(REL_Y),
++    EV_CODE_END,
++};
++
++static const GoldfishEventCodeInfo ev_sw_codes_table[] = {
++    EV_CODE(SW_LID),
++    EV_CODE(SW_TABLET_MODE),
++    EV_CODE(SW_HEADPHONE_INSERT),
++    EV_CODE(SW_MICROPHONE_INSERT),
++    EV_CODE_END,
++};
++
++static const GoldfishEventCodeInfo ev_key_codes_table[] = {
++    KEY_CODE(KEY_ESC, LINUX_KEY_ESC),
++    KEY_CODE(KEY_1, LINUX_KEY_1),
++    KEY_CODE(KEY_2, LINUX_KEY_2),
++    KEY_CODE(KEY_3, LINUX_KEY_3),
++    KEY_CODE(KEY_4, LINUX_KEY_4),
++    KEY_CODE(KEY_5, LINUX_KEY_5),
++    KEY_CODE(KEY_6, LINUX_KEY_6),
++    KEY_CODE(KEY_7, LINUX_KEY_7),
++    KEY_CODE(KEY_8, LINUX_KEY_8),
++    KEY_CODE(KEY_9, LINUX_KEY_9),
++    KEY_CODE(KEY_0, LINUX_KEY_0),
++    KEY_CODE(KEY_MINUS, LINUX_KEY_MINUS),
++    KEY_CODE(KEY_EQUAL, LINUX_KEY_EQUAL),
++    KEY_CODE(KEY_BACKSPACE, LINUX_KEY_BACKSPACE),
++    KEY_CODE(KEY_TAB, LINUX_KEY_TAB),
++    KEY_CODE(KEY_Q, LINUX_KEY_Q),
++    KEY_CODE(KEY_W, LINUX_KEY_W),
++    KEY_CODE(KEY_E, LINUX_KEY_E),
++    KEY_CODE(KEY_R, LINUX_KEY_R),
++    KEY_CODE(KEY_T, LINUX_KEY_T),
++    KEY_CODE(KEY_Y, LINUX_KEY_Y),
++    KEY_CODE(KEY_U, LINUX_KEY_U),
++    KEY_CODE(KEY_I, LINUX_KEY_I),
++    KEY_CODE(KEY_O, LINUX_KEY_O),
++    KEY_CODE(KEY_P, LINUX_KEY_P),
++    KEY_CODE(KEY_LEFTBRACE, LINUX_KEY_LEFTBRACE),
++    KEY_CODE(KEY_RIGHTBRACE, LINUX_KEY_RIGHTBRACE),
++    KEY_CODE(KEY_ENTER, LINUX_KEY_ENTER),
++    KEY_CODE(KEY_LEFTCTRL, LINUX_KEY_LEFTCTRL),
++    KEY_CODE(KEY_A, LINUX_KEY_A),
++    KEY_CODE(KEY_S, LINUX_KEY_S),
++    KEY_CODE(KEY_D, LINUX_KEY_D),
++    KEY_CODE(KEY_F, LINUX_KEY_F),
++    KEY_CODE(KEY_G, LINUX_KEY_G),
++    KEY_CODE(KEY_H, LINUX_KEY_H),
++    KEY_CODE(KEY_J, LINUX_KEY_J),
++    KEY_CODE(KEY_K, LINUX_KEY_K),
++    KEY_CODE(KEY_L, LINUX_KEY_L),
++    KEY_CODE(KEY_SEMICOLON, LINUX_KEY_SEMICOLON),
++    KEY_CODE(KEY_APOSTROPHE, LINUX_KEY_APOSTROPHE),
++    KEY_CODE(KEY_GRAVE, LINUX_KEY_GRAVE),
++    KEY_CODE(KEY_LEFTSHIFT, LINUX_KEY_LEFTSHIFT),
++    KEY_CODE(KEY_BACKSLASH, LINUX_KEY_BACKSLASH),
++    KEY_CODE(KEY_Z, LINUX_KEY_Z),
++    KEY_CODE(KEY_X, LINUX_KEY_X),
++    KEY_CODE(KEY_C, LINUX_KEY_C),
++    KEY_CODE(KEY_V, LINUX_KEY_V),
++    KEY_CODE(KEY_B, LINUX_KEY_B),
++    KEY_CODE(KEY_N, LINUX_KEY_N),
++    KEY_CODE(KEY_M, LINUX_KEY_M),
++    KEY_CODE(KEY_COMMA, LINUX_KEY_COMMA),
++    KEY_CODE(KEY_DOT, LINUX_KEY_DOT),
++    KEY_CODE(KEY_SLASH, LINUX_KEY_SLASH),
++    KEY_CODE(KEY_RIGHTSHIFT, LINUX_KEY_RIGHTSHIFT),
++    KEY_CODE(KEY_KPASTERISK, LINUX_KEY_KPASTERISK),
++    KEY_CODE(KEY_LEFTALT, LINUX_KEY_LEFTALT),
++    KEY_CODE(KEY_SPACE, LINUX_KEY_SPACE),
++    KEY_CODE(KEY_CAPSLOCK, LINUX_KEY_CAPSLOCK),
++    KEY_CODE(KEY_F1, LINUX_KEY_F1),
++    KEY_CODE(KEY_F2, LINUX_KEY_F2),
++    KEY_CODE(KEY_F3, LINUX_KEY_F3),
++    KEY_CODE(KEY_F4, LINUX_KEY_F4),
++    KEY_CODE(KEY_F5, LINUX_KEY_F5),
++    KEY_CODE(KEY_F6, LINUX_KEY_F6),
++    KEY_CODE(KEY_F7, LINUX_KEY_F7),
++    KEY_CODE(KEY_F8, LINUX_KEY_F8),
++    KEY_CODE(KEY_F9, LINUX_KEY_F9),
++    KEY_CODE(KEY_F10, LINUX_KEY_F10),
++    KEY_CODE(KEY_NUMLOCK, LINUX_KEY_NUMLOCK),
++    KEY_CODE(KEY_SCROLLLOCK, LINUX_KEY_SCROLLLOCK),
++    KEY_CODE(KEY_KP7, LINUX_KEY_KP7),
++    KEY_CODE(KEY_KP8, LINUX_KEY_KP8),
++    KEY_CODE(KEY_KP9, LINUX_KEY_KP9),
++    KEY_CODE(KEY_KPMINUS, LINUX_KEY_KPMINUS),
++    KEY_CODE(KEY_KP4, LINUX_KEY_KP4),
++    KEY_CODE(KEY_KP5, LINUX_KEY_KP5),
++    KEY_CODE(KEY_KP6, LINUX_KEY_KP6),
++    KEY_CODE(KEY_KPPLUS, LINUX_KEY_KPPLUS),
++    KEY_CODE(KEY_KP1, LINUX_KEY_KP1),
++    KEY_CODE(KEY_KP2, LINUX_KEY_KP2),
++    KEY_CODE(KEY_KP3, LINUX_KEY_KP3),
++    KEY_CODE(KEY_KP0, LINUX_KEY_KP0),
++    KEY_CODE(KEY_KPDOT, LINUX_KEY_KPDOT),
++    KEY_CODE(KEY_ZENKAKUHANKAKU, LINUX_KEY_ZENKAKUHANKAKU),
++    KEY_CODE(KEY_102ND, LINUX_KEY_102ND),
++    KEY_CODE(KEY_F11, LINUX_KEY_F11),
++    KEY_CODE(KEY_F12, LINUX_KEY_F12),
++    KEY_CODE(KEY_RO, LINUX_KEY_RO),
++    KEY_CODE(KEY_KATAKANA, LINUX_KEY_KATAKANA),
++    KEY_CODE(KEY_HIRAGANA, LINUX_KEY_HIRAGANA),
++    KEY_CODE(KEY_HENKAN, LINUX_KEY_HENKAN),
++    KEY_CODE(KEY_KATAKANAHIRAGANA, LINUX_KEY_KATAKANAHIRAGANA),
++    KEY_CODE(KEY_MUHENKAN, LINUX_KEY_MUHENKAN),
++    KEY_CODE(KEY_KPJPCOMMA, LINUX_KEY_KPJPCOMMA),
++    KEY_CODE(KEY_KPENTER, LINUX_KEY_KPENTER),
++    KEY_CODE(KEY_RIGHTCTRL, LINUX_KEY_RIGHTCTRL),
++    KEY_CODE(KEY_KPSLASH, LINUX_KEY_KPSLASH),
++    KEY_CODE(KEY_SYSRQ, LINUX_KEY_SYSRQ),
++    KEY_CODE(KEY_RIGHTALT, LINUX_KEY_RIGHTALT),
++    KEY_CODE(KEY_LINEFEED, LINUX_KEY_LINEFEED),
++    KEY_CODE(KEY_HOME, LINUX_KEY_HOME),
++    KEY_CODE(KEY_UP, LINUX_KEY_UP),
++    KEY_CODE(KEY_PAGEUP, LINUX_KEY_PAGEUP),
++    KEY_CODE(KEY_LEFT, LINUX_KEY_LEFT),
++    KEY_CODE(KEY_RIGHT, LINUX_KEY_RIGHT),
++    KEY_CODE(KEY_END, LINUX_KEY_END),
++    KEY_CODE(KEY_DOWN, LINUX_KEY_DOWN),
++    KEY_CODE(KEY_PAGEDOWN, LINUX_KEY_PAGEDOWN),
++    KEY_CODE(KEY_INSERT, LINUX_KEY_INSERT),
++    KEY_CODE(KEY_DELETE, LINUX_KEY_DELETE),
++    KEY_CODE(KEY_MACRO, LINUX_KEY_MACRO),
++    KEY_CODE(KEY_MUTE, LINUX_KEY_MUTE),
++    KEY_CODE(KEY_VOLUMEDOWN, LINUX_KEY_VOLUMEDOWN),
++    KEY_CODE(KEY_VOLUMEUP, LINUX_KEY_VOLUMEUP),
++    KEY_CODE(KEY_POWER, LINUX_KEY_POWER),
++    KEY_CODE(KEY_KPEQUAL, LINUX_KEY_KPEQUAL),
++    KEY_CODE(KEY_KPPLUSMINUS, LINUX_KEY_KPPLUSMINUS),
++    KEY_CODE(KEY_PAUSE, LINUX_KEY_PAUSE),
++    KEY_CODE(KEY_KPCOMMA, LINUX_KEY_KPCOMMA),
++    KEY_CODE(KEY_HANGEUL, LINUX_KEY_HANGEUL),
++    KEY_CODE(KEY_HANJA, LINUX_KEY_HANJA),
++    KEY_CODE(KEY_YEN, LINUX_KEY_YEN),
++    KEY_CODE(KEY_LEFTMETA, LINUX_KEY_LEFTMETA),
++    KEY_CODE(KEY_RIGHTMETA, LINUX_KEY_RIGHTMETA),
++    KEY_CODE(KEY_COMPOSE, LINUX_KEY_COMPOSE),
++    KEY_CODE(KEY_AGAIN, LINUX_KEY_AGAIN),
++    KEY_CODE(KEY_PROPS, LINUX_KEY_PROPS),
++    KEY_CODE(KEY_UNDO, LINUX_KEY_UNDO),
++    KEY_CODE(KEY_FRONT, LINUX_KEY_FRONT),
++    KEY_CODE(KEY_COPY, LINUX_KEY_COPY),
++    KEY_CODE(KEY_OPEN, LINUX_KEY_OPEN),
++    KEY_CODE(KEY_PASTE, LINUX_KEY_PASTE),
++    KEY_CODE(KEY_FIND, LINUX_KEY_FIND),
++    KEY_CODE(KEY_CUT, LINUX_KEY_CUT),
++    KEY_CODE(KEY_HELP, LINUX_KEY_HELP),
++    KEY_CODE(KEY_MENU, LINUX_KEY_MENU),
++    KEY_CODE(KEY_CALC, LINUX_KEY_CALC),
++    KEY_CODE(KEY_SETUP, LINUX_KEY_SETUP),
++    KEY_CODE(KEY_SLEEP, LINUX_KEY_SLEEP),
++    KEY_CODE(KEY_WAKEUP, LINUX_KEY_WAKEUP),
++    KEY_CODE(KEY_FILE, LINUX_KEY_FILE),
++    KEY_CODE(KEY_SENDFILE, LINUX_KEY_SENDFILE),
++    KEY_CODE(KEY_DELETEFILE, LINUX_KEY_DELETEFILE),
++    KEY_CODE(KEY_XFER, LINUX_KEY_XFER),
++    KEY_CODE(KEY_PROG1, LINUX_KEY_PROG1),
++    KEY_CODE(KEY_PROG2, LINUX_KEY_PROG2),
++    KEY_CODE(KEY_WWW, LINUX_KEY_WWW),
++    KEY_CODE(KEY_MSDOS, LINUX_KEY_MSDOS),
++    KEY_CODE(KEY_COFFEE, LINUX_KEY_COFFEE),
++    KEY_CODE(KEY_DIRECTION, LINUX_KEY_DIRECTION),
++    KEY_CODE(KEY_CYCLEWINDOWS, LINUX_KEY_CYCLEWINDOWS),
++    KEY_CODE(KEY_MAIL, LINUX_KEY_MAIL),
++    KEY_CODE(KEY_BOOKMARKS, LINUX_KEY_BOOKMARKS),
++    KEY_CODE(KEY_COMPUTER, LINUX_KEY_COMPUTER),
++    KEY_CODE(KEY_BACK, LINUX_KEY_BACK),
++    KEY_CODE(KEY_FORWARD, LINUX_KEY_FORWARD),
++    KEY_CODE(KEY_CLOSECD, LINUX_KEY_CLOSECD),
++    KEY_CODE(KEY_EJECTCD, LINUX_KEY_EJECTCD),
++    KEY_CODE(KEY_EJECTCLOSECD, LINUX_KEY_EJECTCLOSECD),
++    KEY_CODE(KEY_NEXTSONG, LINUX_KEY_NEXTSONG),
++    KEY_CODE(KEY_PLAYPAUSE, LINUX_KEY_PLAYPAUSE),
++    KEY_CODE(KEY_PREVIOUSSONG, LINUX_KEY_PREVIOUSSONG),
++    KEY_CODE(KEY_STOPCD, LINUX_KEY_STOPCD),
++    KEY_CODE(KEY_RECORD, LINUX_KEY_RECORD),
++    KEY_CODE(KEY_REWIND, LINUX_KEY_REWIND),
++    KEY_CODE(KEY_PHONE, LINUX_KEY_PHONE),
++    KEY_CODE(KEY_ISO, LINUX_KEY_ISO),
++    KEY_CODE(KEY_CONFIG, LINUX_KEY_CONFIG),
++    KEY_CODE(KEY_HOMEPAGE, LINUX_KEY_HOMEPAGE),
++    KEY_CODE(KEY_REFRESH, LINUX_KEY_REFRESH),
++    KEY_CODE(KEY_EXIT, LINUX_KEY_EXIT),
++    KEY_CODE(KEY_MOVE, LINUX_KEY_MOVE),
++    KEY_CODE(KEY_EDIT, LINUX_KEY_EDIT),
++    KEY_CODE(KEY_SCROLLUP, LINUX_KEY_SCROLLUP),
++    KEY_CODE(KEY_SCROLLDOWN, LINUX_KEY_SCROLLDOWN),
++    KEY_CODE(KEY_KPLEFTPAREN, LINUX_KEY_KPLEFTPAREN),
++    KEY_CODE(KEY_KPRIGHTPAREN, LINUX_KEY_KPRIGHTPAREN),
++    KEY_CODE(KEY_NEW, LINUX_KEY_NEW),
++    KEY_CODE(KEY_REDO, LINUX_KEY_REDO),
++    KEY_CODE(KEY_F13, LINUX_KEY_F13),
++    KEY_CODE(KEY_F14, LINUX_KEY_F14),
++    KEY_CODE(KEY_F15, LINUX_KEY_F15),
++    KEY_CODE(KEY_F16, LINUX_KEY_F16),
++    KEY_CODE(KEY_F17, LINUX_KEY_F17),
++    KEY_CODE(KEY_F18, LINUX_KEY_F18),
++    KEY_CODE(KEY_F19, LINUX_KEY_F19),
++    KEY_CODE(KEY_F20, LINUX_KEY_F20),
++    KEY_CODE(KEY_F21, LINUX_KEY_F21),
++    KEY_CODE(KEY_F22, LINUX_KEY_F22),
++    KEY_CODE(KEY_F23, LINUX_KEY_F23),
++    KEY_CODE(KEY_F24, LINUX_KEY_F24),
++    KEY_CODE(KEY_PLAYCD, LINUX_KEY_PLAYCD),
++    KEY_CODE(KEY_PAUSECD, LINUX_KEY_PAUSECD),
++    KEY_CODE(KEY_PROG3, LINUX_KEY_PROG3),
++    KEY_CODE(KEY_PROG4, LINUX_KEY_PROG4),
++    KEY_CODE(KEY_SUSPEND, LINUX_KEY_SUSPEND),
++    KEY_CODE(KEY_CLOSE, LINUX_KEY_CLOSE),
++    KEY_CODE(KEY_PLAY, LINUX_KEY_PLAY),
++    KEY_CODE(KEY_FASTFORWARD, LINUX_KEY_FASTFORWARD),
++    KEY_CODE(KEY_BASSBOOST, LINUX_KEY_BASSBOOST),
++    KEY_CODE(KEY_PRINT, LINUX_KEY_PRINT),
++    KEY_CODE(KEY_HP, LINUX_KEY_HP),
++    KEY_CODE(KEY_CAMERA, LINUX_KEY_CAMERA),
++    KEY_CODE(KEY_SOUND, LINUX_KEY_SOUND),
++    KEY_CODE(KEY_QUESTION, LINUX_KEY_QUESTION),
++    KEY_CODE(KEY_EMAIL, LINUX_KEY_EMAIL),
++    KEY_CODE(KEY_CHAT, LINUX_KEY_CHAT),
++    KEY_CODE(KEY_SEARCH, LINUX_KEY_SEARCH),
++    KEY_CODE(KEY_CONNECT, LINUX_KEY_CONNECT),
++    KEY_CODE(KEY_FINANCE, LINUX_KEY_FINANCE),
++    KEY_CODE(KEY_SPORT, LINUX_KEY_SPORT),
++    KEY_CODE(KEY_SHOP, LINUX_KEY_SHOP),
++    KEY_CODE(KEY_ALTERASE, LINUX_KEY_ALTERASE),
++    KEY_CODE(KEY_CANCEL, LINUX_KEY_CANCEL),
++    KEY_CODE(KEY_BRIGHTNESSDOWN, LINUX_KEY_BRIGHTNESSDOWN),
++    KEY_CODE(KEY_BRIGHTNESSUP, LINUX_KEY_BRIGHTNESSUP),
++    KEY_CODE(KEY_MEDIA, LINUX_KEY_MEDIA),
++    KEY_CODE(KEY_STAR, LINUX_KEY_STAR),
++    KEY_CODE(KEY_SHARP, LINUX_KEY_SHARP),
++    KEY_CODE(KEY_SOFT1, LINUX_KEY_SOFT1),
++    KEY_CODE(KEY_SOFT2, LINUX_KEY_SOFT2),
++    KEY_CODE(KEY_CENTER, LINUX_KEY_CENTER),
++    KEY_CODE(KEY_HEADSETHOOK, LINUX_KEY_HEADSETHOOK),
++    KEY_CODE(KEY_0_5, LINUX_KEY_0_5),
++    KEY_CODE(KEY_2_5, LINUX_KEY_2_5),
++    KEY_CODE(KEY_SWITCHVIDEOMODE, LINUX_KEY_SWITCHVIDEOMODE),
++    KEY_CODE(KEY_KBDILLUMTOGGLE, LINUX_KEY_KBDILLUMTOGGLE),
++    KEY_CODE(KEY_KBDILLUMDOWN, LINUX_KEY_KBDILLUMDOWN),
++    KEY_CODE(KEY_KBDILLUMUP, LINUX_KEY_KBDILLUMUP),
++    KEY_CODE(KEY_SEND, LINUX_KEY_SEND),
++    KEY_CODE(KEY_REPLY, LINUX_KEY_REPLY),
++    KEY_CODE(KEY_FORWARDMAIL, LINUX_KEY_FORWARDMAIL),
++    KEY_CODE(KEY_SAVE, LINUX_KEY_SAVE),
++    KEY_CODE(KEY_DOCUMENTS, LINUX_KEY_DOCUMENTS),
++    KEY_CODE(KEY_BATTERY, LINUX_KEY_BATTERY),
++    KEY_CODE(KEY_UNKNOWN, LINUX_KEY_UNKNOWN),
++    KEY_CODE(KEY_NUM, LINUX_KEY_NUM),
++    KEY_CODE(KEY_FOCUS, LINUX_KEY_FOCUS),
++    KEY_CODE(KEY_PLUS, LINUX_KEY_PLUS),
++    KEY_CODE(KEY_NOTIFICATION, LINUX_KEY_NOTIFICATION),
++
++    KEY_CODE(KEY_APPSWITCH, ANDROID_KEY_APPSWITCH),
++    KEY_CODE(KEY_STEM_PRIMARY, ANDROID_KEY_STEM_PRIMARY),
++    KEY_CODE(KEY_STEM_1, ANDROID_KEY_STEM_1),
++    KEY_CODE(KEY_STEM_2, ANDROID_KEY_STEM_2),
++    KEY_CODE(KEY_STEM_3, ANDROID_KEY_STEM_3),
++
++    BTN_CODE(BTN_MISC),
++    BTN_CODE(BTN_0),
++    BTN_CODE(BTN_1),
++    BTN_CODE(BTN_2),
++    BTN_CODE(BTN_3),
++    BTN_CODE(BTN_4),
++    BTN_CODE(BTN_5),
++    BTN_CODE(BTN_6),
++    BTN_CODE(BTN_7),
++    BTN_CODE(BTN_8),
++    BTN_CODE(BTN_9),
++    BTN_CODE(BTN_MOUSE),
++    BTN_CODE(BTN_LEFT),
++    BTN_CODE(BTN_RIGHT),
++    BTN_CODE(BTN_MIDDLE),
++    BTN_CODE(BTN_SIDE),
++    BTN_CODE(BTN_EXTRA),
++    BTN_CODE(BTN_FORWARD),
++    BTN_CODE(BTN_BACK),
++    BTN_CODE(BTN_TASK),
++    BTN_CODE(BTN_JOYSTICK),
++    BTN_CODE(BTN_TRIGGER),
++    BTN_CODE(BTN_THUMB),
++    BTN_CODE(BTN_THUMB2),
++    BTN_CODE(BTN_TOP),
++    BTN_CODE(BTN_TOP2),
++    BTN_CODE(BTN_PINKIE),
++    BTN_CODE(BTN_BASE),
++    BTN_CODE(BTN_BASE2),
++    BTN_CODE(BTN_BASE3),
++    BTN_CODE(BTN_BASE4),
++    BTN_CODE(BTN_BASE5),
++    BTN_CODE(BTN_BASE6),
++    BTN_CODE(BTN_DEAD),
++    BTN_CODE(BTN_GAMEPAD),
++    BTN_CODE(BTN_A),
++    BTN_CODE(BTN_B),
++    BTN_CODE(BTN_C),
++    BTN_CODE(BTN_X),
++    BTN_CODE(BTN_Y),
++    BTN_CODE(BTN_Z),
++    BTN_CODE(BTN_TL),
++    BTN_CODE(BTN_TR),
++    BTN_CODE(BTN_TL2),
++    BTN_CODE(BTN_TR2),
++    BTN_CODE(BTN_SELECT),
++    BTN_CODE(BTN_START),
++    BTN_CODE(BTN_MODE),
++    BTN_CODE(BTN_THUMBL),
++    BTN_CODE(BTN_THUMBR),
++    BTN_CODE(BTN_DIGI),
++    BTN_CODE(BTN_TOOL_PEN),
++    BTN_CODE(BTN_TOOL_RUBBER),
++    BTN_CODE(BTN_TOOL_BRUSH),
++    BTN_CODE(BTN_TOOL_PENCIL),
++    BTN_CODE(BTN_TOOL_AIRBRUSH),
++    BTN_CODE(BTN_TOOL_FINGER),
++    BTN_CODE(BTN_TOOL_MOUSE),
++    BTN_CODE(BTN_TOOL_LENS),
++    BTN_CODE(BTN_TOUCH),
++    BTN_CODE(BTN_STYLUS),
++    BTN_CODE(BTN_STYLUS2),
++    BTN_CODE(BTN_TOOL_DOUBLETAP),
++    BTN_CODE(BTN_TOOL_TRIPLETAP),
++    BTN_CODE(BTN_WHEEL),
++    BTN_CODE(BTN_GEAR_DOWN),
++    BTN_CODE(BTN_GEAR_UP),
++    EV_CODE_END,
++};
++
++typedef struct {
++    const char *name;
++    int value;
++    const GoldfishEventCodeInfo *codes;
++} GoldfishEventTypeInfo;
++
++static const GoldfishEventTypeInfo ev_type_table[] = {
++    EV_TYPE(EV_SYN, NULL),
++    EV_TYPE(EV_KEY, ev_key_codes_table),
++    EV_TYPE(EV_REL, ev_rel_codes_table),
++    EV_TYPE(EV_ABS, ev_abs_codes_table),
++    EV_TYPE(EV_MSC, NULL),
++    EV_TYPE(EV_SW,  ev_sw_codes_table),
++    EV_TYPE(EV_LED, NULL),
++    EV_TYPE(EV_SND, NULL),
++    EV_TYPE(EV_REP, NULL),
++    EV_TYPE(EV_FF, NULL),
++    EV_TYPE(EV_PWR, NULL),
++    EV_TYPE(EV_FF_STATUS, NULL),
++    EV_TYPE(EV_MAX, NULL),
++    EV_TYPE_END
++};
++
++/* NOTE: The ev_bits arrays are used to indicate to the kernel
++ *       which events can be sent by the emulated hardware.
++ */
++
++#define TYPE_GOLDFISHEVDEV "goldfish-events"
++
++/* Bitfield meanings for modifier_state. */
++#define MODSTATE_SHIFT (1 << 0)
++#define MODSTATE_CTRL (1 << 1)
++#define MODSTATE_ALT (1 << 2)
++#define MODSTATE_MASK (MODSTATE_SHIFT | MODSTATE_CTRL | MODSTATE_ALT)
++
++/* An entry in the array of ABS_XXX values */
++typedef struct ABSEntry {
++    /* Minimum ABS_XXX value. */
++    uint32_t    min;
++    /* Maximum ABS_XXX value. */
++    uint32_t    max;
++    /* 'fuzz;, and 'flat' ABS_XXX values are always zero here. */
++    uint32_t    fuzz;
++    uint32_t    flat;
++} ABSEntry;
++
++/* Pointer to the global device instance. Also serves as an initialization
++ * flag in goldfish_event_send() to filter-out events that are sent from
++ * the UI before the device was properly realized.
++ */
++static GoldfishEvDevState* s_evdev = NULL;
++
++static const GoldfishEventMultitouchFuncs* s_multitouch_funcs = NULL;
++
++void goldfish_events_enable_multitouch(
++        const GoldfishEventMultitouchFuncs* funcs) {
++    s_multitouch_funcs = funcs;
++}
++
++static const VMStateDescription vmstate_goldfish_evdev =
++        GOLDFISHEVDEV_VM_STATE_DESCRIPTION("goldfish-events");
++
++int goldfish_event_send(int type, int code, int value)
++{
++    GoldfishEvDevState *dev = s_evdev;
++
++    if (dev) {
++        goldfish_enqueue_event(dev, type, code, value);
++    }
++
++    return 0;
++}
++
++static const MemoryRegionOps goldfish_evdev_ops = {
++    .read = goldfish_events_read,
++    .write = goldfish_events_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++};
++
++static void goldfish_evdev_put_mouse(void *opaque,
++                               int dx, int dy, int dz, int buttons_state)
++{
++    GoldfishEvDevState *s = (GoldfishEvDevState *)opaque;
++
++    /* Note that, like the "classic" Android emulator, we
++     * have dz == 0 for touchscreen, == 1 for trackball
++     */
++    if (s->have_multitouch  &&  dz == 0) {
++        if (s_multitouch_funcs) {
++            s_multitouch_funcs->translate_mouse_event(dx, dy, buttons_state);
++            return;
++        }
++    }
++
++    if (s->have_touch  &&  dz == 0) {
++        goldfish_enqueue_event(s, EV_ABS, ABS_X, dx);
++        goldfish_enqueue_event(s, EV_ABS, ABS_Y, dy);
++        goldfish_enqueue_event(s, EV_ABS, ABS_Z, dz);
++        goldfish_enqueue_event(s, EV_KEY, BTN_TOUCH, buttons_state & 1);
++        goldfish_enqueue_event(s, EV_SYN, 0, 0);
++        return;
++    }
++    if (s->have_trackball  &&  dz == 1) {
++        goldfish_enqueue_event(s, EV_REL, REL_X, dx);
++        goldfish_enqueue_event(s, EV_REL, REL_Y, dy);
++        goldfish_enqueue_event(s, EV_SYN, 0, 0);
++        return;
++    }
++}
++
++static const int dpad_map[Q_KEY_CODE__MAX] = {
++    [Q_KEY_CODE_KP_4] = LINUX_KEY_LEFT,
++    [Q_KEY_CODE_KP_6] = LINUX_KEY_RIGHT,
++    [Q_KEY_CODE_KP_8] = LINUX_KEY_UP,
++    [Q_KEY_CODE_KP_2] = LINUX_KEY_DOWN,
++    [Q_KEY_CODE_KP_5] = LINUX_KEY_CENTER,
++};
++
++static void goldfish_evdev_handle_keyevent(DeviceState *dev, QemuConsole *src,
++                                           InputEvent *evt)
++{
++    GoldfishEvDevState *s = GOLDFISHEVDEV(dev, TYPE_GOLDFISHEVDEV);
++    int lkey = 0;
++    int mod;
++
++    assert(evt->type == INPUT_EVENT_KIND_KEY);
++
++    KeyValue* kv = evt->u.key.data->key;
++
++    int qcode = kv->u.qcode.data;
++
++    goldfish_enqueue_event(s, EV_KEY, qcode, evt->u.key.data->down);
++
++    int qemu2_qcode = qemu_input_key_value_to_qcode(evt->u.key.data->key);
++
++    /* Keep our modifier state up to date */
++    switch (qemu2_qcode) {
++    case Q_KEY_CODE_SHIFT:
++    case Q_KEY_CODE_SHIFT_R:
++        mod = MODSTATE_SHIFT;
++        break;
++    case Q_KEY_CODE_ALT:
++    case Q_KEY_CODE_ALT_R:
++        mod = MODSTATE_ALT;
++        break;
++    case Q_KEY_CODE_CTRL:
++    case Q_KEY_CODE_CTRL_R:
++        mod = MODSTATE_CTRL;
++        break;
++    default:
++        mod = 0;
++        break;
++    }
++
++    if (mod) {
++        if (evt->u.key.data->down) {
++            s->modifier_state |= mod;
++        } else {
++            s->modifier_state &= ~mod;
++        }
++    }
++
++    if (!lkey && s->have_dpad && s->modifier_state == 0) {
++        lkey = dpad_map[qemu2_qcode];
++    }
++
++    if (lkey) {
++        goldfish_enqueue_event(s, EV_KEY, lkey, evt->u.key.data->down);
++    }
++}
++
++static const GoldfishEventTypeInfo *goldfish_get_event_type(const char *typename)
++{
++    const GoldfishEventTypeInfo *type = NULL;
++    int count = 0;
++
++    /* Find the type descriptor by doing a name match */
++    while (ev_type_table[count].name != NULL) {
++        if (typename && !strcmp(ev_type_table[count].name, typename)) {
++            type = &ev_type_table[count];
++            break;
++        }
++        count++;
++    }
++
++    return type;
++}
++
++int goldfish_get_event_type_count(void)
++{
++    int count = 0;
++
++    while (ev_type_table[count].name != NULL) {
++        count++;
++    }
++
++    return count;
++}
++
++int goldfish_get_event_type_name(int type, char *buf)
++{
++    g_stpcpy(buf, ev_type_table[type].name);
++
++    return 0;
++}
++
++int goldfish_get_event_type_value(char *typename)
++{
++    const GoldfishEventTypeInfo *type = goldfish_get_event_type(typename);
++    int ret = -1;
++
++    if (type) {
++        ret = type->value;
++    }
++
++    return ret;
++}
++
++static const GoldfishEventCodeInfo *goldfish_get_event_code(int typeval,
++                                                      const char *codename)
++{
++    const GoldfishEventTypeInfo *type = &ev_type_table[typeval];
++    const GoldfishEventCodeInfo *code = NULL;
++    int count = 0;
++
++    /* Find the type descriptor by doing a name match */
++    while (type->codes[count].name != NULL) {
++        if (codename && !strcmp(type->codes[count].name, codename)) {
++            code = &type->codes[count];
++            break;
++        }
++        count++;
++    }
++
++    return code;
++}
++
++int goldfish_get_event_code_count(const char *typename)
++{
++    const GoldfishEventTypeInfo *type = NULL;
++    const GoldfishEventCodeInfo *codes;
++    int count = -1;     /* Return -1 if type not found */
++
++    type = goldfish_get_event_type(typename);
++
++    /* Count the number of codes for the specified type if found */
++    if (type) {
++        count = 0;
++        codes = type->codes;
++        if (codes) {
++            while (codes[count].name != NULL) {
++                count++;
++            }
++        }
++    }
++
++    return count;
++}
++
++int goldfish_get_event_code_name(const char *typename, unsigned int code, char *buf)
++{
++    const GoldfishEventTypeInfo *type = goldfish_get_event_type(typename);
++    int ret = -1;   /* Return -1 if type not found */
++
++    if (type && type->codes && code < goldfish_get_event_code_count(typename)) {
++        g_stpcpy(buf, type->codes[code].name);
++        ret = 0;
++    }
++
++    return ret;
++}
++
++int goldfish_get_event_code_value(int typeval, char *codename)
++{
++    const GoldfishEventCodeInfo *code = goldfish_get_event_code(typeval, codename);
++    int ret = -1;
++
++    if (code) {
++        ret = code->value;
++    }
++
++    return ret;
++}
++
++static QemuInputHandler goldfish_evdev_key_input_handler = {
++    .name = "goldfish event device key handler",
++    .mask = INPUT_EVENT_MASK_KEY,
++    .event = goldfish_evdev_handle_keyevent,
++};
++
++static void goldfish_evdev_init(Object *obj)
++{
++    GoldfishEvDevState *s = GOLDFISHEVDEV(obj, TYPE_GOLDFISHEVDEV);
++    DeviceState *dev = DEVICE(obj);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
++
++    memory_region_init_io(&s->iomem, obj, &goldfish_evdev_ops, s,
++                          "goldfish-events", 0x1000);
++    sysbus_init_mmio(sbd, &s->iomem);
++    sysbus_init_irq(sbd, &s->irq);
++
++    qemu_input_handler_register(dev, &goldfish_evdev_key_input_handler);
++    // Register the mouse handler for both absolute and relative position
++    // reports. (Relative reports are used in trackball mode.)
++    qemu_add_mouse_event_handler(goldfish_evdev_put_mouse, s, 1, "goldfish-events");
++    qemu_add_mouse_event_handler(goldfish_evdev_put_mouse, s, 0, "goldfish-events-rel");
++}
++
++static void goldfish_evdev_realize(DeviceState *dev, Error **errp)
++{
++
++    GoldfishEvDevState *s = GOLDFISHEVDEV(dev, TYPE_GOLDFISHEVDEV);
++
++    /* Initialize the device ID so the event dev can be looked up duringi
++     * monitor commands.
++     */
++    dev->id = g_strdup(TYPE_GOLDFISHEVDEV);
++
++    /* now set the events capability bits depending on hardware configuration */
++    /* apparently, the EV_SYN array is used to indicate which other
++     * event classes to consider.
++     */
++
++    /* XXX PMM properties ? */
++    s->name = "qwerty2";
++
++    /* configure EV_KEY array
++     *
++     * All Android devices must have the following keys:
++     *   KEY_HOME, KEY_BACK, KEY_SEND (Call), KEY_END (EndCall),
++     *   KEY_SOFT1 (Menu), VOLUME_UP, VOLUME_DOWN
++     *
++     *   Note that previous models also had a KEY_SOFT2,
++     *   and a KEY_POWER  which we still support here.
++     *
++     *   Newer models have a KEY_SEARCH key, which we always
++     *   enable here.
++     *
++     * A Dpad will send: KEY_DOWN / UP / LEFT / RIGHT / CENTER
++     *
++     * The KEY_CAMERA button isn't very useful if there is no camera.
++     *
++     * BTN_MOUSE is sent when the trackball is pressed
++     * BTN_TOUCH is sent when the touchscreen is pressed
++     */
++    goldfish_events_set_bit(s, EV_SYN, EV_KEY);
++
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_HOME);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_BACK);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_SEND);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_END);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_SOFT1);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_VOLUMEUP);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_VOLUMEDOWN);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_SOFT2);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_POWER);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_SEARCH);
++    goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_SLEEP);
++
++    goldfish_events_set_bit(s, EV_KEY, ANDROID_KEY_APPSWITCH);
++    goldfish_events_set_bit(s, EV_KEY, ANDROID_KEY_STEM_PRIMARY);
++    goldfish_events_set_bit(s, EV_KEY, ANDROID_KEY_STEM_1);
++    goldfish_events_set_bit(s, EV_KEY, ANDROID_KEY_STEM_2);
++    goldfish_events_set_bit(s, EV_KEY, ANDROID_KEY_STEM_3);
++
++    if (s->have_dpad) {
++        goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_DOWN);
++        goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_UP);
++        goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_LEFT);
++        goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_RIGHT);
++        goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_CENTER);
++    }
++
++    if (s->have_trackball) {
++        goldfish_events_set_bit(s, EV_KEY, BTN_MOUSE);
++    }
++    if (s->have_touch) {
++        goldfish_events_set_bit(s, EV_KEY, BTN_TOUCH);
++    }
++
++    if (s->have_camera) {
++        /* Camera emulation is enabled. */
++        goldfish_events_set_bit(s, EV_KEY, LINUX_KEY_CAMERA);
++    }
++
++    if (s->have_keyboard) {
++        /* since we want to implement Unicode reverse-mapping
++         * allow any kind of key, even those not available on
++         * the skin.
++         *
++         * the previous code did set the [1..0x1ff] range, but
++         * we don't want to enable certain bits in the middle
++         * of the range that are registered for mouse/trackball/joystick
++         * events.
++         *
++         * see "linux_keycodes.h" for the list of events codes.
++         */
++        goldfish_events_set_bits(s, EV_KEY, 1, 0xff);
++        goldfish_events_set_bits(s, EV_KEY, 0x160, 0x1ff);
++
++        /* If there is a keyboard, but no DPad, we need to clear the
++         * corresponding bit. Doing this is simpler than trying to exclude
++         * the DPad values from the ranges above.
++         *
++         * LINUX_KEY_UP/DOWN/LEFT/RIGHT should be left set so the keyboard
++         * arrow keys are still usable, even though a typical device hard
++         * keyboard would not include those keys.
++         */
++        if (!s->have_dpad) {
++            goldfish_events_clr_bit(s, EV_KEY, LINUX_KEY_CENTER);
++        }
++    }
++
++    /* configure EV_REL array
++     *
++     * EV_REL events are sent when the trackball is moved
++     */
++    if (s->have_trackball) {
++        goldfish_events_set_bit(s, EV_SYN, EV_REL);
++        goldfish_events_set_bits(s, EV_REL, REL_X, REL_Y);
++    }
++
++    /* configure EV_ABS array.
++     *
++     * EV_ABS events are sent when the touchscreen is pressed
++     */
++    if (s->have_touch || s->have_multitouch) {
++        ABSEntry *abs_values;
++
++        goldfish_events_set_bit(s, EV_SYN, EV_ABS);
++        goldfish_events_set_bits(s, EV_ABS, ABS_X, ABS_Z);
++        /* Allocate the absinfo to report the min/max bounds for each
++         * absolute dimension. The array must contain 3, or ABS_MAX tuples
++         * of (min,max,fuzz,flat) 32-bit values.
++         *
++         * min and max are the bounds
++         * fuzz corresponds to the device's fuziness, we set it to 0
++         * flat corresponds to the flat position for JOEYDEV devices,
++         * we also set it to 0.
++         *
++         * There is no need to save/restore this array in a snapshot
++         * since the values only depend on the hardware configuration.
++         */
++        s->abs_info_count = s->have_multitouch ? ABS_MAX * 4 : 3 * 4;
++        s->abs_info = g_new0(int32_t, s->abs_info_count);
++        abs_values = (ABSEntry *)s->abs_info;
++
++        /* QEMU provides absolute coordinates in the [0,0x7fff] range
++         * regardless of the display resolution.
++         */
++        abs_values[ABS_X].max = 0x7fff;
++        abs_values[ABS_Y].max = 0x7fff;
++        abs_values[ABS_Z].max = 1;
++
++        if (s->have_multitouch) {
++            /*
++             * Setup multitouch.
++             */
++            goldfish_events_set_bit(s, EV_ABS, ABS_MT_SLOT);
++            goldfish_events_set_bit(s, EV_ABS, ABS_MT_POSITION_X);
++            goldfish_events_set_bit(s, EV_ABS, ABS_MT_POSITION_Y);
++            goldfish_events_set_bit(s, EV_ABS, ABS_MT_TRACKING_ID);
++            goldfish_events_set_bit(s, EV_ABS, ABS_MT_TOUCH_MAJOR);
++            goldfish_events_set_bit(s, EV_ABS, ABS_MT_PRESSURE);
++
++            if (s_multitouch_funcs) {
++                abs_values[ABS_MT_SLOT].max =
++                        s_multitouch_funcs->get_max_slot();
++                abs_values[ABS_MT_TRACKING_ID].max =
++                        abs_values[ABS_MT_SLOT].max + 1;
++                abs_values[ABS_MT_POSITION_X].max = abs_values[ABS_X].max;
++                abs_values[ABS_MT_POSITION_Y].max = abs_values[ABS_Y].max;
++                /* TODO : make next 2 less random */
++                abs_values[ABS_MT_TOUCH_MAJOR].max = 0x7fffffff;
++                abs_values[ABS_MT_PRESSURE].max = 0x100;
++            }
++        }
++    }
++
++    /* configure EV_SW array
++     *
++     * EV_SW events are sent to indicate that headphones
++     * were pluged or unplugged.
++     * If hw.keyboard.lid is true, EV_SW events are also
++     * used to indicate if the keyboard lid was opened or
++     * closed (done when we switch layouts through KP-7
++     * or KP-9).
++     */
++    goldfish_events_set_bit(s, EV_SYN, EV_SW);
++    goldfish_events_set_bit(s, EV_SW, SW_HEADPHONE_INSERT);
++    goldfish_events_set_bit(s, EV_SW, SW_MICROPHONE_INSERT);
++
++    if (s->have_tablet_mode) {
++        goldfish_events_set_bit(s, EV_SW, SW_TABLET_MODE);
++    }
++
++    if (s->have_keyboard_lid) {
++        goldfish_events_set_bit(s, EV_SW, SW_LID);
++    }
++
++#ifdef _WIN32
++    InitializeSRWLock(&s->lock);
++#else
++    pthread_mutex_init(&s->lock, 0);
++#endif
++
++    s->measure_latency = false;
++    {
++        char* android_emu_trace_env_var =
++            getenv("ANDROID_EMU_TRACING");
++        s->measure_latency =
++            android_emu_trace_env_var &&
++            !strcmp("1", android_emu_trace_env_var);
++    }
++
++    /* Register global variable. */
++    assert(s_evdev == NULL);
++    assert(s->state == 0);
++    s_evdev = s;
++}
++
++static void goldfish_evdev_reset(DeviceState *dev)
++{
++    GoldfishEvDevState *s = GOLDFISHEVDEV(dev, TYPE_GOLDFISHEVDEV);
++
++    s->first = 0;
++    s->last = 0;
++}
++
++static Property goldfish_evdev_props[] = {
++    DEFINE_PROP_BOOL("have-dpad", GoldfishEvDevState, have_dpad, false),
++    DEFINE_PROP_BOOL("have-trackball", GoldfishEvDevState,
++                     have_trackball, false),
++    DEFINE_PROP_BOOL("have-camera", GoldfishEvDevState, have_camera, false),
++    DEFINE_PROP_BOOL("have-keyboard", GoldfishEvDevState, have_keyboard, false),
++    DEFINE_PROP_BOOL("have-lidswitch", GoldfishEvDevState,
++                     have_keyboard_lid, false),
++    DEFINE_PROP_BOOL("have-tabletmode", GoldfishEvDevState,
++                     have_tablet_mode, false),
++    DEFINE_PROP_BOOL("have-touch", GoldfishEvDevState,
++                     have_touch, false),
++    DEFINE_PROP_BOOL("have-multitouch", GoldfishEvDevState,
++                     have_multitouch, true),
++    DEFINE_PROP_END_OF_LIST()
++};
++
++static void goldfish_evdev_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = goldfish_evdev_realize;
++    dc->reset = goldfish_evdev_reset;
++    dc->props = goldfish_evdev_props;
++    dc->vmsd = &vmstate_goldfish_evdev;
++}
++
++static const TypeInfo goldfish_evdev_info = {
++    .name = TYPE_GOLDFISHEVDEV,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(GoldfishEvDevState),
++    .instance_init = goldfish_evdev_init,
++    .class_init = goldfish_evdev_class_init,
++};
++
++static void goldfish_evdev_register_types(void)
++{
++    type_register_static(&goldfish_evdev_info);
++}
++
++type_init(goldfish_evdev_register_types)
+diff --git a/hw/input/goldfish_events_common.c b/hw/input/goldfish_events_common.c
+new file mode 100644
+index 0000000000..ce37b630c0
+--- /dev/null
++++ b/hw/input/goldfish_events_common.c
+@@ -0,0 +1,293 @@
++/*
++ * This file contains methods common to goldfish_events and goldfish_rotary.
++ * It should only be used by files implementing the goldfish_events-like
++ * devices.
++ */
++
++#include "hw/input/goldfish_events_common.h"
++
++#include "qemu/log.h"
++#include "hw/sysbus.h"
++#include "hw/irq.h"
++
++#ifdef _MSC_VER
++#include "msvc-posix.h"
++#else
++#include <sys/time.h>
++#endif
++
++/* Protected by s->lock. */
++static int get_page_len(GoldfishEvDevState *s)
++{
++    int page = s->page;
++    if (page == PAGE_NAME) {
++        const char *name = s->name;
++        return strlen(name);
++    }
++    if (page >= PAGE_EVBITS && page <= PAGE_EVBITS + EV_MAX) {
++        return s->ev_bits[page - PAGE_EVBITS].len;
++    }
++    if (page == PAGE_ABSDATA) {
++        return s->abs_info_count * sizeof(s->abs_info[0]);
++    }
++    return 0;
++}
++
++/* Protected by s->lock. */
++static int get_page_data(GoldfishEvDevState *s, int offset)
++{
++    int page_len = get_page_len(s);
++    int page = s->page;
++    if (offset > page_len) {
++        return 0;
++    }
++    if (page == PAGE_NAME) {
++        const char *name = s->name;
++        return name[offset];
++    }
++    if (page >= PAGE_EVBITS && page <= PAGE_EVBITS + EV_MAX) {
++        return s->ev_bits[page - PAGE_EVBITS].bits[offset];
++    }
++    if (page == PAGE_ABSDATA) {
++        return s->abs_info[offset / sizeof(s->abs_info[0])];
++    }
++    return 0;
++}
++
++/* Protected by s->lock. */
++static unsigned dequeue_event(GoldfishEvDevState *s)
++{
++    unsigned n;
++    unsigned int ev_index;
++    uint64_t ev_time_us;
++    struct timeval tv;
++    float duration_ms;
++    if (s->measure_latency) {
++        gettimeofday(&tv, 0);
++        ev_time_us = tv.tv_usec + tv.tv_sec * 1000000ULL;
++    }
++
++    if (s->first == s->last) {
++        return 0;
++    }
++
++    ev_index = s->first;
++    n = s->events[s->first];
++
++    if (s->measure_latency) {
++        s->dequeue_times_us[ev_index] = ev_time_us;
++        duration_ms =
++            (s->dequeue_times_us[ev_index] -
++             s->enqueue_times_us[ev_index]) / 1000.0f;
++
++#define LONG_EVENT_PROCESSING_THRESHOLD_MS 2.0f // 2 ms is quite long to handle interrupt
++
++        if (duration_ms > LONG_EVENT_PROCESSING_THRESHOLD_MS) {
++            fprintf(stderr, "%s: warning: long input event processing: "
++                            "event %u processed in %f ms\n", __func__,
++                            ev_index, duration_ms);
++        }
++    }
++
++    s->first = (s->first + 1) & (MAX_EVENTS - 1);
++
++    if (s->first == s->last) {
++        qemu_irq_lower(s->irq);
++    }
++    return n;
++}
++
++static int g_events_dropped = 0;
++
++int goldfish_event_drop_count() {
++    return g_events_dropped;
++}
++
++void goldfish_evdev_lock(GoldfishEvDevState* s) {
++#ifdef _WIN32
++    AcquireSRWLockExclusive(&s->lock);
++#else
++    pthread_mutex_lock(&s->lock);
++#endif
++}
++
++void goldfish_evdev_unlock(GoldfishEvDevState* s) {
++#ifdef _WIN32
++    ReleaseSRWLockExclusive(&s->lock);
++#else
++    pthread_mutex_unlock(&s->lock);
++#endif
++}
++
++void goldfish_enqueue_event(GoldfishEvDevState *s,
++                   unsigned int type, unsigned int code, int value)
++{
++    goldfish_evdev_lock(s);
++
++    int  enqueued = s->last - s->first;
++
++    if (enqueued < 0) {
++        enqueued += MAX_EVENTS;
++    }
++
++    if (enqueued + 3 > MAX_EVENTS) {
++        g_events_dropped++;
++        fprintf(stderr, "##KBD: Full queue, dropping event, current drop count: %d\n", g_events_dropped);
++    } else {
++        unsigned int ev_index_0;
++        unsigned int ev_index_1;
++        unsigned int ev_index_2;
++        uint64_t ev_time_us = 0;
++        struct timeval tv;
++
++        g_events_dropped = 0;
++        if (s->state == STATE_LIVE) {
++            qemu_irq_lower(s->irq);
++            qemu_irq_raise(s->irq);
++        } else {
++            s->state = STATE_BUFFERED;
++        }
++
++        ev_index_0 = s->last;
++        s->events[s->last] = type;
++        s->last = (s->last + 1) & (MAX_EVENTS-1);
++
++        ev_index_1 = s->last;
++        s->events[s->last] = code;
++        s->last = (s->last + 1) & (MAX_EVENTS-1);
++
++        ev_index_2 = s->last;
++        s->events[s->last] = value;
++        s->last = (s->last + 1) & (MAX_EVENTS-1);
++
++        if (s->measure_latency) {
++            gettimeofday(&tv, 0);
++            ev_time_us = tv.tv_usec + tv.tv_sec * 1000000ULL;
++            s->enqueue_times_us[ev_index_0] = ev_time_us;
++            s->enqueue_times_us[ev_index_1] = ev_time_us;
++            s->enqueue_times_us[ev_index_2] = ev_time_us;
++        }
++    }
++
++    goldfish_evdev_unlock(s);
++}
++
++uint64_t goldfish_events_read(void *opaque, hwaddr offset, unsigned size)
++{
++    GoldfishEvDevState *s = (GoldfishEvDevState *)opaque;
++    uint64_t res = 0;
++
++    goldfish_evdev_lock(s);
++
++    /* This gross hack below is used to ensure that we
++     * only raise the IRQ when the kernel driver is
++     * properly ready! If done before this, the driver
++     * becomes confused and ignores all input events
++     * as soon as one was buffered!
++     */
++    if (offset == REG_LEN && s->page == PAGE_ABSDATA) {
++        if (s->state == STATE_BUFFERED) {
++            qemu_irq_raise(s->irq);
++        }
++        s->state = STATE_LIVE;
++    }
++
++    switch (offset) {
++    case REG_READ:
++        res = dequeue_event(s);
++        break;
++    case REG_LEN:
++        res = get_page_len(s);
++        break;
++    default:
++        if (offset >= REG_DATA) {
++            res = get_page_data(s, offset - REG_DATA);
++        }
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "goldfish events device read: bad offset %x\n",
++                      (int)offset);
++        break;
++    }
++
++    goldfish_evdev_unlock(s);
++
++    return res;
++}
++
++void goldfish_events_write(void *opaque, hwaddr offset,
++                  uint64_t val, unsigned size)
++{
++    GoldfishEvDevState *s = (GoldfishEvDevState *)opaque;
++
++    goldfish_evdev_lock(s);
++
++    switch (offset) {
++    case REG_SET_PAGE:
++        s->page = val;
++        break;
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "goldfish events device write: bad offset %x\n",
++                      (int)offset);
++        break;
++    }
++    goldfish_evdev_unlock(s);
++}
++
++/* set bits [bitl..bith] in the ev_bits[type] array
++ */
++void goldfish_events_set_bits(GoldfishEvDevState *s, int type, int bitl, int bith)
++{
++    uint8_t *bits;
++    uint8_t maskl, maskh;
++    int il, ih;
++
++    goldfish_evdev_lock(s);
++
++    il = bitl / 8;
++    ih = bith / 8;
++    if (ih >= s->ev_bits[type].len) {
++        bits = g_malloc0(ih + 1);
++        if (bits == NULL) {
++            goldfish_evdev_unlock(s);
++            return;
++        }
++        memcpy(bits, s->ev_bits[type].bits, s->ev_bits[type].len);
++        g_free(s->ev_bits[type].bits);
++        s->ev_bits[type].bits = bits;
++        s->ev_bits[type].len = ih + 1;
++    } else {
++        bits = s->ev_bits[type].bits;
++    }
++    maskl = 0xffU << (bitl & 7);
++    maskh = 0xffU >> (7 - (bith & 7));
++    if (il >= ih) {
++        maskh &= maskl;
++    } else {
++        bits[il] |= maskl;
++        while (++il < ih) {
++            bits[il] = 0xff;
++        }
++    }
++    bits[ih] |= maskh;
++
++    goldfish_evdev_unlock(s);
++}
++
++void goldfish_events_set_bit(GoldfishEvDevState *s, int  type, int  bit)
++{
++    goldfish_events_set_bits(s, type, bit, bit);
++}
++
++void
++goldfish_events_clr_bit(GoldfishEvDevState *s, int type, int bit)
++{
++    goldfish_evdev_lock(s);
++    int ii = bit / 8;
++    if (ii < s->ev_bits[type].len) {
++        uint8_t *bits = s->ev_bits[type].bits;
++        uint8_t  mask = 0x01U << (bit & 7);
++        bits[ii] &= ~mask;
++    }
++    goldfish_evdev_unlock(s);
++}
+diff --git a/hw/input/goldfish_events_common.h b/hw/input/goldfish_events_common.h
+new file mode 100644
+index 0000000000..c5490dd787
+--- /dev/null
++++ b/hw/input/goldfish_events_common.h
+@@ -0,0 +1,259 @@
++/* Copyright (C) 2007-2016 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#ifndef GOLDFISH_EVENTS_UTIL_H
++#define GOLDFISH_EVENTS_UTIL_H
++
++/*
++ * This header file contains code common to goldfish_events and goldfish_rotary.
++ * It should only be included in files implementing the goldfish_events-like
++ * devices.
++ */
++
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "hw/sysbus.h"
++#include "ui/input.h"
++#include "ui/console.h"
++#include "hw/input/android_keycodes.h"
++#include "hw/input/linux_keycodes.h"
++
++#ifdef _WIN32
++#include <windows.h>
++#else
++#include <pthread.h>
++#endif
++
++
++#define MAX_EVENTS (4096 * 4)
++
++/* Event types (as per Linux input event layer) */
++#define EV_SYN                  0x00
++#define EV_KEY                  0x01
++#define EV_REL                  0x02
++#define EV_ABS                  0x03
++#define EV_MSC                  0x04
++#define EV_SW                   0x05
++#define EV_LED                  0x11
++#define EV_SND                  0x12
++#define EV_REP                  0x14
++#define EV_FF                   0x15
++#define EV_PWR                  0x16
++#define EV_FF_STATUS            0x17
++#define EV_MAX                  0x1f
++
++/* Absolute axes */
++#define ABS_X                   0x00
++#define ABS_Y                   0x01
++#define ABS_Z                   0x02
++#define ABS_MT_SLOT             0x2f    /* MT slot being modified */
++#define ABS_MT_TOUCH_MAJOR      0x30    /* Major axis of touching ellipse */
++#define ABS_MT_TOUCH_MINOR      0x31    /* Minor axis (omit if circular) */
++#define ABS_MT_WIDTH_MAJOR      0x32    /* Major axis of approaching ellipse */
++#define ABS_MT_WIDTH_MINOR      0x33    /* Minor axis (omit if circular) */
++#define ABS_MT_ORIENTATION      0x34    /* Ellipse orientation */
++#define ABS_MT_POSITION_X       0x35    /* Center X ellipse position */
++#define ABS_MT_POSITION_Y       0x36    /* Center Y ellipse position */
++#define ABS_MT_TOOL_TYPE        0x37    /* Type of touching device */
++#define ABS_MT_BLOB_ID          0x38    /* Group a set of packets as a blob */
++#define ABS_MT_TRACKING_ID      0x39    /* Unique ID of initiated contact */
++#define ABS_MT_PRESSURE         0x3a    /* Pressure on contact area */
++#define ABS_MT_DISTANCE         0x3b    /* Contact hover distance */
++#define ABS_MAX                 0x3f
++
++/* Relative axes */
++#define REL_X                   0x00
++#define REL_Y                   0x01
++#define REL_WHEEL               0x08
++
++#define BTN_MISC 0x100
++#define BTN_0 0x100
++#define BTN_1 0x101
++#define BTN_2 0x102
++#define BTN_3 0x103
++#define BTN_4 0x104
++#define BTN_5 0x105
++#define BTN_6 0x106
++#define BTN_7 0x107
++#define BTN_8 0x108
++#define BTN_9 0x109
++#define BTN_MOUSE 0x110
++#define BTN_LEFT 0x110
++#define BTN_RIGHT 0x111
++#define BTN_MIDDLE 0x112
++#define BTN_SIDE 0x113
++#define BTN_EXTRA 0x114
++#define BTN_FORWARD 0x115
++#define BTN_BACK 0x116
++#define BTN_TASK 0x117
++#define BTN_JOYSTICK 0x120
++#define BTN_TRIGGER 0x120
++#define BTN_THUMB 0x121
++#define BTN_THUMB2 0x122
++#define BTN_TOP 0x123
++#define BTN_TOP2 0x124
++#define BTN_PINKIE 0x125
++#define BTN_BASE 0x126
++#define BTN_BASE2 0x127
++#define BTN_BASE3 0x128
++#define BTN_BASE4 0x129
++#define BTN_BASE5 0x12a
++#define BTN_BASE6 0x12b
++#define BTN_DEAD 0x12f
++#define BTN_GAMEPAD 0x130
++#define BTN_A 0x130
++#define BTN_B 0x131
++#define BTN_C 0x132
++#define BTN_X 0x133
++#define BTN_Y 0x134
++#define BTN_Z 0x135
++#define BTN_TL 0x136
++#define BTN_TR 0x137
++#define BTN_TL2 0x138
++#define BTN_TR2 0x139
++#define BTN_SELECT 0x13a
++#define BTN_START 0x13b
++#define BTN_MODE 0x13c
++#define BTN_THUMBL 0x13d
++#define BTN_THUMBR 0x13e
++#define BTN_DIGI 0x140
++#define BTN_TOOL_PEN 0x140
++#define BTN_TOOL_RUBBER 0x141
++#define BTN_TOOL_BRUSH 0x142
++#define BTN_TOOL_PENCIL 0x143
++#define BTN_TOOL_AIRBRUSH 0x144
++#define BTN_TOOL_FINGER 0x145
++#define BTN_TOOL_MOUSE 0x146
++#define BTN_TOOL_LENS 0x147
++#define BTN_TOUCH 0x14a
++#define BTN_STYLUS 0x14b
++#define BTN_STYLUS2 0x14c
++#define BTN_TOOL_DOUBLETAP 0x14d
++#define BTN_TOOL_TRIPLETAP 0x14e
++#define BTN_WHEEL 0x150
++#define BTN_GEAR_DOWN 0x150
++#define BTN_GEAR_UP  0x151
++
++/* Switches */
++#define SW_LID               0
++#define SW_TABLET_MODE       1
++#define SW_HEADPHONE_INSERT  2
++#define SW_MICROPHONE_INSERT 4
++
++#define KEY_CODE(_name, _val) {#_name, _val}
++#define BTN_CODE(_code) {#_code, (_code)}
++
++#define EV_TYPE(_type, _codes)    {#_type, (_type), _codes}
++#define EV_TYPE_END     {NULL, 0}
++
++#define EV_CODE(_code)    {#_code, (_code)}
++#define EV_CODE_END     {NULL, 0}
++
++enum {
++    REG_READ        = 0x00,
++    REG_SET_PAGE    = 0x00,
++    REG_LEN         = 0x04,
++    REG_DATA        = 0x08,
++
++    PAGE_NAME       = 0x00000,
++    PAGE_EVBITS     = 0x10000,
++    PAGE_ABSDATA    = 0x20000 | EV_ABS,
++};
++
++/* These corresponds to the state of the driver.
++ * Unfortunately, we have to buffer events coming
++ * from the UI, since the kernel driver is not
++ * capable of receiving them until XXXXXX
++ */
++enum {
++    STATE_INIT = 0,  /* The device is initialized */
++    STATE_BUFFERED,  /* Events have been buffered, but no IRQ raised yet */
++    STATE_LIVE       /* Events can be sent directly to the kernel */
++};
++
++typedef struct GoldfishEvDevState {
++    /*< private >*/
++    SysBusDevice parent_obj;
++    /*< public >*/
++
++    MemoryRegion iomem;
++    qemu_irq irq;
++
++    /* Device properties */
++    bool have_dpad;
++    bool have_trackball;
++    bool have_camera;
++    bool have_keyboard;
++    bool have_keyboard_lid;
++    bool have_tablet_mode;
++    bool have_touch;
++    bool have_multitouch;
++
++    /* Actual device state */
++    int32_t page;
++    uint32_t events[MAX_EVENTS];
++    uint32_t first;
++    uint32_t last;
++    uint32_t state;
++
++    /* Latency measurement */
++    bool measure_latency;
++    uint32_t enqueue_times_us[MAX_EVENTS];
++    uint32_t dequeue_times_us[MAX_EVENTS];
++
++    uint32_t modifier_state;
++
++    /* All data below here is set up at realize and not modified thereafter */
++
++    const char *name;
++
++    struct {
++        size_t   len;
++        uint8_t *bits;
++    } ev_bits[EV_MAX + 1];
++
++    int32_t *abs_info;
++    size_t abs_info_count;
++#ifdef _WIN32
++    SRWLOCK lock;
++#else
++    pthread_mutex_t lock;
++#endif
++} GoldfishEvDevState;
++
++#define GOLDFISHEVDEV_VM_STATE_DESCRIPTION(device_name) \
++{ \
++    .name = (device_name),\
++    .version_id = 1,\
++    .minimum_version_id = 1,\
++    .fields = (VMStateField[]) {\
++        VMSTATE_INT32(page, GoldfishEvDevState),\
++        VMSTATE_UINT32_ARRAY(events, GoldfishEvDevState, MAX_EVENTS),\
++        VMSTATE_UINT32(first, GoldfishEvDevState),\
++        VMSTATE_UINT32(last, GoldfishEvDevState),\
++        VMSTATE_UINT32(state, GoldfishEvDevState),\
++        VMSTATE_UINT32(modifier_state, GoldfishEvDevState),\
++        VMSTATE_END_OF_LIST()\
++    }\
++}
++
++#define GOLDFISHEVDEV(obj, type_name) \
++    OBJECT_CHECK(GoldfishEvDevState, (obj), (type_name))
++void goldfish_enqueue_event(GoldfishEvDevState *s,
++                   unsigned int type, unsigned int code, int value);
++uint64_t goldfish_events_read(void *opaque, hwaddr offset, unsigned size);
++void goldfish_events_write(void *opaque, hwaddr offset, uint64_t val, unsigned size);
++void goldfish_events_set_bits(GoldfishEvDevState *s, int type, int bitl, int bith);
++void goldfish_events_set_bit(GoldfishEvDevState *s, int  type, int  bit);
++void goldfish_events_clr_bit(GoldfishEvDevState *s, int type, int bit);
++int goldfish_event_drop_count();
++
++#endif // GOLDFISH_EVENTS_UTIL_H
+diff --git a/hw/input/goldfish_rotary.c b/hw/input/goldfish_rotary.c
+new file mode 100644
+index 0000000000..070da45635
+--- /dev/null
++++ b/hw/input/goldfish_rotary.c
+@@ -0,0 +1,131 @@
++/*
++ * Goldfish 'events' device model, used for a rotary encoder device.
++ *
++ * Copyright (C) 2007-2008 The Android Open Source Project
++ * Copyright (c) 2014 Linaro Limited
++ *
++ * This software is licensed under the terms of the GNU General Public
++ * License version 2, as published by the Free Software Foundation, and
++ * may be copied, distributed, and modified under those terms.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "hw/sysbus.h"
++#include "ui/input.h"
++#include "ui/console.h"
++#include "hw/input/android_keycodes.h"
++#include "hw/input/linux_keycodes.h"
++#include "hw/input/goldfish_events_common.h"
++#include "migration/vmstate.h"
++#include "hw/irq.h"
++
++/* NOTE: The ev_bits arrays are used to indicate to the kernel
++ *       which events can be sent by the emulated hardware.
++ */
++
++#define TYPE_ROTARYEVDEV "goldfish_rotary"
++
++/* Pointer to the global device instance. Also serves as an initialization
++ * flag in goldfish_rotary_send_rotate() to filter-out events that are sent from
++ * the UI before the device was properly realized.
++ */
++static GoldfishEvDevState* s_evdev = NULL;
++
++static const VMStateDescription vmstate_rotary_evdev =
++        GOLDFISHEVDEV_VM_STATE_DESCRIPTION("goldfish_rotary");
++
++int goldfish_rotary_send_rotate(int value)
++{
++    GoldfishEvDevState *dev = s_evdev;
++
++    if (dev) {
++        goldfish_enqueue_event(dev, EV_REL, REL_WHEEL, value);
++        goldfish_enqueue_event(dev, 0, 0, value);
++    }
++
++    return 0;
++}
++
++static const MemoryRegionOps rotary_evdev_ops = {
++    .read = goldfish_events_read,
++    .write = goldfish_events_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++};
++
++static void rotary_evdev_init(Object *obj)
++{
++    GoldfishEvDevState *s = GOLDFISHEVDEV(obj, TYPE_ROTARYEVDEV);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
++
++    memory_region_init_io(&s->iomem, obj, &rotary_evdev_ops, s,
++                          "goldfish_rotary", 0x1000);
++    sysbus_init_mmio(sbd, &s->iomem);
++    sysbus_init_irq(sbd, &s->irq);
++}
++
++static void rotary_evdev_realize(DeviceState *dev, Error **errp)
++{
++
++    GoldfishEvDevState *s = GOLDFISHEVDEV(dev, TYPE_ROTARYEVDEV);
++
++    /* Initialize the device ID so the event dev can be looked up during
++     * monitor commands.
++     */
++    dev->id = g_strdup(TYPE_ROTARYEVDEV);
++
++    /* now set the events capability bits depending on hardware configuration */
++    /* apparently, the EV_SYN array is used to indicate which other
++     * event classes to consider.
++     */
++
++    s->name = "goldfish_rotary";
++
++    /* configure EV_KEY array */
++    goldfish_events_set_bit(s, EV_SYN, EV_KEY);
++
++    /* configure EV_REL array */
++    goldfish_events_set_bit(s, EV_SYN, EV_REL);
++    goldfish_events_set_bit(s, EV_REL, REL_WHEEL);
++
++    /* Register global variable. */
++    assert(s_evdev == NULL);
++    assert(s->state == 0);
++    s_evdev = s;
++}
++
++static void rotary_evdev_reset(DeviceState *dev)
++{
++    GoldfishEvDevState *s = GOLDFISHEVDEV(dev, TYPE_ROTARYEVDEV);
++
++    s->first = 0;
++    s->last = 0;
++}
++
++static void rotary_evdev_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = rotary_evdev_realize;
++    dc->reset = rotary_evdev_reset;
++    dc->vmsd = &vmstate_rotary_evdev;
++}
++
++static const TypeInfo rotary_evdev_info = {
++    .name = TYPE_ROTARYEVDEV,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(GoldfishEvDevState),
++    .instance_init = rotary_evdev_init,
++    .class_init = rotary_evdev_class_init,
++};
++
++static void rotary_evdev_register_types(void)
++{
++    type_register_static(&rotary_evdev_info);
++}
++
++type_init(rotary_evdev_register_types)
+diff --git a/hw/input/meson.build b/hw/input/meson.build
+index 0042c3f0dc..ec53197608 100644
+--- a/hw/input/meson.build
++++ b/hw/input/meson.build
+@@ -17,3 +17,4 @@ softmmu_ss.add(when: 'CONFIG_MILKYMIST', if_true: files('milkymist-softusb.c'))
+ softmmu_ss.add(when: 'CONFIG_PXA2XX', if_true: files('pxa2xx_keypad.c'))
+ softmmu_ss.add(when: 'CONFIG_TSC210X', if_true: files('tsc210x.c'))
+ softmmu_ss.add(when: 'CONFIG_LASIPS2', if_true: files('lasips2.c'))
++softmmu_ss.add(when: 'CONFIG_GOLDFISH_EVENTS', if_true: files('goldfish_events_common.c', 'goldfish_rotary.c'))
+diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
+index c71ed25820..6921f219f7 100644
+--- a/hw/misc/Kconfig
++++ b/hw/misc/Kconfig
+@@ -186,4 +186,7 @@ config SIFIVE_U_PRCI
+ config VIRT_CTRL
+     bool
+ 
++config GOLDFISH_BATTERY
++    bool
++
+ source macio/Kconfig
+diff --git a/hw/misc/goldfish_battery.c b/hw/misc/goldfish_battery.c
+new file mode 100644
+index 0000000000..dbc1170248
+--- /dev/null
++++ b/hw/misc/goldfish_battery.c
+@@ -0,0 +1,452 @@
++/* Copyright (C) 2007-2015 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#include "qemu/osdep.h"
++#include "hw/hw.h"
++#include "hw/sysbus.h"
++#include "monitor/monitor.h"
++#include "hw/misc/goldfish_battery.h"
++#include "migration/vmstate.h"
++#include "hw/irq.h"
++
++static int sBatteryIsRealized = 0;
++static int sDeviceHasBattery = 0;
++
++#include <assert.h>
++
++enum {
++    /* status register */
++    BATTERY_INT_STATUS = 0x00,
++    /* set this to enable IRQ */
++    BATTERY_INT_ENABLE = 0x04,
++    BATTERY_AC_ONLINE = 0x08,
++    BATTERY_STATUS = 0x0C,
++    BATTERY_HEALTH = 0x10,
++    BATTERY_PRESENT = 0x14,
++    BATTERY_CAPACITY = 0x18,
++    BATTERY_VOLTAGE = 0x1C,
++    BATTERY_TEMP = 0x20,
++    BATTERY_CHARGE_COUNTER = 0x24,
++    BATTERY_VOLTAGE_MAX = 0x28,
++    BATTERY_CURRENT_MAX = 0x2C,
++    BATTERY_CURRENT_NOW = 0x30,
++    BATTERY_CURRENT_AVG = 0x34,
++    BATTERY_CHARGE_FULL_UAH = 0x38,
++    BATTERY_CYCLE_COUNT = 0x40,
++
++    BATTERY_STATUS_CHANGED = 1U << 0,
++    AC_STATUS_CHANGED = 1U << 1,
++    BATTERY_INT_MASK = BATTERY_STATUS_CHANGED | AC_STATUS_CHANGED,
++};
++
++#define TYPE_GOLDFISH_BATTERY "goldfish_battery"
++#define GOLDFISH_BATTERY(obj) OBJECT_CHECK(struct goldfish_battery_state, (obj), TYPE_GOLDFISH_BATTERY)
++
++struct goldfish_battery_state {
++    SysBusDevice parent;
++
++    MemoryRegion iomem;
++    qemu_irq irq;
++
++    // IRQs
++    uint32_t int_status;
++    // irq enable mask for int_status
++    uint32_t int_enable;
++
++    uint32_t ac_online;
++    uint32_t status;
++    uint32_t health;
++    uint32_t present;
++    uint32_t capacity;
++    uint32_t hw_has_battery;
++    uint32_t voltage;
++    uint32_t temp;
++    uint32_t charge_counter;
++    uint32_t voltage_max;
++    uint32_t current_max;
++    uint32_t current_now;
++    uint32_t current_avg;
++    uint32_t charge_full_uah;
++    uint32_t cycle_count;
++};
++
++/* update this each time you update the battery_state struct */
++#define  BATTERY_STATE_SAVE_VERSION  1
++
++static const VMStateDescription goldfish_battery_vmsd = {
++    .name = "goldfish_battery",
++    .version_id = BATTERY_STATE_SAVE_VERSION,
++    .minimum_version_id = BATTERY_STATE_SAVE_VERSION,
++    .minimum_version_id_old = BATTERY_STATE_SAVE_VERSION,
++    .fields = (VMStateField[]) {
++        VMSTATE_UINT32(int_status, struct goldfish_battery_state),
++        VMSTATE_UINT32(int_enable, struct goldfish_battery_state),
++        VMSTATE_UINT32(ac_online, struct goldfish_battery_state),
++        VMSTATE_UINT32(status, struct goldfish_battery_state),
++        VMSTATE_UINT32(health, struct goldfish_battery_state),
++        VMSTATE_UINT32(present, struct goldfish_battery_state),
++        VMSTATE_UINT32(capacity, struct goldfish_battery_state),
++        VMSTATE_UINT32(hw_has_battery, struct goldfish_battery_state),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++void goldfish_battery_display_cb(void* opaque, BatteryLineCallback callback)
++{
++    DeviceState *dev = qdev_find_recursive(sysbus_get_default(),
++                                           TYPE_GOLDFISH_BATTERY);
++    struct goldfish_battery_state *s = GOLDFISH_BATTERY(dev);
++    const char *value;
++    int size;
++    char buf[128] = {0};
++
++    size = snprintf(buf, sizeof(buf) - 1,
++                    "AC: %s\n", (s->ac_online) ? "online" : "offline");
++    assert(size > 0);
++    callback(opaque, buf, size);
++
++    switch (s->status) {
++    case POWER_SUPPLY_STATUS_CHARGING:
++        value = "Charging";
++        break;
++    case POWER_SUPPLY_STATUS_DISCHARGING:
++        value = "Discharging";
++        break;
++    case POWER_SUPPLY_STATUS_NOT_CHARGING:
++        value = "Not charging";
++        break;
++    case POWER_SUPPLY_STATUS_FULL:
++        value = "Full";
++        break;
++    default:
++        value = "Unknown";
++    }
++
++    size = snprintf(buf, sizeof(buf) - 1, "status: %s\n", value);
++    assert(size > 0);
++    callback(opaque, buf, size);
++
++    switch (s->health) {
++    case POWER_SUPPLY_HEALTH_GOOD:
++        value = "Good";
++        break;
++    case POWER_SUPPLY_HEALTH_OVERHEAT:
++        value = "Overheat";
++        break;
++    case POWER_SUPPLY_HEALTH_DEAD:
++        value = "Dead";
++        break;
++    case POWER_SUPPLY_HEALTH_OVERVOLTAGE:
++        value = "Overvoltage";
++        break;
++    case POWER_SUPPLY_HEALTH_UNSPEC_FAILURE:
++        value = "Unspecified failure";
++        break;
++    default:
++        value = "Unknown";
++    }
++    size = snprintf(buf, sizeof(buf) - 1, "health: %s\n", value);
++    assert(size > 0);
++    callback(opaque, buf, size);
++
++    size = snprintf(buf, sizeof(buf) - 1,
++                    "present: %s\n", (s->present) ? "true" : "false");
++    assert(size > 0);
++    callback(opaque, buf, size);
++
++    size = snprintf(buf, sizeof(buf) - 1, "capacity: %d\n", s->capacity);
++    assert(size > 0);
++    callback(opaque, buf, size);
++}
++
++static void monitor_print_callback(void* opaque, const char* buf, int size)
++{
++    Monitor* mon = (Monitor*)opaque;
++    monitor_printf(mon, "%.*s", size, buf);
++}
++
++void goldfish_battery_display(Monitor *mon)
++{
++    goldfish_battery_display_cb(mon, &monitor_print_callback);
++}
++
++int goldfish_battery_read_prop(int property)
++{
++    int retVal = 0;
++
++    DeviceState *dev = qdev_find_recursive(sysbus_get_default(),
++                                           TYPE_GOLDFISH_BATTERY);
++    struct goldfish_battery_state *battery_state = GOLDFISH_BATTERY(dev);
++
++    if (!battery_state) {
++        return 0;
++    }
++
++    switch (property) {
++        case POWER_SUPPLY_PROP_ONLINE:
++            retVal = battery_state->ac_online;
++            break;
++        case POWER_SUPPLY_PROP_STATUS:
++            retVal = battery_state->status;
++            break;
++        case POWER_SUPPLY_PROP_HEALTH:
++            retVal = battery_state->health;
++            break;
++        case POWER_SUPPLY_PROP_HAS_BATTERY:
++            retVal =  battery_state->hw_has_battery;
++            break;
++        case POWER_SUPPLY_PROP_PRESENT:
++            retVal = battery_state->present;
++            break;
++        case POWER_SUPPLY_PROP_CAPACITY:
++            retVal = battery_state->capacity;
++            break;
++        case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++            retVal = battery_state->voltage;
++            break;
++        case POWER_SUPPLY_PROP_TEMP:
++            retVal = battery_state->temp;
++            break;
++        case POWER_SUPPLY_PROP_CHARGE_COUNTER:
++            retVal = battery_state->charge_counter;
++            break;
++        case POWER_SUPPLY_PROP_VOLTAGE_MAX:
++            retVal = battery_state->voltage_max;
++            break;
++        case POWER_SUPPLY_PROP_CURRENT_MAX:
++            retVal = battery_state->current_max;
++            break;
++        case POWER_SUPPLY_PROP_CURRENT_NOW:
++            retVal = battery_state->current_now;
++            break;
++        case POWER_SUPPLY_PROP_CURRENT_AVG:
++            retVal = battery_state->current_avg;
++            break;
++        case POWER_SUPPLY_PROP_CHARGE_FULL:
++            retVal = battery_state->charge_full_uah;
++            break;
++        case POWER_SUPPLY_PROP_CYCLE_COUNT:
++            retVal = battery_state->cycle_count;
++            break;
++        default:
++            retVal = 0;
++            break;
++    }
++    return retVal;
++}
++
++void goldfish_battery_set_prop(int ac, int property, int value)
++{
++    if (!sBatteryIsRealized) {
++        // The only thing we can set before the battery has been
++        // 'realized' is whether the device uses a battery at all.
++        if (property == POWER_SUPPLY_PROP_HAS_BATTERY) {
++            sDeviceHasBattery = value;
++        }
++        return;
++    }
++
++    DeviceState *dev = qdev_find_recursive(sysbus_get_default(),
++                                           TYPE_GOLDFISH_BATTERY);
++    struct goldfish_battery_state *battery_state = GOLDFISH_BATTERY(dev);
++    int new_status = (ac ? AC_STATUS_CHANGED : BATTERY_STATUS_CHANGED);
++
++    if (!battery_state || !battery_state->hw_has_battery) {
++        return;
++    }
++
++    if (ac) {
++        switch (property) {
++        case POWER_SUPPLY_PROP_ONLINE:
++            battery_state->ac_online = value;
++            break;
++        }
++    } else {
++        switch (property) {
++        case POWER_SUPPLY_PROP_STATUS:
++            battery_state->status = value;
++            break;
++        case POWER_SUPPLY_PROP_HEALTH:
++            battery_state->health = value;
++            break;
++        case POWER_SUPPLY_PROP_PRESENT:
++            battery_state->present = value;
++            break;
++        case POWER_SUPPLY_PROP_CAPACITY:
++            battery_state->capacity = value;
++            break;
++        case POWER_SUPPLY_PROP_CURRENT_NOW:
++            battery_state->current_now = value;
++            break;
++        case POWER_SUPPLY_PROP_CURRENT_AVG:
++            battery_state->current_avg = value;
++            break;
++        case POWER_SUPPLY_PROP_CHARGE_FULL:
++            battery_state->charge_full_uah = value;
++            break;
++        case POWER_SUPPLY_PROP_CYCLE_COUNT:
++            battery_state->cycle_count = value;
++            break;
++        }
++    }
++
++    if (new_status != battery_state->int_status) {
++        battery_state->int_status |= new_status;
++        qemu_set_irq(battery_state->irq,
++                     (battery_state->int_status &
++                     battery_state->int_enable));
++    }
++}
++
++static uint64_t goldfish_battery_read(void *opaque, hwaddr offset, unsigned size)
++{
++    uint64_t ret;
++    struct goldfish_battery_state *s = opaque;
++
++    switch(offset) {
++        case BATTERY_INT_STATUS:
++            // return current buffer status flags
++            ret = s->int_status & s->int_enable;
++            if (ret) {
++                qemu_irq_lower(s->irq);
++                s->int_status = 0;
++            }
++            return ret;
++
++        case BATTERY_INT_ENABLE:
++            return s->int_enable;
++        case BATTERY_AC_ONLINE:
++            return s->ac_online;
++        case BATTERY_STATUS:
++            return s->status;
++        case BATTERY_HEALTH:
++            return s->health;
++        case BATTERY_PRESENT:
++            return s->present;
++        case BATTERY_CAPACITY:
++            return s->capacity;
++        case BATTERY_VOLTAGE:
++            return s->voltage;
++        case BATTERY_TEMP:
++            return s->temp;
++        case BATTERY_CHARGE_COUNTER:
++            return s->charge_counter;
++        case BATTERY_VOLTAGE_MAX:
++            return s->voltage_max;
++        case BATTERY_CURRENT_MAX:
++            return s->current_max;
++        case BATTERY_CURRENT_NOW:
++            return s->current_now;
++        case BATTERY_CURRENT_AVG:
++            return s->current_avg;
++        case BATTERY_CHARGE_FULL_UAH:
++            return s->charge_full_uah;
++        case BATTERY_CYCLE_COUNT:
++            return s->cycle_count;
++        default:
++            return 0;
++    }
++}
++
++static void goldfish_battery_write(void *opaque, hwaddr offset, uint64_t val,
++        unsigned size)
++{
++    struct goldfish_battery_state *s = opaque;
++
++    switch(offset) {
++        case BATTERY_INT_ENABLE:
++            /* enable interrupts */
++            s->int_enable = val;
++
++            uint32_t now_active = (s->int_enable & s->int_status);
++            if (now_active != 0) {
++                // Some interrupt is now unmasked, signal IRQ
++                qemu_set_irq(s->irq, now_active);
++            }
++            break;
++    }
++}
++
++static const MemoryRegionOps goldfish_battery_iomem_ops = {
++    .read = goldfish_battery_read,
++    .write = goldfish_battery_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++    .impl.min_access_size = 4,
++    .impl.max_access_size = 4,
++};
++
++static void goldfish_battery_realize(DeviceState *dev, Error **errp)
++{
++    SysBusDevice *sbdev = SYS_BUS_DEVICE(dev);
++    struct goldfish_battery_state *s = GOLDFISH_BATTERY(dev);
++
++    /* Initialize the device ID so the battery can be looked up during monitor
++     * commands.
++     */
++    dev->id = g_strdup("goldfish_battery");
++
++    memory_region_init_io(&s->iomem, OBJECT(s), &goldfish_battery_iomem_ops, s,
++            "goldfish_battery", 0x1000);
++    sysbus_init_mmio(sbdev, &s->iomem);
++    sysbus_init_irq(sbdev, &s->irq);
++
++    // default values for the battery
++    s->ac_online = 1;
++    s->voltage = 5000000;  // 5 volt
++    s->temp = 250;         // 25 celsuis
++    s->voltage_max = 5000000;  // 5 volt
++    s->current_max = 5000000;  // 5 amp
++    s->current_now = 900000;   // 0.9A
++    s->current_avg = 900000;   // 0.9A
++    s->charge_full_uah = 3000000;  // 3AH
++    s->cycle_count = 10;
++
++    if (sDeviceHasBattery) {
++        s->hw_has_battery = 1;
++        s->status = POWER_SUPPLY_STATUS_CHARGING;
++        s->health = POWER_SUPPLY_HEALTH_GOOD;
++        s->present = 1;
++        s->capacity = 100;   // 100% charged
++        s->charge_counter = 10000;
++    } else {
++        s->hw_has_battery = 0;
++        s->status = POWER_SUPPLY_STATUS_UNKNOWN;
++        s->health = POWER_SUPPLY_HEALTH_UNKNOWN;
++        s->present = 0;
++        s->capacity = 0;
++        s->charge_counter = 0;
++    }
++
++    sBatteryIsRealized = 1;
++}
++
++static void goldfish_battery_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = goldfish_battery_realize;
++    dc->vmsd = &goldfish_battery_vmsd;
++    dc->desc = "goldfish battery";
++}
++
++static const TypeInfo goldfish_battery_info = {
++    .name          = TYPE_GOLDFISH_BATTERY,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(struct goldfish_battery_state),
++    .class_init    = goldfish_battery_class_init,
++};
++
++static void goldfish_battery_register(void)
++{
++    type_register_static(&goldfish_battery_info);
++}
++
++type_init(goldfish_battery_register);
+diff --git a/hw/misc/goldfish_battery.h b/hw/misc/goldfish_battery.h
+new file mode 100644
+index 0000000000..fffe07e238
+--- /dev/null
++++ b/hw/misc/goldfish_battery.h
+@@ -0,0 +1,84 @@
++/* Copyright (C) 2007-2015 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#ifndef _HW_GOLDFISH_BATTERY_H
++#define _HW_GOLDFISH_BATTERY_H
++
++enum {
++    POWER_SUPPLY_STATUS_UNKNOWN = 0,
++    POWER_SUPPLY_STATUS_CHARGING,
++    POWER_SUPPLY_STATUS_DISCHARGING,
++    POWER_SUPPLY_STATUS_NOT_CHARGING,
++    POWER_SUPPLY_STATUS_FULL,
++};
++
++enum {
++    POWER_SUPPLY_HEALTH_UNKNOWN = 0,
++    POWER_SUPPLY_HEALTH_GOOD,
++    POWER_SUPPLY_HEALTH_OVERHEAT,
++    POWER_SUPPLY_HEALTH_DEAD,
++    POWER_SUPPLY_HEALTH_OVERVOLTAGE,
++    POWER_SUPPLY_HEALTH_UNSPEC_FAILURE,
++};
++
++enum power_supply_property {
++    /* Properties of type `int' */
++    POWER_SUPPLY_PROP_STATUS = 0,
++    POWER_SUPPLY_PROP_HAS_BATTERY,
++    POWER_SUPPLY_PROP_HEALTH,
++    POWER_SUPPLY_PROP_PRESENT,
++    POWER_SUPPLY_PROP_ONLINE,
++    POWER_SUPPLY_PROP_TECHNOLOGY,
++    POWER_SUPPLY_PROP_CYCLE_COUNT,
++    POWER_SUPPLY_PROP_VOLTAGE_MAX,
++    POWER_SUPPLY_PROP_VOLTAGE_MIN,
++    POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
++    POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
++    POWER_SUPPLY_PROP_VOLTAGE_NOW,
++    POWER_SUPPLY_PROP_VOLTAGE_AVG,
++    POWER_SUPPLY_PROP_CURRENT_MAX,
++    POWER_SUPPLY_PROP_CURRENT_NOW,
++    POWER_SUPPLY_PROP_CURRENT_AVG,
++    POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
++    POWER_SUPPLY_PROP_CHARGE_EMPTY_DESIGN,
++    POWER_SUPPLY_PROP_CHARGE_FULL,
++    POWER_SUPPLY_PROP_CHARGE_EMPTY,
++    POWER_SUPPLY_PROP_CHARGE_NOW,
++    POWER_SUPPLY_PROP_CHARGE_AVG,
++    POWER_SUPPLY_PROP_CHARGE_COUNTER,
++    POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN,
++    POWER_SUPPLY_PROP_ENERGY_EMPTY_DESIGN,
++    POWER_SUPPLY_PROP_ENERGY_FULL,
++    POWER_SUPPLY_PROP_ENERGY_EMPTY,
++    POWER_SUPPLY_PROP_ENERGY_NOW,
++    POWER_SUPPLY_PROP_ENERGY_AVG,
++    POWER_SUPPLY_PROP_CAPACITY, /* in percents! */
++    POWER_SUPPLY_PROP_CAPACITY_LEVEL,
++    POWER_SUPPLY_PROP_TEMP,
++    POWER_SUPPLY_PROP_TEMP_AMBIENT,
++    POWER_SUPPLY_PROP_TIME_TO_EMPTY_NOW,
++    POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG,
++    POWER_SUPPLY_PROP_TIME_TO_FULL_NOW,
++    POWER_SUPPLY_PROP_TIME_TO_FULL_AVG,
++    /* Properties of type `const char *' */
++    POWER_SUPPLY_PROP_MODEL_NAME,
++    POWER_SUPPLY_PROP_MANUFACTURER,
++};
++
++extern void goldfish_battery_display(Monitor *mon);
++
++typedef void (*BatteryLineCallback)(void* opaque, const char* line, int len);
++extern void goldfish_battery_display_cb(void* opaque,
++                                        BatteryLineCallback callback);
++int  goldfish_battery_read_prop(int property);
++void goldfish_battery_set_prop(int ac, int property, int value);
++
++#endif /* _HW_GOLDFISH_BATTERY_H */
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+index 21034dc60a..b7e74390e6 100644
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -20,6 +20,7 @@ softmmu_ss.add(when: 'CONFIG_PL310', if_true: files('arm_l2x0.c'))
+ softmmu_ss.add(when: 'CONFIG_INTEGRATOR_DEBUG', if_true: files('arm_integrator_debug.c'))
+ softmmu_ss.add(when: 'CONFIG_A9SCU', if_true: files('a9scu.c'))
+ softmmu_ss.add(when: 'CONFIG_ARM11SCU', if_true: files('arm11scu.c'))
++softmmu_ss.add(when: 'CONFIG_GOLDFISH_BATTERY', if_true: files('goldfish_battery.c'))
+ 
+ # Mac devices
+ softmmu_ss.add(when: 'CONFIG_MOS6522', if_true: files('mos6522.c'))
 diff --git a/include/hw/display/goldfish_fb.h b/include/hw/display/goldfish_fb.h
 new file mode 100644
 index 0000000000..93a3591620
@@ -1546,6 +4363,558 @@ index 0000000000..b75534fc4e
 +#undef DEST_BITS
 +#undef SOURCE_BITS
 +#undef COPY_PIXEL
+diff --git a/include/hw/input/android_keycodes.h b/include/hw/input/android_keycodes.h
+new file mode 100644
+index 0000000000..33e3cecfec
+--- /dev/null
++++ b/include/hw/input/android_keycodes.h
+@@ -0,0 +1,30 @@
++/* Copyright (C) 2015 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++
++/* This extends the list of key codes that are defined in linux_keycodes.h
++*/
++
++#pragma once
++
++// Note: qemu-user-event-agent-impl.c limits key values to 0x3ff (1023)
++
++#define ANDROID_KEY_APPSWITCH    580
++
++// Keycodes added to android.view.KeyEvent in API 24, to support hardware
++// buttons on Android Wear devices
++// Note that the keycode values are not the same as the values in
++// android.view.KeyEvent, because those values collide with mouse button
++// keycodes.
++#define ANDROID_KEY_STEM_PRIMARY 581
++#define ANDROID_KEY_STEM_1 582
++#define ANDROID_KEY_STEM_2 583
++#define ANDROID_KEY_STEM_3 584
+diff --git a/include/hw/input/linux_keycodes.h b/include/hw/input/linux_keycodes.h
+new file mode 100644
+index 0000000000..d0bbcc6e4b
+--- /dev/null
++++ b/include/hw/input/linux_keycodes.h
+@@ -0,0 +1,510 @@
++#ifndef HW_INPUT_LINUX_KEYCODES_H
++#define HW_INPUT_LINUX_KEYCODES_H
++
++/*
++ * Copyright (c) 1999-2002 Vojtech Pavlik
++ *
++ * This program is free software; you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License version 2 as published by
++ * the Free Software Foundation.
++ *
++ * Adjusted for portable use in QEMU by prepending LINUX_ to all names.
++ */
++
++/*
++ * Keys and buttons
++ */
++
++#define LINUX_KEY_RESERVED              0
++#define LINUX_KEY_ESC                   1
++#define LINUX_KEY_1                     2
++#define LINUX_KEY_2                     3
++#define LINUX_KEY_3                     4
++#define LINUX_KEY_4                     5
++#define LINUX_KEY_5                     6
++#define LINUX_KEY_6                     7
++#define LINUX_KEY_7                     8
++#define LINUX_KEY_8                     9
++#define LINUX_KEY_9                     10
++#define LINUX_KEY_0                     11
++#define LINUX_KEY_MINUS                 12
++#define LINUX_KEY_EQUAL                 13
++#define LINUX_KEY_BACKSPACE             14
++#define LINUX_KEY_TAB                   15
++#define LINUX_KEY_Q                     16
++#define LINUX_KEY_W                     17
++#define LINUX_KEY_E                     18
++#define LINUX_KEY_R                     19
++#define LINUX_KEY_T                     20
++#define LINUX_KEY_Y                     21
++#define LINUX_KEY_U                     22
++#define LINUX_KEY_I                     23
++#define LINUX_KEY_O                     24
++#define LINUX_KEY_P                     25
++#define LINUX_KEY_LEFTBRACE             26
++#define LINUX_KEY_RIGHTBRACE            27
++#define LINUX_KEY_ENTER                 28
++#define LINUX_KEY_LEFTCTRL              29
++#define LINUX_KEY_A                     30
++#define LINUX_KEY_S                     31
++#define LINUX_KEY_D                     32
++#define LINUX_KEY_F                     33
++#define LINUX_KEY_G                     34
++#define LINUX_KEY_H                     35
++#define LINUX_KEY_J                     36
++#define LINUX_KEY_K                     37
++#define LINUX_KEY_L                     38
++#define LINUX_KEY_SEMICOLON             39
++#define LINUX_KEY_APOSTROPHE            40
++#define LINUX_KEY_GRAVE                 41
++#define LINUX_KEY_LEFTSHIFT             42
++#define LINUX_KEY_BACKSLASH             43
++#define LINUX_KEY_Z                     44
++#define LINUX_KEY_X                     45
++#define LINUX_KEY_C                     46
++#define LINUX_KEY_V                     47
++#define LINUX_KEY_B                     48
++#define LINUX_KEY_N                     49
++#define LINUX_KEY_M                     50
++#define LINUX_KEY_COMMA                 51
++#define LINUX_KEY_DOT                   52
++#define LINUX_KEY_SLASH                 53
++#define LINUX_KEY_RIGHTSHIFT            54
++#define LINUX_KEY_KPASTERISK            55
++#define LINUX_KEY_LEFTALT               56
++#define LINUX_KEY_SPACE                 57
++#define LINUX_KEY_CAPSLOCK              58
++#define LINUX_KEY_F1                    59
++#define LINUX_KEY_F2                    60
++#define LINUX_KEY_F3                    61
++#define LINUX_KEY_F4                    62
++#define LINUX_KEY_F5                    63
++#define LINUX_KEY_F6                    64
++#define LINUX_KEY_F7                    65
++#define LINUX_KEY_F8                    66
++#define LINUX_KEY_F9                    67
++#define LINUX_KEY_F10                   68
++#define LINUX_KEY_NUMLOCK               69
++#define LINUX_KEY_SCROLLLOCK            70
++#define LINUX_KEY_KP7                   71
++#define LINUX_KEY_KP8                   72
++#define LINUX_KEY_KP9                   73
++#define LINUX_KEY_KPMINUS               74
++#define LINUX_KEY_KP4                   75
++#define LINUX_KEY_KP5                   76
++#define LINUX_KEY_KP6                   77
++#define LINUX_KEY_KPPLUS                78
++#define LINUX_KEY_KP1                   79
++#define LINUX_KEY_KP2                   80
++#define LINUX_KEY_KP3                   81
++#define LINUX_KEY_KP0                   82
++#define LINUX_KEY_KPDOT                 83
++
++#define LINUX_KEY_ZENKAKUHANKAKU        85
++#define LINUX_KEY_102ND                 86
++#define LINUX_KEY_F11                   87
++#define LINUX_KEY_F12                   88
++#define LINUX_KEY_RO                    89
++#define LINUX_KEY_KATAKANA              90
++#define LINUX_KEY_HIRAGANA              91
++#define LINUX_KEY_HENKAN                92
++#define LINUX_KEY_KATAKANAHIRAGANA      93
++#define LINUX_KEY_MUHENKAN              94
++#define LINUX_KEY_KPJPCOMMA             95
++#define LINUX_KEY_KPENTER               96
++#define LINUX_KEY_RIGHTCTRL             97
++#define LINUX_KEY_KPSLASH               98
++#define LINUX_KEY_SYSRQ                 99
++#define LINUX_KEY_RIGHTALT              100
++#define LINUX_KEY_LINEFEED              101
++#define LINUX_KEY_HOME          102
++#define LINUX_KEY_UP                    103
++#define LINUX_KEY_PAGEUP                104
++#define LINUX_KEY_LEFT          105
++#define LINUX_KEY_RIGHT                 106
++#define LINUX_KEY_END                   107
++#define LINUX_KEY_DOWN          108
++#define LINUX_KEY_PAGEDOWN              109
++#define LINUX_KEY_INSERT                110
++#define LINUX_KEY_DELETE                111
++#define LINUX_KEY_MACRO                 112
++#define LINUX_KEY_MUTE          113
++#define LINUX_KEY_VOLUMEDOWN            114
++#define LINUX_KEY_VOLUMEUP              115
++#define LINUX_KEY_POWER                 116
++#define LINUX_KEY_KPEQUAL               117
++#define LINUX_KEY_KPPLUSMINUS           118
++#define LINUX_KEY_PAUSE                 119
++
++#define LINUX_KEY_KPCOMMA               121
++#define LINUX_KEY_HANGEUL               122
++#define LINUX_KEY_HANGUEL               KEY_HANGEUL
++#define LINUX_KEY_HANJA                 123
++#define LINUX_KEY_YEN                   124
++#define LINUX_KEY_LEFTMETA              125
++#define LINUX_KEY_RIGHTMETA             126
++#define LINUX_KEY_COMPOSE               127
++
++#define LINUX_KEY_STOP          128
++#define LINUX_KEY_AGAIN                 129
++#define LINUX_KEY_PROPS                 130
++#define LINUX_KEY_UNDO          131
++#define LINUX_KEY_FRONT                 132
++#define LINUX_KEY_COPY          133
++#define LINUX_KEY_OPEN          134
++#define LINUX_KEY_PASTE                 135
++#define LINUX_KEY_FIND          136
++#define LINUX_KEY_CUT                   137
++#define LINUX_KEY_HELP          138
++#define LINUX_KEY_MENU          139
++#define LINUX_KEY_CALC          140
++#define LINUX_KEY_SETUP                 141
++#define LINUX_KEY_SLEEP                 142
++#define LINUX_KEY_WAKEUP                143
++#define LINUX_KEY_FILE          144
++#define LINUX_KEY_SENDFILE              145
++#define LINUX_KEY_DELETEFILE            146
++#define LINUX_KEY_XFER          147
++#define LINUX_KEY_PROG1                 148
++#define LINUX_KEY_PROG2                 149
++#define LINUX_KEY_WWW                   150
++#define LINUX_KEY_MSDOS                 151
++#define LINUX_KEY_COFFEE                152
++#define LINUX_KEY_DIRECTION             153
++#define LINUX_KEY_CYCLEWINDOWS  154
++#define LINUX_KEY_MAIL          155
++#define LINUX_KEY_BOOKMARKS             156
++#define LINUX_KEY_COMPUTER              157
++#define LINUX_KEY_BACK          158
++#define LINUX_KEY_FORWARD               159
++#define LINUX_KEY_CLOSECD               160
++#define LINUX_KEY_EJECTCD               161
++#define LINUX_KEY_EJECTCLOSECD  162
++#define LINUX_KEY_NEXTSONG              163
++#define LINUX_KEY_PLAYPAUSE             164
++#define LINUX_KEY_PREVIOUSSONG  165
++#define LINUX_KEY_STOPCD                166
++#define LINUX_KEY_RECORD                167
++#define LINUX_KEY_REWIND                168
++#define LINUX_KEY_PHONE                 169
++#define LINUX_KEY_ISO                   170
++#define LINUX_KEY_CONFIG                171
++#define LINUX_KEY_HOMEPAGE              172
++#define LINUX_KEY_REFRESH               173
++#define LINUX_KEY_EXIT          174
++#define LINUX_KEY_MOVE          175
++#define LINUX_KEY_EDIT          176
++#define LINUX_KEY_SCROLLUP              177
++#define LINUX_KEY_SCROLLDOWN            178
++#define LINUX_KEY_KPLEFTPAREN           179
++#define LINUX_KEY_KPRIGHTPAREN  180
++#define LINUX_KEY_NEW                   181
++#define LINUX_KEY_REDO          182
++
++#define LINUX_KEY_F13                   183
++#define LINUX_KEY_F14                   184
++#define LINUX_KEY_F15                   185
++#define LINUX_KEY_F16                   186
++#define LINUX_KEY_F17                   187
++#define LINUX_KEY_F18                   188
++#define LINUX_KEY_F19                   189
++#define LINUX_KEY_F20                   190
++#define LINUX_KEY_F21                   191
++#define LINUX_KEY_F22                   192
++#define LINUX_KEY_F23                   193
++#define LINUX_KEY_F24                   194
++
++#define LINUX_KEY_PLAYCD                200
++#define LINUX_KEY_PAUSECD               201
++#define LINUX_KEY_PROG3                 202
++#define LINUX_KEY_PROG4                 203
++#define LINUX_KEY_SUSPEND               205
++#define LINUX_KEY_CLOSE                 206
++#define LINUX_KEY_PLAY          207
++#define LINUX_KEY_FASTFORWARD           208
++#define LINUX_KEY_BASSBOOST             209
++#define LINUX_KEY_PRINT                 210
++#define LINUX_KEY_HP                    211
++#define LINUX_KEY_CAMERA                212
++#define LINUX_KEY_SOUND                 213
++#define LINUX_KEY_QUESTION              214
++#define LINUX_KEY_EMAIL                 215
++#define LINUX_KEY_CHAT          216
++#define LINUX_KEY_SEARCH                217
++#define LINUX_KEY_CONNECT               218
++#define LINUX_KEY_FINANCE               219
++#define LINUX_KEY_SPORT                 220
++#define LINUX_KEY_SHOP          221
++#define LINUX_KEY_ALTERASE              222
++#define LINUX_KEY_CANCEL                223
++#define LINUX_KEY_BRIGHTNESSDOWN        224
++#define LINUX_KEY_BRIGHTNESSUP  225
++#define LINUX_KEY_MEDIA                 226
++
++
++/*Zeus: these keys are defined for OMAP730 Perseus2*/
++#define LINUX_KEY_STAR          227
++#define LINUX_KEY_SHARP                 228
++#define LINUX_KEY_SOFT1                 229
++#define LINUX_KEY_SOFT2                 230
++#define LINUX_KEY_SEND          231
++#define LINUX_KEY_CENTER                232
++#define LINUX_KEY_HEADSETHOOK           233
++#define LINUX_KEY_0_5                   234
++#define LINUX_KEY_2_5                   235
++
++#define LINUX_KEY_SWITCHVIDEOMODE       236
++#define LINUX_KEY_KBDILLUMTOGGLE        237
++#define LINUX_KEY_KBDILLUMDOWN  238
++#define LINUX_KEY_KBDILLUMUP            239
++
++#define LINUX_KEY_SEND          231
++#define LINUX_KEY_REPLY                 232
++#define LINUX_KEY_FORWARDMAIL           233
++#define LINUX_KEY_SAVE          234
++#define LINUX_KEY_DOCUMENTS             235
++
++#define LINUX_KEY_BATTERY               236
++
++#define LINUX_KEY_UNKNOWN               240
++
++#define LINUX_KEY_NUM                 241
++#define LINUX_KEY_FOCUS               242
++#define LINUX_KEY_PLUS                243
++#define LINUX_KEY_NOTIFICATION        244
++
++#define LINUX_BTN_MISC          0x100
++#define LINUX_BTN_0                     0x100
++#define LINUX_BTN_1                     0x101
++#define LINUX_BTN_2                     0x102
++#define LINUX_BTN_3                     0x103
++#define LINUX_BTN_4                     0x104
++#define LINUX_BTN_5                     0x105
++#define LINUX_BTN_6                     0x106
++#define LINUX_BTN_7                     0x107
++#define LINUX_BTN_8                     0x108
++#define LINUX_BTN_9                     0x109
++
++#define LINUX_BTN_MOUSE                 0x110
++#define LINUX_BTN_LEFT          0x110
++#define LINUX_BTN_RIGHT                 0x111
++#define LINUX_BTN_MIDDLE                0x112
++#define LINUX_BTN_SIDE          0x113
++#define LINUX_BTN_EXTRA                 0x114
++#define LINUX_BTN_FORWARD               0x115
++#define LINUX_BTN_BACK          0x116
++#define LINUX_BTN_TASK          0x117
++
++#define LINUX_BTN_JOYSTICK              0x120
++#define LINUX_BTN_TRIGGER               0x120
++#define LINUX_BTN_THUMB                 0x121
++#define LINUX_BTN_THUMB2                0x122
++#define LINUX_BTN_TOP                   0x123
++#define LINUX_BTN_TOP2          0x124
++#define LINUX_BTN_PINKIE                0x125
++#define LINUX_BTN_BASE          0x126
++#define LINUX_BTN_BASE2                 0x127
++#define LINUX_BTN_BASE3                 0x128
++#define LINUX_BTN_BASE4                 0x129
++#define LINUX_BTN_BASE5                 0x12a
++#define LINUX_BTN_BASE6                 0x12b
++#define LINUX_BTN_DEAD          0x12f
++
++#define LINUX_BTN_GAMEPAD               0x130
++#define LINUX_BTN_A                     0x130
++#define LINUX_BTN_B                     0x131
++#define LINUX_BTN_C                     0x132
++#define LINUX_BTN_X                     0x133
++#define LINUX_BTN_Y                     0x134
++#define LINUX_BTN_Z                     0x135
++#define LINUX_BTN_TL                    0x136
++#define LINUX_BTN_TR                    0x137
++#define LINUX_BTN_TL2                   0x138
++#define LINUX_BTN_TR2                   0x139
++#define LINUX_BTN_SELECT                0x13a
++#define LINUX_BTN_START                 0x13b
++#define LINUX_BTN_MODE          0x13c
++#define LINUX_BTN_THUMBL                0x13d
++#define LINUX_BTN_THUMBR                0x13e
++
++#define LINUX_BTN_DIGI          0x140
++#define LINUX_BTN_TOOL_PEN              0x140
++#define LINUX_BTN_TOOL_RUBBER           0x141
++#define LINUX_BTN_TOOL_BRUSH            0x142
++#define LINUX_BTN_TOOL_PENCIL           0x143
++#define LINUX_BTN_TOOL_AIRBRUSH         0x144
++#define LINUX_BTN_TOOL_FINGER           0x145
++#define LINUX_BTN_TOOL_MOUSE            0x146
++#define LINUX_BTN_TOOL_LENS             0x147
++#define LINUX_BTN_TOUCH                 0x14a
++#define LINUX_BTN_STYLUS                0x14b
++#define LINUX_BTN_STYLUS2               0x14c
++#define LINUX_BTN_TOOL_DOUBLETAP        0x14d
++#define LINUX_BTN_TOOL_TRIPLETAP        0x14e
++
++#define LINUX_BTN_WHEEL                 0x150
++#define LINUX_BTN_GEAR_DOWN             0x150
++#define LINUX_BTN_GEAR_UP               0x151
++
++#define LINUX_KEY_OK                    0x160
++#define LINUX_KEY_SELECT                0x161
++#define LINUX_KEY_GOTO          0x162
++#define LINUX_KEY_CLEAR                 0x163
++#define LINUX_KEY_POWER2                0x164
++#define LINUX_KEY_OPTION                0x165
++#define LINUX_KEY_INFO          0x166
++#define LINUX_KEY_TIME          0x167
++#define LINUX_KEY_VENDOR                0x168
++#define LINUX_KEY_ARCHIVE               0x169
++#define LINUX_KEY_PROGRAM               0x16a
++#define LINUX_KEY_CHANNEL               0x16b
++#define LINUX_KEY_FAVORITES             0x16c
++#define LINUX_KEY_EPG                   0x16d
++#define LINUX_KEY_PVR                   0x16e
++#define LINUX_KEY_MHP                   0x16f
++#define LINUX_KEY_LANGUAGE              0x170
++#define LINUX_KEY_TITLE                 0x171
++#define LINUX_KEY_SUBTITLE              0x172
++#define LINUX_KEY_ANGLE                 0x173
++#define LINUX_KEY_ZOOM          0x174
++#define LINUX_KEY_MODE          0x175
++#define LINUX_KEY_KEYBOARD              0x176
++#define LINUX_KEY_SCREEN                0x177
++#define LINUX_KEY_PC                    0x178
++#define LINUX_KEY_TV                    0x179
++#define LINUX_KEY_TV2                   0x17a
++#define LINUX_KEY_VCR                   0x17b
++#define LINUX_KEY_VCR2          0x17c
++#define LINUX_KEY_SAT                   0x17d
++#define LINUX_KEY_SAT2          0x17e
++#define LINUX_KEY_CD                    0x17f
++#define LINUX_KEY_TAPE          0x180
++#define LINUX_KEY_RADIO                 0x181
++#define LINUX_KEY_TUNER                 0x182
++#define LINUX_KEY_PLAYER                0x183
++#define LINUX_KEY_TEXT          0x184
++#define LINUX_KEY_DVD                   0x185
++#define LINUX_KEY_AUX                   0x186
++#define LINUX_KEY_MP3                   0x187
++#define LINUX_KEY_AUDIO                 0x188
++#define LINUX_KEY_VIDEO                 0x189
++#define LINUX_KEY_DIRECTORY             0x18a
++#define LINUX_KEY_LIST          0x18b
++#define LINUX_KEY_MEMO          0x18c
++#define LINUX_KEY_CALENDAR              0x18d
++#define LINUX_KEY_RED                   0x18e
++#define LINUX_KEY_GREEN                 0x18f
++#define LINUX_KEY_YELLOW                0x190
++#define LINUX_KEY_BLUE          0x191
++#define LINUX_KEY_CHANNELUP             0x192
++#define LINUX_KEY_CHANNELDOWN           0x193
++#define LINUX_KEY_FIRST                 0x194
++#define LINUX_KEY_LAST          0x195
++#define LINUX_KEY_AB                    0x196
++#define LINUX_KEY_NEXT          0x197
++#define LINUX_KEY_RESTART               0x198
++#define LINUX_KEY_SLOW          0x199
++#define LINUX_KEY_SHUFFLE               0x19a
++#define LINUX_KEY_BREAK                 0x19b
++#define LINUX_KEY_PREVIOUS              0x19c
++#define LINUX_KEY_DIGITS                0x19d
++#define LINUX_KEY_TEEN          0x19e
++#define LINUX_KEY_TWEN          0x19f
++
++#define LINUX_KEY_DEL_EOL               0x1c0
++#define LINUX_KEY_DEL_EOS               0x1c1
++#define LINUX_KEY_INS_LINE              0x1c2
++#define LINUX_KEY_DEL_LINE              0x1c3
++
++#define LINUX_KEY_FN                    0x1d0
++#define LINUX_KEY_FN_ESC                0x1d1
++#define LINUX_KEY_FN_F1                 0x1d2
++#define LINUX_KEY_FN_F2                 0x1d3
++#define LINUX_KEY_FN_F3                 0x1d4
++#define LINUX_KEY_FN_F4                 0x1d5
++#define LINUX_KEY_FN_F5                 0x1d6
++#define LINUX_KEY_FN_F6                 0x1d7
++#define LINUX_KEY_FN_F7                 0x1d8
++#define LINUX_KEY_FN_F8                 0x1d9
++#define LINUX_KEY_FN_F9                 0x1da
++#define LINUX_KEY_FN_F10                0x1db
++#define LINUX_KEY_FN_F11                0x1dc
++#define LINUX_KEY_FN_F12                0x1dd
++#define LINUX_KEY_FN_1          0x1de
++#define LINUX_KEY_FN_2          0x1df
++#define LINUX_KEY_FN_D          0x1e0
++#define LINUX_KEY_FN_E          0x1e1
++#define LINUX_KEY_FN_F          0x1e2
++#define LINUX_KEY_FN_S          0x1e3
++#define LINUX_KEY_FN_B          0x1e4
++
++#define LINUX_KEY_BRL_DOT1              0x1f1
++#define LINUX_KEY_BRL_DOT2              0x1f2
++#define LINUX_KEY_BRL_DOT3              0x1f3
++#define LINUX_KEY_BRL_DOT4              0x1f4
++#define LINUX_KEY_BRL_DOT5              0x1f5
++#define LINUX_KEY_BRL_DOT6              0x1f6
++#define LINUX_KEY_BRL_DOT7              0x1f7
++#define LINUX_KEY_BRL_DOT8              0x1f8
++
++/* We avoid low common keys in module aliases so they don't get huge. */
++#define LINUX_KEY_MIN_INTERESTING       KEY_MUTE
++#define LINUX_KEY_MAX                   0x1ff
++
++#ifndef ABS_MT_SLOT
++#define LINUX_ABS_MT_SLOT          0x2f  /* MT slot being modified */
++#endif
++#ifndef ABS_MT_TOUCH_MAJOR
++#define LINUX_ABS_MT_TOUCH_MAJOR   0x30  /* Major axis of touching ellipse */
++#endif
++#ifndef ABS_MT_TOUCH_MINOR
++#define LINUX_ABS_MT_TOUCH_MINOR   0x31  /* Minor axis (omit if circular) */
++#endif
++#ifndef ABS_MT_WIDTH_MAJOR
++#define LINUX_ABS_MT_WIDTH_MAJOR   0x32  /* Major axis of approaching ellipse */
++#endif
++#ifndef ABS_MT_WIDTH_MINOR
++#define LINUX_ABS_MT_WIDTH_MINOR   0x33  /* Minor axis (omit if circular) */
++#endif
++#ifndef ABS_MT_ORIENTATION
++#define LINUX_ABS_MT_ORIENTATION   0x34  /* Ellipse orientation */
++#endif
++#ifndef ABS_MT_POSITION_X
++#define LINUX_ABS_MT_POSITION_X    0x35  /* Center X ellipse position */
++#endif
++#ifndef ABS_MT_POSITION_Y
++#define LINUX_ABS_MT_POSITION_Y    0x36  /* Center Y ellipse position */
++#endif
++#ifndef ABS_MT_TOOL_TYPE
++#define LINUX_ABS_MT_TOOL_TYPE     0x37  /* Type of touching device */
++#endif
++#ifndef ABS_MT_BLOB_ID
++#define LINUX_ABS_MT_BLOB_ID       0x38  /* Group a set of packets as a blob */
++#endif
++#ifndef ABS_MT_TRACKING_ID
++#define LINUX_ABS_MT_TRACKING_ID   0x39  /* Unique ID of initiated contact */
++#endif
++#ifndef ABS_MT_PRESSURE
++#define LINUX_ABS_MT_PRESSURE      0x3a  /* Pressure on contact area */
++#endif
++#ifndef ABS_MT_DISTANCE
++#define LINUX_ABS_MT_DISTANCE      0x3b  /* Contact hover distance */
++#endif
++#ifndef ABS_MAX
++#define LINUX_ABS_MAX              0x3f
++#endif
++
++#ifndef SYN_REPORT
++#define LINUX_SYN_REPORT              0
++#endif
++#ifndef SYN_CONFIG
++#define LINUX_SYN_CONFIG              1
++#endif
++#ifndef SYN_MT_REPORT
++#define LINUX_SYN_MT_REPORT           2
++#endif
++#ifndef SYN_DROPPED
++#define LINUX_SYN_DROPPED             3
++#endif
++
++#endif
 diff --git a/include/sysemu/ranchu.h b/include/sysemu/ranchu.h
 new file mode 100644
 index 0000000000..49c7c807b1
