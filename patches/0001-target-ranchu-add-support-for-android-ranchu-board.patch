@@ -1,4 +1,4 @@
-From aaeb6cc4a15bd3a28da31e226399b80744182163 Mon Sep 17 00:00:00 2001
+From 5af18e56c3b6ec85db82285dfcc68470a7db71b6 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 26 May 2021 15:49:22 +0300
 Subject: [PATCH] target/ranchu: add support for android 'ranchu' board
@@ -7,17 +7,30 @@ The board is used by Google to run the Android emulation for
 the Android SDK. The code itself is originally from linaro
 and it's a forked 'virt' with relevant Android devices added.
 This patch lifts the code used by Google in QEMU 2.12 fork
-to modern QEMU (6.0+).
+to modern QEMU (6.0+). The code is a rought prototype.
+
+Status:
+- board declaration ok
+- moved to gicv3 (for kvm/hardware invocation)
+- framebuffer ported
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- default-configs/devices/arm-softmmu.mak |   1 +
- hw/arm/Kconfig                          |  31 ++
- hw/arm/meson.build                      |   1 +
- hw/arm/ranchu.c                         | 589 ++++++++++++++++++++++++
- include/sysemu/ranchu.h                 |  34 ++
- 5 files changed, 656 insertions(+)
+ default-configs/devices/arm-softmmu.mak   |   1 +
+ hw/arm/Kconfig                            |  32 +
+ hw/arm/meson.build                        |   1 +
+ hw/arm/ranchu.c                           | 729 ++++++++++++++++++++++
+ hw/display/Kconfig                        |   3 +
+ hw/display/goldfish_fb.c                  | 549 ++++++++++++++++
+ hw/display/meson.build                    |   1 +
+ include/hw/display/goldfish_fb.h          |  25 +
+ include/hw/display/goldfish_fb_template.h |  93 +++
+ include/sysemu/ranchu.h                   |  41 ++
+ 10 files changed, 1475 insertions(+)
  create mode 100644 hw/arm/ranchu.c
+ create mode 100644 hw/display/goldfish_fb.c
+ create mode 100644 include/hw/display/goldfish_fb.h
+ create mode 100644 include/hw/display/goldfish_fb_template.h
  create mode 100644 include/sysemu/ranchu.h
 
 diff --git a/default-configs/devices/arm-softmmu.mak b/default-configs/devices/arm-softmmu.mak
@@ -33,10 +46,10 @@ index 0500156a0c..00a7be4c26 100644
  CONFIG_EXYNOS4=y
  CONFIG_HIGHBANK=y
 diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
-index 8c37cf00da..a483354bfc 100644
+index 8c37cf00da..5f71537662 100644
 --- a/hw/arm/Kconfig
 +++ b/hw/arm/Kconfig
-@@ -29,6 +29,37 @@ config ARM_VIRT
+@@ -29,6 +29,38 @@ config ARM_VIRT
      select ACPI_NVDIMM
      select ACPI_APEI
  
@@ -70,6 +83,7 @@ index 8c37cf00da..a483354bfc 100644
 +    select ACPI_HW_REDUCED
 +    select ACPI_NVDIMM
 +    select ACPI_APEI
++    select GOLDFISH_FB
 +
  config CHEETAH
      bool
@@ -88,10 +102,10 @@ index be39117b9b..50346c2d07 100644
  arm_ss.add(when: 'CONFIG_EXYNOS4', if_true: files('exynos4_boards.c'))
 diff --git a/hw/arm/ranchu.c b/hw/arm/ranchu.c
 new file mode 100644
-index 0000000000..13dce67f9e
+index 0000000000..39499f5964
 --- /dev/null
 +++ b/hw/arm/ranchu.c
-@@ -0,0 +1,589 @@
+@@ -0,0 +1,729 @@
 +/*
 + * ARM Android emulator 'ranchu' board.
 + *
@@ -129,6 +143,7 @@ index 0000000000..13dce67f9e
 +#include "sysemu/sysemu.h"
 +#include "sysemu/kvm.h"
 +#include "hw/boards.h"
++#include "hw/intc/arm_gicv3_common.h"
 +#include "exec/address-spaces.h"
 +#include "qemu/bitops.h"
 +#include "qemu/error-report.h"
@@ -159,6 +174,11 @@ index 0000000000..13dce67f9e
 +    RANCHU_CPUPERIPHS,
 +    RANCHU_GIC_DIST,
 +    RANCHU_GIC_CPU,
++    RANCHU_GIC_V2M,
++    RANCHU_GIC_HYP,
++    RANCHU_GIC_VCPU,
++    RANCHU_GIC_ITS,
++    RANCHU_GIC_REDIST,
 +    RANCHU_UART,
 +    RANCHU_GOLDFISH_FB,
 +    RANCHU_GOLDFISH_BATTERY,
@@ -178,6 +198,12 @@ index 0000000000..13dce67f9e
 +    void *fdt;
 +    int fdt_size;
 +    uint32_t clock_phandle;
++    uint32_t gic_phandle;
++    uint32_t msi_phandle;
++    bool virt;
++    bool secure;
++    DeviceState *gic;
++    MachineState *ms;
 +} VirtBoardInfo;
 +
 +/* Addresses and sizes of our components.
@@ -196,9 +222,17 @@ index 0000000000..13dce67f9e
 +    /* Space up to 0x8000000 is reserved for a boot ROM */
 +    [RANCHU_FLASH] = { 0, 0x8000000 },
 +    [RANCHU_CPUPERIPHS] = { 0x8000000, 0x20000 },
++
 +    /* GIC distributor and CPU interfaces sit inside the CPU peripheral space */
-+    [RANCHU_GIC_DIST] = { 0x8000000, 0x10000 },
-+    [RANCHU_GIC_CPU] = { 0x8010000, 0x10000 },
++    [RANCHU_GIC_DIST] =           { 0x08000000, 0x00010000 },
++    [RANCHU_GIC_CPU] =            { 0x08010000, 0x00010000 },
++    [RANCHU_GIC_V2M] =            { 0x08020000, 0x00001000 },
++    [RANCHU_GIC_HYP] =            { 0x08030000, 0x00010000 },
++    [RANCHU_GIC_VCPU] =           { 0x08040000, 0x00010000 },
++    /* The space in between here is reserved for GICv3 CPU/vCPU/HYP */
++    [RANCHU_GIC_ITS] =            { 0x08080000, 0x00020000 },
++    /* This redistributor space allows up to 2*64kB*123 CPUs */
++    [RANCHU_GIC_REDIST] =         { 0x080A0000, 0x00F60000 },
 +    [RANCHU_UART] = { 0x9000000, 0x1000 },
 +    [RANCHU_GOLDFISH_FB] = { 0x9010000, 0x100 },
 +    [RANCHU_GOLDFISH_BATTERY] = { 0x9020000, 0x1000 },
@@ -239,6 +273,7 @@ index 0000000000..13dce67f9e
 +    }
 +
 +    vbi->fdt = fdt;
++    vbi->ms->fdt = fdt;
 +
 +    /* Header */
 +    qemu_fdt_setprop_string(fdt, "/", "compatible", "ranchu");
@@ -283,34 +318,17 @@ index 0000000000..13dce67f9e
 +        uint32_t cpu_off_fn;
 +        uint32_t cpu_on_fn;
 +        uint32_t migrate_fn;
-+        ARMCPU *armcpu = ARM_CPU(qemu_get_cpu(0));
 +
 +        qemu_fdt_add_subnode(fdt, "/psci");
-+        if (armcpu->psci_version == 2) {
-+            const char comp[] = "arm,psci-0.2\0arm,psci";
-+            qemu_fdt_setprop(fdt, "/psci", "compatible", comp, sizeof(comp));
++        const char comp[] = "arm,psci-0.2\0arm,psci";
++        qemu_fdt_setprop(fdt, "/psci", "compatible", comp, sizeof(comp));
 +
-+            cpu_off_fn = QEMU_PSCI_0_2_FN_CPU_OFF;
-+            if (arm_feature(&armcpu->env, ARM_FEATURE_AARCH64)) {
-+                cpu_suspend_fn = QEMU_PSCI_0_2_FN64_CPU_SUSPEND;
-+                cpu_on_fn = QEMU_PSCI_0_2_FN64_CPU_ON;
-+                migrate_fn = QEMU_PSCI_0_2_FN64_MIGRATE;
-+            } else {
-+                cpu_suspend_fn = QEMU_PSCI_0_2_FN_CPU_SUSPEND;
-+                cpu_on_fn = QEMU_PSCI_0_2_FN_CPU_ON;
-+                migrate_fn = QEMU_PSCI_0_2_FN_MIGRATE;
-+            }
-+        } else {
-+            qemu_fdt_setprop_string(fdt, "/psci", "compatible", "arm,psci");
-+
-+            cpu_suspend_fn = QEMU_PSCI_0_1_FN_CPU_SUSPEND;
-+            cpu_off_fn = QEMU_PSCI_0_1_FN_CPU_OFF;
-+            cpu_on_fn = QEMU_PSCI_0_1_FN_CPU_ON;
-+            migrate_fn = QEMU_PSCI_0_1_FN_MIGRATE;
-+        }
++        cpu_off_fn = QEMU_PSCI_0_2_FN_CPU_OFF;
++        cpu_suspend_fn = QEMU_PSCI_0_2_FN64_CPU_SUSPEND;
++        cpu_on_fn = QEMU_PSCI_0_2_FN64_CPU_ON;
++        migrate_fn = QEMU_PSCI_0_2_FN64_MIGRATE;
 +
 +        qemu_fdt_setprop_string(fdt, "/psci", "method", "hvc");
-+
 +        qemu_fdt_setprop_cell(fdt, "/psci", "cpu_suspend", cpu_suspend_fn);
 +        qemu_fdt_setprop_cell(fdt, "/psci", "cpu_off", cpu_off_fn);
 +        qemu_fdt_setprop_cell(fdt, "/psci", "cpu_on", cpu_on_fn);
@@ -366,74 +384,208 @@ index 0000000000..13dce67f9e
 +    }
 +}
 +
-+static void fdt_add_gic_node(const VirtBoardInfo *vbi)
++/* Return the number of used redistributor regions  */
++static inline int ranchu_gicv3_redist_region_count(const VirtBoardInfo *vbi)
 +{
-+    uint32_t gic_phandle;
++    uint32_t redist0_capacity =
++                vbi->memmap[RANCHU_GIC_REDIST].size / GICV3_REDIST_SIZE;
 +
-+    gic_phandle = qemu_fdt_alloc_phandle(vbi->fdt);
-+    qemu_fdt_setprop_cell(vbi->fdt, "/", "interrupt-parent", gic_phandle);
-+
-+    qemu_fdt_add_subnode(vbi->fdt, "/intc");
-+    /* 'cortex-a15-gic' means 'GIC v2' */
-+    qemu_fdt_setprop_string(vbi->fdt, "/intc", "compatible",
-+                            "arm,cortex-a15-gic");
-+    qemu_fdt_setprop_cell(vbi->fdt, "/intc", "#interrupt-cells", 3);
-+    qemu_fdt_setprop(vbi->fdt, "/intc", "interrupt-controller", NULL, 0);
-+    qemu_fdt_setprop_sized_cells(vbi->fdt, "/intc", "reg",
-+                                     2, memmap[RANCHU_GIC_DIST].base,
-+                                     2, memmap[RANCHU_GIC_DIST].size,
-+                                     2, memmap[RANCHU_GIC_CPU].base,
-+                                     2, memmap[RANCHU_GIC_CPU].size);
-+    qemu_fdt_setprop_cell(vbi->fdt, "/intc", "phandle", gic_phandle);
++    return vbi->ms->smp.cpus > redist0_capacity ? 2 : 1;
 +}
 +
-+static void create_gic(const VirtBoardInfo *vbi, qemu_irq *pic)
++static void fdt_add_gic_node(VirtBoardInfo *vms)
 +{
-+    /* We create a standalone GIC v2 */
-+    DeviceState *gicdev;
-+    SysBusDevice *gicbusdev;
-+    const char *gictype = "arm_gic";
-+    int i;
++    MachineState *ms = vms->ms;
++    char *nodename;
++    int nb_redist_regions;
 +
-+    if (kvm_irqchip_in_kernel()) {
-+        gictype = "kvm-arm-gic";
++    vms->gic_phandle = qemu_fdt_alloc_phandle(ms->fdt);
++    qemu_fdt_setprop_cell(ms->fdt, "/", "interrupt-parent", vms->gic_phandle);
++
++    nodename = g_strdup_printf("/intc@%" PRIx64,
++                               vms->memmap[RANCHU_GIC_DIST].base);
++    qemu_fdt_add_subnode(ms->fdt, nodename);
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "#interrupt-cells", 3);
++    qemu_fdt_setprop(ms->fdt, nodename, "interrupt-controller", NULL, 0);
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "#address-cells", 0x2);
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "#size-cells", 0x2);
++    qemu_fdt_setprop(ms->fdt, nodename, "ranges", NULL, 0);
++
++    nb_redist_regions = ranchu_gicv3_redist_region_count(vms);
++    assert(nb_redist_regions == 1);
++
++    qemu_fdt_setprop_string(ms->fdt, nodename, "compatible",
++                                "arm,gic-v3");
++
++    qemu_fdt_setprop_cell(ms->fdt, nodename,
++                         "#redistributor-regions", nb_redist_regions);
++
++    if (nb_redist_regions == 1) {
++        qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "reg",
++                                     2, vms->memmap[RANCHU_GIC_DIST].base,
++                                     2, vms->memmap[RANCHU_GIC_DIST].size,
++                                     2, vms->memmap[RANCHU_GIC_REDIST].base,
++                                     2, vms->memmap[RANCHU_GIC_REDIST].size);
++    } else {
++        qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "reg",
++                                    2, vms->memmap[RANCHU_GIC_DIST].base,
++                                    2, vms->memmap[RANCHU_GIC_DIST].size,
++                                    2, vms->memmap[RANCHU_GIC_REDIST].base,
++                                    2, vms->memmap[RANCHU_GIC_REDIST].size);
 +    }
 +
-+    gicdev = qdev_new(gictype);
-+    qdev_prop_set_uint32(gicdev, "revision", 2);
-+    qdev_prop_set_uint32(gicdev, "num-cpu", vbi->smp_cpus);
++    if (vms->virt) {
++         qemu_fdt_setprop_cells(ms->fdt, nodename, "interrupts",
++                                GIC_FDT_IRQ_TYPE_PPI, ARCH_GIC_MAINT_IRQ,
++                                GIC_FDT_IRQ_FLAGS_LEVEL_HI);
++    }
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "phandle", vms->gic_phandle);
++    g_free(nodename);
++}
++
++static void fdt_add_its_gic_node(VirtBoardInfo *vbi)
++{
++    MachineState *ms = vbi->ms;
++    char *nodename;
++
++    vbi->msi_phandle = qemu_fdt_alloc_phandle(ms->fdt);
++    nodename = g_strdup_printf("/intc/its@%" PRIx64,
++                               vbi->memmap[RANCHU_GIC_ITS].base);
++    qemu_fdt_add_subnode(ms->fdt, nodename);
++    qemu_fdt_setprop_string(ms->fdt, nodename, "compatible",
++                            "arm,gic-v3-its");
++    qemu_fdt_setprop(ms->fdt, nodename, "msi-controller", NULL, 0);
++    qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "reg",
++                                 2, vbi->memmap[RANCHU_GIC_ITS].base,
++                                 2, vbi->memmap[RANCHU_GIC_ITS].size);
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "phandle", vbi->msi_phandle);
++    g_free(nodename);
++}
++
++static void create_its(VirtBoardInfo *vbi)
++{
++    const char *itsclass = "arm-its-kvm";
++    DeviceState *dev;
++
++    if (!itsclass) {
++        /* Do nothing if not supported */
++        return;
++    }
++
++    dev = qdev_new(itsclass);
++
++    object_property_set_link(OBJECT(dev), "parent-gicv3", OBJECT(vbi->gic),
++                             &error_abort);
++    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
++    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, vbi->memmap[RANCHU_GIC_ITS].base);
++
++    fdt_add_its_gic_node(vbi);
++}
++
++static void create_gic(VirtBoardInfo *vbi, qemu_irq *pic)
++{
++    MachineState *ms = vbi->ms;
++    /* We create a standalone GIC */
++    SysBusDevice *gicbusdev;
++    const char *gictype = "kvm-arm-gicv3";
++    int type = 3, i;
++    unsigned int smp_cpus = ms->smp.cpus;
++    uint32_t nb_redist_regions = 0;
++
++    vbi->gic = qdev_new(gictype);
++    qdev_prop_set_uint32(vbi->gic, "revision", type);
++    qdev_prop_set_uint32(vbi->gic, "num-cpu", smp_cpus);
 +    /* Note that the num-irq property counts both internal and external
 +     * interrupts; there are always 32 of the former (mandated by GIC spec).
 +     */
-+    qdev_prop_set_uint32(gicdev, "num-irq", NUM_IRQS + 32);
-+    gicbusdev = SYS_BUS_DEVICE(gicdev);
-+    sysbus_mmio_map(gicbusdev, 0, memmap[RANCHU_GIC_DIST].base);
-+    sysbus_mmio_map(gicbusdev, 1, memmap[RANCHU_GIC_CPU].base);
++    qdev_prop_set_uint32(vbi->gic, "num-irq", NUM_IRQS + 32);
++    if (!kvm_irqchip_in_kernel()) {
++        qdev_prop_set_bit(vbi->gic, "has-security-extensions", vbi->secure);
++    }
 +
-+    /* Wire the outputs from each CPU's generic timer to the
-+     * appropriate GIC PPI inputs, and the GIC's IRQ output to
-+     * the CPU's IRQ input.
++    if (type == 3) {
++        uint32_t redist0_capacity =
++                    vbi->memmap[RANCHU_GIC_REDIST].size / GICV3_REDIST_SIZE;
++        uint32_t redist0_count = MIN(smp_cpus, redist0_capacity);
++
++        nb_redist_regions = ranchu_gicv3_redist_region_count(vbi);
++        assert(nb_redist_regions == 1);
++
++        qdev_prop_set_uint32(vbi->gic, "len-redist-region-count",
++                             nb_redist_regions);
++        qdev_prop_set_uint32(vbi->gic, "redist-region-count[0]", redist0_count);
++    } else {
++        if (!kvm_irqchip_in_kernel()) {
++            qdev_prop_set_bit(vbi->gic, "has-virtualization-extensions",
++                              vbi->virt);
++        }
++    }
++    gicbusdev = SYS_BUS_DEVICE(vbi->gic);
++    sysbus_realize_and_unref(gicbusdev, &error_fatal);
++    sysbus_mmio_map(gicbusdev, 0, vbi->memmap[RANCHU_GIC_DIST].base);
++    if (type == 3) {
++        sysbus_mmio_map(gicbusdev, 1, vbi->memmap[RANCHU_GIC_REDIST].base);
++    } else {
++        sysbus_mmio_map(gicbusdev, 1, vbi->memmap[RANCHU_GIC_CPU].base);
++        if (vbi->virt) {
++            sysbus_mmio_map(gicbusdev, 2, vbi->memmap[RANCHU_GIC_HYP].base);
++            sysbus_mmio_map(gicbusdev, 3, vbi->memmap[RANCHU_GIC_VCPU].base);
++        }
++    }
++
++    /* Wire the outputs from each CPU's generic timer and the GICv3
++     * maintenance interrupt signal to the appropriate GIC PPI inputs,
++     * and the GIC's IRQ/FIQ/VIRQ/VFIQ interrupt outputs to the CPU's inputs.
 +     */
-+    for (i = 0; i < vbi->smp_cpus; i++) {
++    for (i = 0; i < smp_cpus; i++) {
 +        DeviceState *cpudev = DEVICE(qemu_get_cpu(i));
-+        int ppibase = NUM_IRQS + i * 32;
-+        /* physical timer; we wire it up to the non-secure timer's ID,
-+         * since a real A15 always has TrustZone but QEMU doesn't.
++        int ppibase = NUM_IRQS + i * GIC_INTERNAL + GIC_NR_SGIS;
++        int irq;
++        /* Mapping from the output timer irq lines from the CPU to the
++         * GIC PPI inputs we use for the virt board.
 +         */
-+        qdev_connect_gpio_out(cpudev, 0,
-+                              qdev_get_gpio_in(gicdev, ppibase + 30));
-+        /* virtual timer */
-+        qdev_connect_gpio_out(cpudev, 1,
-+                              qdev_get_gpio_in(gicdev, ppibase + 27));
++        const int timer_irq[] = {
++            [GTIMER_PHYS] = ARCH_TIMER_NS_EL1_IRQ,
++            [GTIMER_VIRT] = ARCH_TIMER_VIRT_IRQ,
++            [GTIMER_HYP]  = ARCH_TIMER_NS_EL2_IRQ,
++            [GTIMER_SEC]  = ARCH_TIMER_S_EL1_IRQ,
++        };
++
++        for (irq = 0; irq < ARRAY_SIZE(timer_irq); irq++) {
++            qdev_connect_gpio_out(cpudev, irq,
++                                  qdev_get_gpio_in(vbi->gic,
++                                                   ppibase + timer_irq[irq]));
++        }
++
++        if (type == 3) {
++            qemu_irq irq = qdev_get_gpio_in(vbi->gic,
++                                            ppibase + ARCH_GIC_MAINT_IRQ);
++            qdev_connect_gpio_out_named(cpudev, "gicv3-maintenance-interrupt",
++                                        0, irq);
++        } else if (vbi->virt) {
++            qemu_irq irq = qdev_get_gpio_in(vbi->gic,
++                                            ppibase + ARCH_GIC_MAINT_IRQ);
++            sysbus_connect_irq(gicbusdev, i + 4 * smp_cpus, irq);
++        }
++
++        qdev_connect_gpio_out_named(cpudev, "pmu-interrupt", 0,
++                                    qdev_get_gpio_in(vbi->gic, ppibase
++                                                     + VIRTUAL_PMU_IRQ));
 +
 +        sysbus_connect_irq(gicbusdev, i, qdev_get_gpio_in(cpudev, ARM_CPU_IRQ));
++        sysbus_connect_irq(gicbusdev, i + smp_cpus,
++                           qdev_get_gpio_in(cpudev, ARM_CPU_FIQ));
++        sysbus_connect_irq(gicbusdev, i + 2 * smp_cpus,
++                           qdev_get_gpio_in(cpudev, ARM_CPU_VIRQ));
++        sysbus_connect_irq(gicbusdev, i + 3 * smp_cpus,
++                           qdev_get_gpio_in(cpudev, ARM_CPU_VFIQ));
 +    }
 +
-+    for (i = 0; i < NUM_IRQS; i++) {
-+        pic[i] = qdev_get_gpio_in(gicdev, i);
-+    }
++    for (i = 0; i < NUM_IRQS; i++)
++        pic[i] = qdev_get_gpio_in(vbi->gic, i);
 +
 +    fdt_add_gic_node(vbi);
++    create_its(vbi);
 +}
 +
 +static void init_simple_device(DeviceState *dev,
@@ -599,6 +751,8 @@ index 0000000000..13dce67f9e
 +        exit(1);
 +    }
 +
++    vbi->ms = machine;
++    vbi->memmap = memmap;
 +    create_fdt(vbi);
 +    fdt_add_timer_nodes(vbi);
 +
@@ -681,12 +835,723 @@ index 0000000000..13dce67f9e
 +}
 +
 +DEFINE_MACHINE("ranchu", ranchu_machine_init)
+diff --git a/hw/display/Kconfig b/hw/display/Kconfig
+index ca46b5830e..897d1ce4f1 100644
+--- a/hw/display/Kconfig
++++ b/hw/display/Kconfig
+@@ -66,6 +66,9 @@ config BOCHS_DISPLAY
+     select VGA
+     select EDID
+ 
++config GOLDFISH_FB
++    bool
++
+ config BLIZZARD
+     bool
+ 
+diff --git a/hw/display/goldfish_fb.c b/hw/display/goldfish_fb.c
+new file mode 100644
+index 0000000000..57db6b741c
+--- /dev/null
++++ b/hw/display/goldfish_fb.c
+@@ -0,0 +1,549 @@
++/* Copyright (C) 2007-2013 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#include "qemu/osdep.h"
++#include "hw/hw.h"
++#include "hw/sysbus.h"
++#include "ui/console.h"
++#include "framebuffer.h"
++#include "ui/pixel_ops.h"
++#include "trace.h"
++#include "exec/address-spaces.h"
++#include "hw/display/goldfish_fb.h"
++#include "hw/irq.h"
++#include "migration/register.h"
++#include "migration/qemu-file-types.h"
++
++#include <inttypes.h>
++
++static int s_use_host_gpu = 0;
++static int s_display_bpp = 32;
++
++void goldfish_fb_set_use_host_gpu(int enabled) {
++    s_use_host_gpu = enabled;
++}
++
++void goldfish_fb_set_display_depth(int depth) {
++    s_display_bpp = depth;
++}
++
++#define DEST_BITS 8
++#define SOURCE_BITS 16
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 15
++#define SOURCE_BITS 16
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 16
++#define SOURCE_BITS 16
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 24
++#define SOURCE_BITS 16
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 32
++#define SOURCE_BITS 16
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 8
++#define SOURCE_BITS 32
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 15
++#define SOURCE_BITS 32
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 16
++#define SOURCE_BITS 32
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 24
++#define SOURCE_BITS 32
++#include "hw/display/goldfish_fb_template.h"
++#define DEST_BITS 32
++#define SOURCE_BITS 32
++#include "hw/display/goldfish_fb_template.h"
++
++#define TYPE_GOLDFISH_FB "goldfish_fb"
++#define GOLDFISH_FB(obj) OBJECT_CHECK(struct goldfish_fb_state, (obj), TYPE_GOLDFISH_FB)
++/* These values *must* match the platform definitions found under
++ * <system/graphics.h>
++ */
++enum {
++    HAL_PIXEL_FORMAT_RGBA_8888          = 1,
++    HAL_PIXEL_FORMAT_RGBX_8888          = 2,
++    HAL_PIXEL_FORMAT_RGB_888            = 3,
++    HAL_PIXEL_FORMAT_RGB_565            = 4,
++    HAL_PIXEL_FORMAT_BGRA_8888          = 5,
++};
++
++enum {
++    FB_GET_WIDTH        = 0x00,
++    FB_GET_HEIGHT       = 0x04,
++    FB_INT_STATUS       = 0x08,
++    FB_INT_ENABLE       = 0x0c,
++    FB_SET_BASE         = 0x10,
++    FB_SET_ROTATION     = 0x14, /* DEPRECATED */
++    FB_SET_BLANK        = 0x18,
++    FB_GET_PHYS_WIDTH   = 0x1c,
++    FB_GET_PHYS_HEIGHT  = 0x20,
++    FB_GET_FORMAT       = 0x24,
++
++    FB_INT_VSYNC             = 1U << 0,
++    FB_INT_BASE_UPDATE_DONE  = 1U << 1
++};
++
++struct goldfish_fb_state {
++    SysBusDevice parent;
++
++    QemuConsole *con;
++    MemoryRegion iomem;
++    qemu_irq irq;
++
++    uint32_t fb_base;
++    uint32_t base_valid : 1;
++    uint32_t need_update : 1;
++    uint32_t need_int : 1;
++    uint32_t blank : 1;
++    uint32_t int_status;
++    uint32_t int_enable;
++    int      rotation;   /* 0, 1, 2 or 3 */
++    int      dpi;
++    int      format;
++
++    MemoryRegionSection fbsection;
++};
++
++#define  GOLDFISH_FB_SAVE_VERSION  3
++
++/* Console hooks */
++void goldfish_fb_set_rotation(int rotation)
++{
++    DeviceState *dev = qdev_find_recursive(sysbus_get_default(), TYPE_GOLDFISH_FB);
++    if (dev) {
++        struct goldfish_fb_state *s = GOLDFISH_FB(dev);
++        DisplaySurface *ds = qemu_console_surface(s->con);
++        s->rotation = rotation;
++        s->need_update = 1;
++        qemu_console_resize(s->con, surface_height(ds), surface_width(ds));
++    } else {
++        fprintf(stderr,"%s: unable to find FB dev\n", __func__);
++    }
++}
++
++static void goldfish_fb_save(QEMUFile*  f, void*  opaque)
++{
++    struct goldfish_fb_state*  s = opaque;
++
++    DisplaySurface *ds = qemu_console_surface(s->con);
++
++    qemu_put_be32(f, surface_width(ds));
++    qemu_put_be32(f, surface_height(ds));
++    qemu_put_be32(f, surface_stride(ds));
++    qemu_put_byte(f, 0);
++
++    qemu_put_be32(f, s->fb_base);
++    qemu_put_byte(f, s->base_valid);
++    qemu_put_byte(f, s->need_update);
++    qemu_put_byte(f, s->need_int);
++    qemu_put_byte(f, s->blank);
++    qemu_put_be32(f, s->int_status);
++    qemu_put_be32(f, s->int_enable);
++    qemu_put_be32(f, s->rotation);
++    qemu_put_be32(f, s->dpi);
++    qemu_put_be32(f, s->format);
++}
++
++static int  goldfish_fb_load(QEMUFile*  f, void*  opaque, int  version_id)
++{
++    struct goldfish_fb_state*  s   = opaque;
++    int                        ret = -1;
++    int                        ds_w, ds_h, ds_pitch, ds_rot;
++
++    if (version_id != GOLDFISH_FB_SAVE_VERSION)
++        goto Exit;
++
++    ds_w     = qemu_get_be32(f);
++    ds_h     = qemu_get_be32(f);
++    ds_pitch = qemu_get_be32(f);
++    ds_rot   = qemu_get_byte(f);
++
++    DisplaySurface *ds = qemu_console_surface(s->con);
++
++    if (surface_width(ds) != ds_w ||
++        surface_height(ds) != ds_h ||
++        surface_stride(ds) != ds_pitch ||
++        ds_rot != 0)
++    {
++        /* XXX: We should be able to force a resize/rotation from here ? */
++        fprintf(stderr, "%s: framebuffer dimensions mismatch\n", __FUNCTION__);
++        goto Exit;
++    }
++
++    s->fb_base      = qemu_get_be32(f);
++    s->base_valid   = qemu_get_byte(f);
++    s->need_update  = qemu_get_byte(f);
++    s->need_int     = qemu_get_byte(f);
++    s->blank        = qemu_get_byte(f);
++    s->int_status   = qemu_get_be32(f);
++    s->int_enable   = qemu_get_be32(f);
++    s->rotation     = qemu_get_be32(f);
++    s->dpi          = qemu_get_be32(f);
++    s->format       = qemu_get_be32(f);
++
++    /* force a refresh */
++    s->need_update = 1;
++
++    ret = 0;
++Exit:
++    return ret;
++}
++
++static int
++pixels_to_mm(int  pixels, int dpi)
++{
++    /* dpi = dots / inch
++    ** inch = dots / dpi
++    ** mm / 25.4 = dots / dpi
++    ** mm = (dots * 25.4)/dpi
++    */
++    return (int)(0.5 + 25.4 * pixels  / dpi);
++}
++
++
++#define  STATS  0
++
++#if STATS
++static int   stats_counter;
++static long  stats_total;
++static int   stats_full_updates;
++static long  stats_total_full_updates;
++#endif
++
++static void goldfish_fb_update_display(void *opaque)
++{
++    struct goldfish_fb_state *s = (struct goldfish_fb_state *)opaque;
++    DisplaySurface *ds = qemu_console_surface(s->con);
++    int full_update = 0;
++
++    if (!s || !s->con || surface_bits_per_pixel(ds) == 0 || !s->fb_base)
++        return;
++
++    if((s->int_enable & FB_INT_VSYNC) && !(s->int_status & FB_INT_VSYNC)) {
++        s->int_status |= FB_INT_VSYNC;
++        qemu_irq_raise(s->irq);
++    }
++
++    if(s->need_update) {
++        full_update = 1;
++        if(s->need_int) {
++            s->int_status |= FB_INT_BASE_UPDATE_DONE;
++            if(s->int_enable & FB_INT_BASE_UPDATE_DONE)
++                qemu_irq_raise(s->irq);
++        }
++        s->need_int = 0;
++        s->need_update = 0;
++    }
++
++    int dest_width = surface_width(ds);
++    int dest_height = surface_height(ds);
++    int dest_pitch = surface_stride(ds);
++    int ymin, ymax;
++
++#if STATS
++    if (full_update)
++        stats_full_updates += 1;
++    if (++stats_counter == 120) {
++        stats_total               += stats_counter;
++        stats_total_full_updates  += stats_full_updates;
++
++        stats_counter      = 0;
++        stats_full_updates = 0;
++    }
++#endif /* STATS */
++
++    if (s->blank)
++    {
++        void *dst_line = surface_data(ds);
++        memset( dst_line, 0, dest_height*dest_pitch );
++        ymin = 0;
++        ymax = dest_height-1;
++    }
++    else
++    {
++        int src_width, src_height;
++        int dest_row_pitch, dest_col_pitch;
++        drawfn fn;
++
++        /* The source framebuffer is always read in a linear fashion,
++         * we achieve rotation by altering the destination
++         * step-per-pixel.
++         */
++        switch (s->rotation) {
++        case 0: /* Normal, native landscape view */
++            src_width = dest_width;
++            src_height = dest_height;
++            dest_row_pitch = surface_stride(ds);
++            dest_col_pitch = surface_bytes_per_pixel(ds);
++            break;
++        case 1: /* 90 degree, portrait view */
++            src_width = dest_height;
++            src_height = dest_width;
++            dest_row_pitch = -surface_bytes_per_pixel(ds);
++            dest_col_pitch = surface_stride(ds);
++            break;
++        case 2: /* 180 degree, inverted landscape view */
++            src_width = dest_width;
++            src_height = dest_height;
++            dest_row_pitch = -surface_stride(ds);
++            dest_col_pitch = -surface_bytes_per_pixel(ds);
++            break;
++        case 3: /* 270 degree, mirror portrait view */
++            src_width = dest_height;
++            src_height = dest_width;
++            dest_row_pitch = surface_bytes_per_pixel(ds);
++            dest_col_pitch = -surface_stride(ds);
++            break;
++        default:
++            g_assert_not_reached();
++        }
++
++        int source_bytes_per_pixel = 2;
++
++        switch (s->format) { /* source format */
++        case HAL_PIXEL_FORMAT_RGB_565:
++            source_bytes_per_pixel = 2;
++            switch (surface_bits_per_pixel(ds)) { /* dest format */
++            case 8:  fn = draw_line_16_8;  break;
++            case 15: fn = draw_line_16_15; break;
++            case 16: fn = draw_line_16_16; break;
++            case 24: fn = draw_line_16_24; break;
++            case 32: fn = draw_line_16_32; break;
++            default:
++                hw_error("goldfish_fb: bad dest color depth\n");
++                return;
++            }
++            break;
++        case HAL_PIXEL_FORMAT_RGBX_8888:
++            source_bytes_per_pixel = 4;
++            switch (surface_bits_per_pixel(ds)) { /* dest format */
++            case 8:  fn = draw_line_32_8;  break;
++            case 15: fn = draw_line_32_15; break;
++            case 16: fn = draw_line_32_16; break;
++            case 24: fn = draw_line_32_24; break;
++            case 32: fn = draw_line_32_32; break;
++            default:
++                hw_error("goldfish_fb: bad dest color depth\n");
++                return;
++            }
++            break;
++        default:
++            hw_error("goldfish_fb: bad source color format\n");
++            return;
++        }
++
++        ymin = 0;
++        // with -gpu on, the following check and return will save 2%
++        // CPU time on OSX; saving on other platforms may differ.
++        if (s_use_host_gpu) return;
++
++        if (full_update) {
++            framebuffer_update_memory_section(
++                    &s->fbsection, get_system_memory(), s->fb_base,
++                    src_height, src_width * source_bytes_per_pixel);
++        }
++        framebuffer_update_display(ds, &s->fbsection,
++                                   src_width, src_height,
++                                   src_width * source_bytes_per_pixel,
++                                   dest_row_pitch, dest_col_pitch,
++                                   full_update,
++                                   fn, ds, &ymin, &ymax);
++    }
++
++    ymax += 1;
++    if (ymin >= 0) {
++        if (s->rotation % 2) {
++            /* In portrait mode we are drawing "sideways" so always
++             * need to update the whole screen */
++            dpy_gfx_update(s->con, 0, 0, dest_width, dest_height);
++
++        } else {
++            dpy_gfx_update(s->con, 0, ymin, dest_width, ymax-ymin);
++        }
++    }
++}
++
++static void goldfish_fb_invalidate_display(void * opaque)
++{
++    // is this called?
++    struct goldfish_fb_state *s = (struct goldfish_fb_state *)opaque;
++    s->need_update = 1;
++}
++
++static uint64_t goldfish_fb_read(void *opaque, hwaddr offset, unsigned size)
++{
++    uint64_t ret = 0;
++    struct goldfish_fb_state *s = opaque;
++    DisplaySurface *ds = qemu_console_surface(s->con);
++
++    if (!s_display_bpp) {
++        s_display_bpp = surface_bits_per_pixel(ds);
++    }
++
++    switch(offset) {
++        case FB_GET_WIDTH:
++            ret = surface_width(ds);
++            break;
++
++        case FB_GET_HEIGHT:
++            ret = surface_height(ds);
++            break;
++
++        case FB_INT_STATUS:
++            ret = s->int_status & s->int_enable;
++            if(ret) {
++                s->int_status &= ~ret;
++                qemu_irq_lower(s->irq);
++            }
++            break;
++
++        case FB_GET_PHYS_WIDTH:
++            ret = pixels_to_mm( surface_width(ds), s->dpi );
++            break;
++
++        case FB_GET_PHYS_HEIGHT:
++            ret = pixels_to_mm( surface_height(ds), s->dpi );
++            break;
++
++        case FB_GET_FORMAT:
++            /* A kernel making this query supports high color and true color */
++            switch (s_display_bpp) {   /* hw.lcd.depth */
++            case 32:
++            case 24:
++               ret = HAL_PIXEL_FORMAT_RGBX_8888;
++               break;
++            case 16:
++               ret = HAL_PIXEL_FORMAT_RGB_565;
++               break;
++            default:
++               error_report("goldfish_fb_read: Bad display bit depth %d",
++                       s_display_bpp);
++               break;
++            }
++            s->format = ret;
++            break;
++
++        default:
++            error_report("goldfish_fb_read: Bad offset 0x" TARGET_FMT_plx,
++                    offset);
++            break;
++    }
++
++    return ret;
++}
++
++static void goldfish_fb_write(void *opaque, hwaddr offset, uint64_t val,
++        unsigned size)
++{
++    struct goldfish_fb_state *s = opaque;
++
++
++    switch(offset) {
++        case FB_INT_ENABLE:
++            s->int_enable = val;
++            qemu_set_irq(s->irq, s->int_status & s->int_enable);
++            break;
++        case FB_SET_BASE:
++            s->fb_base = val;
++            s->int_status &= ~FB_INT_BASE_UPDATE_DONE;
++            s->need_update = 1;
++            s->need_int = 1;
++            s->base_valid = 1;
++            /* The guest is waiting for us to complete an update cycle
++             * and notify it, so make sure we do a redraw immediately.
++             */
++            if (s_use_host_gpu) return;
++
++            graphic_hw_update(s->con);
++            qemu_set_irq(s->irq, s->int_status & s->int_enable);
++            break;
++        case FB_SET_ROTATION:
++            error_report("%s: use of deprecated FB_SET_ROTATION %" PRIu64,
++                         __func__, val);
++            break;
++        case FB_SET_BLANK:
++            s->blank = val;
++            s->need_update = 1;
++            break;
++        default:
++            error_report("goldfish_fb_write: Bad offset 0x" TARGET_FMT_plx,
++                    offset);
++    }
++}
++
++static const MemoryRegionOps goldfish_fb_iomem_ops = {
++    .read = goldfish_fb_read,
++    .write = goldfish_fb_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++    .impl.min_access_size = 4,
++    .impl.max_access_size = 4,
++};
++
++static const GraphicHwOps goldfish_fb_ops = {
++    .invalidate = goldfish_fb_invalidate_display,
++    .gfx_update = goldfish_fb_update_display,
++};
++
++static SaveVMHandlers goldfish_vmhandlers= {
++    .save_state = goldfish_fb_save,
++    .load_state = goldfish_fb_load
++};
++
++
++static void goldfish_fb_init(Object *obj)
++{
++    SysBusDevice *sbdev = SYS_BUS_DEVICE(obj);
++    DeviceState *dev = DEVICE(sbdev);
++    struct goldfish_fb_state *s = GOLDFISH_FB(dev);
++
++    dev->id = g_strdup(TYPE_GOLDFISH_FB);
++
++    sysbus_init_irq(sbdev, &s->irq);
++
++    s->con = graphic_console_init(dev, 0, &goldfish_fb_ops, s);
++
++    s->dpi = 165;  /* TODO: Find better way to get actual value ! */
++
++    s->format = HAL_PIXEL_FORMAT_RGB_565;
++
++    memory_region_init_io(&s->iomem, OBJECT(s), &goldfish_fb_iomem_ops, s,
++            "goldfish_fb", 0x100);
++    sysbus_init_mmio(sbdev, &s->iomem);
++
++    register_savevm_live("goldfish_fb", 0, GOLDFISH_FB_SAVE_VERSION,
++                     &goldfish_vmhandlers, s);
++}
++
++static void goldfish_fb_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->desc = "goldfish framebuffer";
++}
++
++static const TypeInfo goldfish_fb_info = {
++    .name          = TYPE_GOLDFISH_FB,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(struct goldfish_fb_state),
++    .instance_init = goldfish_fb_init,
++    .class_init    = goldfish_fb_class_init,
++};
++
++static void goldfish_fb_register(void)
++{
++    type_register_static(&goldfish_fb_info);
++}
++
++type_init(goldfish_fb_register);
+diff --git a/hw/display/meson.build b/hw/display/meson.build
+index 9d79e3951d..f9765417f8 100644
+--- a/hw/display/meson.build
++++ b/hw/display/meson.build
+@@ -21,6 +21,7 @@ softmmu_ss.add(when: 'CONFIG_VGA_ISA', if_true: files('vga-isa.c'))
+ softmmu_ss.add(when: 'CONFIG_VGA_ISA_MM', if_true: files('vga-isa-mm.c'))
+ softmmu_ss.add(when: 'CONFIG_VMWARE_VGA', if_true: files('vmware_vga.c'))
+ softmmu_ss.add(when: 'CONFIG_BOCHS_DISPLAY', if_true: files('bochs-display.c'))
++softmmu_ss.add(when: 'CONFIG_GOLDFISH_FB', if_true: files('goldfish_fb.c'))
+ 
+ softmmu_ss.add(when: 'CONFIG_BLIZZARD', if_true: files('blizzard.c'))
+ softmmu_ss.add(when: 'CONFIG_EXYNOS4', if_true: files('exynos4210_fimd.c'))
+diff --git a/include/hw/display/goldfish_fb.h b/include/hw/display/goldfish_fb.h
+new file mode 100644
+index 0000000000..93a3591620
+--- /dev/null
++++ b/include/hw/display/goldfish_fb.h
+@@ -0,0 +1,25 @@
++/*
++ * Goldfish Framebuffer public declarations.
++ *
++ * Copyright (C) 2014 Alex Bennée <alex.bennee@linaor.org>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++ * GNU General Public License for more details.
++ *
++ */
++
++#ifndef HW_DISPLAY_GOLDFISH_FB_H
++#define HW_DISPLAY_GOLDFISH_FB_H
++
++void goldfish_fb_set_rotation(int rotation);
++void goldfish_fb_set_use_host_gpu(int enabled);
++void goldfish_fb_set_display_depth(int depth);
++
++#endif /* HW_DISPLAY_GOLDFISH_FB_H */
+diff --git a/include/hw/display/goldfish_fb_template.h b/include/hw/display/goldfish_fb_template.h
+new file mode 100644
+index 0000000000..b75534fc4e
+--- /dev/null
++++ b/include/hw/display/goldfish_fb_template.h
+@@ -0,0 +1,93 @@
++/*
++ *  QEMU model of the Goldfish framebuffer: drawing templates.
++ *
++ *  Copyright (c) 2014 Linaro Limited
++ *
++ * Based heavily on the milkymist drawing templates, which are:
++ *
++ *  Copyright (c) 2010 Michael Walle <michael@walle.cc>
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
++ *
++ */
++
++#if DEST_BITS == 8
++#define COPY_PIXEL(to, r, g, b)                    \
++    do {                                           \
++        *to = rgb_to_pixel8(r, g, b);              \
++    } while (0)
++#elif DEST_BITS == 15
++#define COPY_PIXEL(to, r, g, b)                    \
++    do {                                           \
++        *(uint16_t *)to = rgb_to_pixel15(r, g, b); \
++    } while (0)
++#elif DEST_BITS == 16
++#define COPY_PIXEL(to, r, g, b)                    \
++    do {                                           \
++        *(uint16_t *)to = rgb_to_pixel16(r, g, b); \
++    } while (0)
++#elif DEST_BITS == 24
++#define COPY_PIXEL(to, r, g, b)                    \
++    do {                                           \
++        uint32_t tmp = rgb_to_pixel24(r, g, b);    \
++        to[0] =         tmp & 0xff;              \
++        to[1] =  (tmp >> 8) & 0xff;              \
++        to[2] = (tmp >> 16) & 0xff;              \
++    } while (0)
++#elif DEST_BITS == 32
++#define COPY_PIXEL(to, r, g, b)                    \
++    do {                                           \
++        *(uint32_t *)to = rgb_to_pixel32(r, g, b); \
++    } while (0)
++#else
++#error unknown dest bit format
++#endif
++
++static void glue(glue(draw_line_, SOURCE_BITS), glue(_, DEST_BITS))(void *opaque, uint8_t *d, const uint8_t *s,
++        int width, int deststep)
++{
++#if SOURCE_BITS == 16
++    uint16_t rgb565;
++    uint8_t r, g, b;
++
++    while (width--) {
++        rgb565 = lduw_le_p(s);
++        r = ((rgb565 >> 11) & 0x1f) << 3;
++        g = ((rgb565 >>  5) & 0x3f) << 2;
++        b = ((rgb565 >>  0) & 0x1f) << 3;
++        COPY_PIXEL(d, r, g, b);
++        d += deststep;
++        s += 2;
++    }
++#elif SOURCE_BITS == 32
++    uint32_t rgbx8888;
++    uint8_t r, g, b;
++
++    while (width--) {
++        rgbx8888 = *(uint32_t*)(s);
++        b = ((rgbx8888 >> 16) & 0xff);
++        g = ((rgbx8888 >>  8) & 0xff);
++        r = ((rgbx8888 >>  0) & 0xff);
++        COPY_PIXEL(d, r, g, b);
++        d += deststep;
++        s += 4;
++    }
++#else
++#error unknown source bit format
++#endif
++}
++
++#undef DEST_BITS
++#undef SOURCE_BITS
++#undef COPY_PIXEL
 diff --git a/include/sysemu/ranchu.h b/include/sysemu/ranchu.h
 new file mode 100644
-index 0000000000..7a2606be4c
+index 0000000000..49c7c807b1
 --- /dev/null
 +++ b/include/sysemu/ranchu.h
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,41 @@
 +/*
 + * ARM Android emulator 'ranchu' board.
 + *
@@ -715,6 +1580,13 @@ index 0000000000..7a2606be4c
 +/**
 + * callback for special handling of device tree
 + */
++#define ARCH_GIC_MAINT_IRQ  9
++#define ARCH_TIMER_VIRT_IRQ   11
++#define ARCH_TIMER_S_EL1_IRQ  13
++#define ARCH_TIMER_NS_EL1_IRQ 14
++#define ARCH_TIMER_NS_EL2_IRQ 10
++#define VIRTUAL_PMU_IRQ 7
++
 +typedef void (*QemuDeviceTreeSetupFunc)(void *);
 +void qemu_device_tree_setup_callback(QemuDeviceTreeSetupFunc setup_func);
 +
