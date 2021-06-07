@@ -1,4 +1,4 @@
-From 4f1864a683180ccf7a2436644fa77f73e3aa1cd8 Mon Sep 17 00:00:00 2001
+From da40b2a455065a39c8afa4b0ec1965f190abbd41 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 26 May 2021 15:49:22 +0300
 Subject: [PATCH] target/ranchu: add support for android 'ranchu' board
@@ -7,7 +7,7 @@ The board is used by Google to run the Android emulation for
 the Android SDK. The code itself is originally from linaro
 and it's a forked 'virt' with relevant Android devices added.
 This patch lifts the code used by Google in QEMU 2.12 fork
-to modern QEMU (6.0+). The code is a rought prototype.
+to modern QEMU (6.0+). The code is work in progress.
 
 Status:
 - board declaration ok
@@ -16,35 +16,54 @@ Status:
 - battery ported
 - audio ported
 - events ported
+- pic ported
+- pstore ported
+- sync ported
+- pipe ported
+- timer ported
+
+Android qemu has hacked qemu mainloop pretty badly, that needs to
+be investigated separately how much of that is actually needed.
+None of that is yet included here.
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- default-configs/devices/arm-softmmu.mak   |   1 +
- hw/arm/Kconfig                            |  35 +
- hw/arm/meson.build                        |   1 +
- hw/arm/ranchu.c                           | 729 +++++++++++++++++
- hw/audio/Kconfig                          |   3 +
- hw/audio/goldfish_audio.c                 | 508 ++++++++++++
- hw/audio/meson.build                      |   1 +
- hw/display/Kconfig                        |   3 +
- hw/display/goldfish_fb.c                  | 549 +++++++++++++
- hw/display/meson.build                    |   1 +
- hw/input/Kconfig                          |   3 +
- hw/input/goldfish_events.c                | 954 ++++++++++++++++++++++
- hw/input/goldfish_events_common.c         | 293 +++++++
- hw/input/goldfish_events_common.h         | 259 ++++++
- hw/input/goldfish_rotary.c                | 131 +++
- hw/input/meson.build                      |   1 +
- hw/misc/Kconfig                           |   3 +
- hw/misc/goldfish_battery.c                | 452 ++++++++++
- hw/misc/goldfish_battery.h                |  84 ++
- hw/misc/meson.build                       |   1 +
- include/hw/display/goldfish_fb.h          |  25 +
- include/hw/display/goldfish_fb_template.h |  93 +++
- include/hw/input/android_keycodes.h       |  30 +
- include/hw/input/linux_keycodes.h         | 510 ++++++++++++
- include/sysemu/ranchu.h                   |  41 +
- 25 files changed, 4711 insertions(+)
+ default-configs/devices/arm-softmmu.mak   |    1 +
+ hw/arm/Kconfig                            |   41 +
+ hw/arm/meson.build                        |    1 +
+ hw/arm/ranchu.c                           |  729 ++++++++
+ hw/audio/Kconfig                          |    3 +
+ hw/audio/goldfish_audio.c                 |  508 ++++++
+ hw/audio/meson.build                      |    1 +
+ hw/display/Kconfig                        |    3 +
+ hw/display/goldfish_fb.c                  |  549 ++++++
+ hw/display/meson.build                    |    1 +
+ hw/input/Kconfig                          |    3 +
+ hw/input/goldfish_events.c                |  954 ++++++++++
+ hw/input/goldfish_events_common.c         |  293 ++++
+ hw/input/goldfish_events_common.h         |  259 +++
+ hw/input/goldfish_rotary.c                |  131 ++
+ hw/input/meson.build                      |    1 +
+ hw/misc/Kconfig                           |   12 +
+ hw/misc/goldfish_battery.c                |  452 +++++
+ hw/misc/goldfish_battery.h                |   84 +
+ hw/misc/goldfish_pipe.c                   | 1927 +++++++++++++++++++++
+ hw/misc/goldfish_pstore.c                 |  173 ++
+ hw/misc/goldfish_sync.c                   |  562 ++++++
+ hw/misc/goldfish_sync.h                   |   61 +
+ hw/misc/meson.build                       |    4 +
+ hw/timer/Kconfig                          |    3 +
+ hw/timer/goldfish_timer.c                 |  224 +++
+ hw/timer/meson.build                      |    1 +
+ include/hw/display/goldfish_fb.h          |   25 +
+ include/hw/display/goldfish_fb_template.h |   93 +
+ include/hw/input/android_keycodes.h       |   30 +
+ include/hw/input/linux_keycodes.h         |  510 ++++++
+ include/hw/misc/android_pipe_base.h       |   22 +
+ include/hw/misc/goldfish_pipe.h           |  166 ++
+ include/hw/misc/goldfish_pstore.h         |   33 +
+ include/sysemu/ranchu.h                   |   41 +
+ 35 files changed, 7901 insertions(+)
  create mode 100644 hw/arm/ranchu.c
  create mode 100644 hw/audio/goldfish_audio.c
  create mode 100644 hw/display/goldfish_fb.c
@@ -54,10 +73,18 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  create mode 100644 hw/input/goldfish_rotary.c
  create mode 100644 hw/misc/goldfish_battery.c
  create mode 100644 hw/misc/goldfish_battery.h
+ create mode 100755 hw/misc/goldfish_pipe.c
+ create mode 100644 hw/misc/goldfish_pstore.c
+ create mode 100644 hw/misc/goldfish_sync.c
+ create mode 100644 hw/misc/goldfish_sync.h
+ create mode 100644 hw/timer/goldfish_timer.c
  create mode 100644 include/hw/display/goldfish_fb.h
  create mode 100644 include/hw/display/goldfish_fb_template.h
  create mode 100644 include/hw/input/android_keycodes.h
  create mode 100644 include/hw/input/linux_keycodes.h
+ create mode 100644 include/hw/misc/android_pipe_base.h
+ create mode 100644 include/hw/misc/goldfish_pipe.h
+ create mode 100644 include/hw/misc/goldfish_pstore.h
  create mode 100644 include/sysemu/ranchu.h
 
 diff --git a/default-configs/devices/arm-softmmu.mak b/default-configs/devices/arm-softmmu.mak
@@ -73,10 +100,10 @@ index 0500156a0c..00a7be4c26 100644
  CONFIG_EXYNOS4=y
  CONFIG_HIGHBANK=y
 diff --git a/hw/arm/Kconfig b/hw/arm/Kconfig
-index 8c37cf00da..a381e26a69 100644
+index 8c37cf00da..9f75ac3bad 100644
 --- a/hw/arm/Kconfig
 +++ b/hw/arm/Kconfig
-@@ -29,6 +29,41 @@ config ARM_VIRT
+@@ -29,6 +29,47 @@ config ARM_VIRT
      select ACPI_NVDIMM
      select ACPI_APEI
  
@@ -114,6 +141,12 @@ index 8c37cf00da..a381e26a69 100644
 +    select GOLDFISH_BATTERY
 +    select GOLDFISH_AUDIO
 +    select GOLDFISH_EVENTS
++    select GOLDFISH_PIC
++    select GOLDFISH_PSTORE
++    select GOLDFISH_SYNC
++    select GOLDFISH_PIPE
++    select GOLDFISH_TTY
++    select GOLDFISH_TIMER
 +
  config CHEETAH
      bool
@@ -3662,14 +3695,23 @@ index 0042c3f0dc..ec53197608 100644
  softmmu_ss.add(when: 'CONFIG_LASIPS2', if_true: files('lasips2.c'))
 +softmmu_ss.add(when: 'CONFIG_GOLDFISH_EVENTS', if_true: files('goldfish_events_common.c', 'goldfish_rotary.c'))
 diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
-index c71ed25820..6921f219f7 100644
+index c71ed25820..4bde37cc78 100644
 --- a/hw/misc/Kconfig
 +++ b/hw/misc/Kconfig
-@@ -186,4 +186,7 @@ config SIFIVE_U_PRCI
+@@ -186,4 +186,16 @@ config SIFIVE_U_PRCI
  config VIRT_CTRL
      bool
  
 +config GOLDFISH_BATTERY
++    bool
++
++config GOLDFISH_PSTORE
++    bool
++
++config GOLDFISH_SYNC
++    bool
++
++config GOLDFISH_PIPE
 +    bool
 +
  source macio/Kconfig
@@ -4221,18 +4263,3018 @@ index 0000000000..fffe07e238
 +void goldfish_battery_set_prop(int ac, int property, int value);
 +
 +#endif /* _HW_GOLDFISH_BATTERY_H */
+diff --git a/hw/misc/goldfish_pipe.c b/hw/misc/goldfish_pipe.c
+new file mode 100755
+index 0000000000..411ecbdb4e
+--- /dev/null
++++ b/hw/misc/goldfish_pipe.c
+@@ -0,0 +1,1927 @@
++/* Copyright (c) 2011-2016 The Android Open Source Project
++** Copyright (C) 2014 Linaro Limited
++** Copyright (C) 2015 Intel Corporation
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++**
++** Description
++**
++** This device provides a virtual pipe device (originally called
++** goldfish_pipe and latterly qemu_pipe). This allows the android
++** running under the emulator to open a fast connection to the host
++** for various purposes including the adb debug bridge and
++** (eventually) the opengles pass-through. This file contains only the
++** basic pipe infrastructure and a couple of test pipes. Additional
++** pipes are registered with the goldfish_pipe_add_type() call.
++**
++** Open Questions
++**
++** Since this was originally written there have been a number of other
++** virtual devices added to QEMU using the virtio infrastructure. We
++** should give some thought to if this needs re-writing to take
++** advantage of that infrastructure to create the pipes.
++*/
++
++#include "hw/misc/goldfish_pipe.h"
++#include "hw/misc/android_pipe_base.h"
++#include "hw/irq.h"
++#include "migration/qemu-file-types.h"
++
++#include "qemu/osdep.h"
++#include "hw/hw.h"
++#include "hw/sysbus.h"
++
++#include "qemu-common.h"
++#include "qemu/log.h"
++#include "qemu/timer.h"
++#include "qemu/error-report.h"
++#include "migration/register.h"
++
++#include <assert.h>
++#include <glib.h>
++
++#ifdef _MSC_VER
++#include "msvc-posix.h"
++#else
++#include <sys/time.h>
++#endif
++
++/* Set to > 0 for debug output */
++#define PIPE_DEBUG 0
++
++/* Set to 1 to debug i/o register reads/writes */
++#define PIPE_DEBUG_REGS 0
++
++#if PIPE_DEBUG >= 1
++#define D(fmt, ...) \
++    do { fprintf(stdout, "goldfish_pipe: " fmt "\n", ## __VA_ARGS__); } while (0)
++#else
++#define D(fmt, ...)  do { /* nothing */ } while (0)
++#endif
++
++#if PIPE_DEBUG >= 2
++#define DD(fmt, ...) \
++    do { fprintf(stdout, "goldfish_pipe: " fmt "\n", ## __VA_ARGS__); } while (0)
++#else
++#define DD(fmt, ...)  do { /* nothing */ } while (0)
++#endif
++
++#if PIPE_DEBUG_REGS >= 1
++#  define DR(...)   D(__VA_ARGS__)
++#else
++#  define DR(...)   do { /* nothing */ } while (0)
++#endif
++
++#define E(fmt, ...)  \
++    do { fprintf(stdout, "ERROR:" fmt "\n", ## __VA_ARGS__); } while (0)
++
++#define APANIC(...)                     \
++    do {                                \
++        error_report(__VA_ARGS__);      \
++        exit(1);                        \
++    } while (0)
++
++/* The following definitions must match those in the kernel driver
++ * found at android.googlesource.com/kernel/goldfish.git
++ *
++ *    drivers/platform/goldfish/goldfish_pipe*
++ */
++
++typedef enum PipeRegs {
++    PIPE_REG_CMD = 0,
++
++    PIPE_REG_SIGNAL_BUFFER_HIGH = 4,
++    PIPE_REG_SIGNAL_BUFFER = 8,
++    PIPE_REG_SIGNAL_BUFFER_COUNT = 12,
++
++    PIPE_REG_OPEN_BUFFER_HIGH = 20,
++    PIPE_REG_OPEN_BUFFER = 24,
++
++    PIPE_REG_VERSION = 36,
++
++    PIPE_REG_GET_SIGNALLED = 48,
++
++    // v1-specific registers
++    PIPE_REG_STATUS = 0x04,  /* read */
++    PIPE_REG_CHANNEL = 0x08,  /* read/write: channel id */
++    PIPE_REG_SIZE = 0x0c,  /* read/write: buffer size */
++    PIPE_REG_ADDRESS = 0x10,  /* write: physical address */
++    PIPE_REG_WAKES = 0x14,  /* read: wake flags */
++
++    /* read/write: parameter buffer address */
++    PIPE_REG_PARAMS_ADDR_LOW = 0x18,
++    PIPE_REG_PARAMS_ADDR_HIGH = 0x1c,
++
++    /* write: access with paremeter buffer */
++    PIPE_REG_ACCESS_PARAMS = 0x20,
++
++    PIPE_REG_CHANNEL_HIGH = 0x30, /* read/write: high 32 bit channel id */
++    PIPE_REG_ADDRESS_HIGH = 0x34, /* write: high 32 bit physical address */
++} PipeRegs;
++
++typedef enum PipeCmd {
++    PIPE_CMD_OPEN = 1,  // to be used by the pipe device itself
++    PIPE_CMD_CLOSE,
++    PIPE_CMD_POLL,
++    PIPE_CMD_WRITE,
++    PIPE_CMD_WAKE_ON_WRITE,
++    PIPE_CMD_READ,
++    PIPE_CMD_WAKE_ON_READ,
++    PIPE_CMD_WAKE_ON_DONE_IO,
++    PIPE_CMD_DMA_MAPHOST,
++    PIPE_CMD_DMA_UNMAPHOST,
++    PIPE_CMD_CALL,
++} PipeCmd;
++
++enum {
++    COMMAND_BUFFER_SIZE = 4096,
++};
++
++#define TYPE_GOLDFISH_PIPE "goldfish_pipe"
++#define GOLDFISH_PIPE(obj) \
++    OBJECT_CHECK(GoldfishPipeState, (obj), TYPE_GOLDFISH_PIPE)
++
++/* Update this version number if the device's interface changes. */
++enum {
++    PIPE_DEVICE_VERSION = 2,
++    PIPE_DEVICE_VERSION_v1 = 1,
++    // Currently we support {v3,v4} driver for v2 pipe device, and anything
++    // else for v1 device.
++    MAX_SUPPORTED_DRIVER_VERSION = 4,
++    PIPE_DRIVER_VERSION_v1 = 0,  // used to not report its version at all
++};
++
++static uint64_t pipe_dev_curr_time_us() {
++    struct timeval tv;
++    gettimeofday(&tv, 0);
++    return tv.tv_usec + tv.tv_sec * 1000000ULL;
++}
++
++/* These default callbacks are provided to detect when emulation setup
++ * didn't register a pipe service implementation correctly! There is no
++ * need to provide other GoldfishPipeServiceOps callbacks, since they
++ * cannot be called if one could not open or create a host pipe.
++ *
++ * NOTE: Returning NULL will force-close the pipe as soon as it is
++ *       opened by the guest. */
++static GoldfishHostPipe *null_guest_open(GoldfishHwPipe *hw_pipe)
++{
++    E("Android guest tried to open a pipe before service registration!\n"
++      "Please call goldfish_pipe_set_service_ops() at setup time!");
++    (void)hw_pipe;
++    return NULL;
++}
++
++static GoldfishHostPipe *null_guest_load(QEMUFile *file,
++                                         GoldfishHwPipe *hw_pipe,
++                                         char *force_close)
++{
++    E("Trying to load a pipe before service registration!\n"
++      "Please call goldfish_pipe_set_service_ops() at setup time!");
++    (void)file;
++    (void)hw_pipe;
++    (void)force_close;
++    return NULL;
++}
++
++static void null_guest_pre_post_save_load(QEMUFile *file) {
++    E("Trying to save/load a pipe before service registration!\n"
++      "Please call goldfish_pipe_set_service_ops() at setup time!");
++    (void)file;
++}
++
++static const GoldfishPipeServiceOps s_null_service_ops = {
++    .guest_open = null_guest_open,
++    .guest_load = null_guest_load,
++    .guest_pre_load = null_guest_pre_post_save_load,
++    .guest_post_load = null_guest_pre_post_save_load,
++    .guest_pre_save = null_guest_pre_post_save_load,
++    .guest_post_save = null_guest_pre_post_save_load,
++};
++
++static const GoldfishPipeServiceOps* service_ops = &s_null_service_ops;
++
++void goldfish_pipe_set_service_ops(const GoldfishPipeServiceOps* ops) {
++    service_ops = ops ? ops : &s_null_service_ops;
++}
++
++const GoldfishPipeServiceOps* goldfish_pipe_get_service_ops() {
++    return service_ops;
++}
++
++/* from AOSP version include/hw/android/goldfish/device.h
++ * FIXME?: needs to use proper qemu abstractions
++ */
++static inline void uint64_set_low(uint64_t* addr, uint32_t value) {
++    *addr = (*addr & ~(0xFFFFFFFFULL)) | value;
++}
++
++static inline void uint64_set_high(uint64_t* addr, uint32_t value) {
++    *addr = (*addr & 0xFFFFFFFFULL) | ((uint64_t)value << 32);
++}
++
++typedef struct PipeDevice PipeDevice;
++
++struct access_params_32 {
++    uint32_t channel;   /* 0x00 */
++    uint32_t size;      /* 0x04 */
++    uint32_t address;   /* 0x08 */
++    uint32_t cmd;       /* 0x0c */
++    uint32_t result;    /* 0x10 */
++    /* reserved for future extension */
++    uint32_t flags;     /* 0x14 */
++};
++
++struct access_params_64 {
++    uint64_t channel;   /* 0x00 */
++    uint32_t size;      /* 0x08 */
++    uint64_t address;   /* 0x0c */
++    uint32_t cmd;       /* 0x14 */
++    uint32_t result;    /* 0x18 */
++    /* reserved for future extension */
++    uint32_t flags;     /* 0x1c */
++};
++
++union access_params {
++    struct access_params_32 aps32;
++    struct access_params_64 aps64;
++};
++
++/* A set of version-specific pipe operations */
++typedef struct {
++    void (*wanted_list_add)(PipeDevice* dev, GoldfishHwPipe* pipe);
++    void (*close_all)(PipeDevice* dev, GoldfishPipeCloseReason reason);
++    void (*save)(QEMUFile* file, PipeDevice* dev);
++
++    void (*dev_write)(PipeDevice* dev, hwaddr offset, uint64_t value);
++    uint64_t (*dev_read)(PipeDevice* dev, hwaddr offset);
++} PipeOperations;
++
++/* Operations for the old and the latest pipe device versions */
++static const PipeOperations pipe_ops_v2;
++static const PipeOperations pipe_ops_v1;
++
++typedef struct {
++    SysBusDevice parent;
++    MemoryRegion iomem;
++    qemu_irq irq;
++
++    /* TODO: roll into shared state */
++    PipeDevice *dev;
++} GoldfishPipeState;
++
++typedef struct PipeCommand {
++    int32_t cmd;
++    int32_t id;
++    int32_t status;
++    int32_t padding;
++    union {
++        struct {
++            uint32_t buffers_count;
++            int32_t consumed_size;
++            // There are two arrays here, uint64_t ptrs[max_size]
++            // and uint32_t sizes[max_size].
++            // max_size is supplied at startup, so we can't reserve the space
++            // but need to have a function to calculate the pointers.
++            // The two arrays are followed by the index of the first read
++            // buffer. Index is only used by PIPE_CMD_CALL commands.
++        } rw_params;
++        struct {
++            uint64_t dma_paddr;
++            uint64_t sz;
++        } dma_maphost_params;
++    };
++} PipeCommand;
++
++struct GoldfishHwPipe {
++    const AndroidPipeHwFuncs *vtbl;
++    struct GoldfishHwPipe *wanted_next;
++    struct GoldfishHwPipe *wanted_prev;
++    PipeDevice* dev;
++    uint32_t id;  // pipe ID is its index into the PipeDevice::pipes array
++    unsigned char wanted;
++    char closed;
++    GoldfishHostPipe *host_pipe;
++    uint64_t command_buffer_addr;
++    PipeCommand* command_buffer;
++    uint32_t rw_params_max_count;
++
++    // v1-specific fields
++    struct GoldfishHwPipe* next;
++    uint64_t channel; /* opaque kernel handle */
++};
++
++typedef GoldfishHwPipe HwPipe;
++typedef GoldfishHostPipe HostPipe;
++
++typedef struct GuestSignalledPipe {
++    uint32_t id;
++    uint32_t flags;
++} GuestSignalledPipe;
++
++typedef struct OpenCommandParams {
++    uint64_t command_buffer_ptr;
++    uint32_t rw_params_max_count;
++} OpenCommandParams;
++
++struct PipeDevice {
++    GoldfishPipeState* ps;  // backlink to instance state
++    int device_version;    // host device verion
++    int driver_version;    // guest's driver version
++
++    const PipeOperations* ops;  // a set of version-specific pipe operations
++
++    // A vector of all pipes.
++    HwPipe** pipes;
++    // Capacity of the vector
++    unsigned pipes_capacity;
++
++    // The list of the pipes that signalled some 'wanted' state.
++    HwPipe* wanted_pipes_first;
++
++    uint64_t signalled_pipe_buffer_addr;
++    uint64_t open_command_addr;
++
++    GuestSignalledPipe* signalled_pipe_buffer;
++    unsigned signalled_pipe_buffer_size;
++
++    OpenCommandParams* open_command;
++
++    // v1-specific fields
++
++    // The list of all pipes.
++    HwPipe* pipes_list;
++    // A cached wanted pipe after the guest's _CHANNEL_HIGH call. We need to
++    // return the very same pipe during the following *_CHANNEL call.
++    HwPipe* wanted_pipe_after_channel_high;
++
++    // Cache of the pipes by channel for a faster lookup.
++    GHashTable* pipes_by_channel;
++
++    // i/o registers
++    uint64_t address;
++    uint32_t size;
++    uint32_t status;
++    uint64_t channel;
++    uint32_t wakes;
++    uint64_t params_addr;
++
++    // Benchmarking
++    bool measure_latency;
++    uint64_t write_start_us;
++    uint64_t write_end_us;
++    uint64_t wake_us;
++    uint64_t read_start_us;
++    uint64_t read_end_us;
++};
++
++
++// RW params getter functions for |ptrs| and |sizes| arrays.
++static uint64_t* hwpipe_get_command_rw_ptrs(HwPipe* pipe) {
++    // |ptrs| is right next to the |consumed_size| member.
++    return (uint64_t*)(
++                &pipe->command_buffer->rw_params.consumed_size + 1);
++}
++
++static uint32_t* hwpipe_get_command_rw_sizes(HwPipe* pipe) {
++    // |sizes| follows the |ptrs|.
++    return (uint32_t*)(
++                hwpipe_get_command_rw_ptrs(pipe) + pipe->rw_params_max_count);
++}
++
++static uint32_t hwpipe_get_command_rw_read_index(HwPipe* pipe) {
++    // |read_index| follows the |sizes|.
++    return *((uint32_t*)(
++                hwpipe_get_command_rw_sizes(pipe) + pipe->rw_params_max_count));
++}
++
++// hashtable-related functions
++// 64-bit emulator just casts uint64_t to gpointer to get a key for the
++// GLib's hash table. 32-bit one has to dynamically allocate an 8-byte chunk
++// of memory and copy the channel value there, storing pointer as a key.
++static uint64_t hash_channel_from_key(gconstpointer key) {
++#ifdef __x86_64__
++    // keys are just channels
++    return (uint64_t)key;
++#else
++    // keys are pointers to channels
++    return *(uint64_t*)key;
++#endif
++}
++
++static gpointer hash_create_key_from_channel(uint64_t channel) {
++#ifdef __x86_64__
++    return (gpointer)channel;
++#else
++    uint64_t* on_heap = (uint64_t*)malloc(sizeof(channel));
++    if (!on_heap) {
++        APANIC("%s: failed to allocate RAM for a channel value\n", __func__);
++    }
++    *on_heap = channel;
++    return on_heap;
++#endif
++}
++
++static gconstpointer hash_cast_key_from_channel(const uint64_t* channel) {
++#ifdef __x86_64__
++    return (gconstpointer)*channel;
++#else
++    return (gconstpointer)channel;
++#endif
++}
++
++static guint hash_channel(gconstpointer key) {
++    uint64_t channel = hash_channel_from_key(key);
++    return (guint)(channel ^ (channel >> 6));
++}
++
++static gboolean hash_channel_equal(gconstpointer a, gconstpointer b) {
++    return hash_channel_from_key(a) == hash_channel_from_key(b);
++}
++
++#ifdef __x86_64__
++// we don't need to free channels in 64-bit emulator as we store them in-place
++static void (*hash_channel_destroy)(gpointer a) = NULL;
++#else
++static void hash_channel_destroy(gpointer a) {
++    free((uint64_t*)a);
++}
++#endif
++
++static unsigned char hwpipe_get_and_clear_wanted(HwPipe* pipe) {
++    unsigned char val = pipe->wanted;
++    pipe->wanted = 0;
++    return val;
++}
++
++static void hwpipe_set_wanted(HwPipe* pipe, unsigned char val) {
++    pipe->wanted |= val;
++}
++
++void goldfish_pipe_signal_wake(void *pipe_raw, unsigned flags_raw) {
++    if (!pipe_raw) return;
++
++    GoldfishHwPipe *pipe = pipe_raw;
++    GoldfishPipeWakeFlags flags = flags_raw;
++    PipeDevice *dev = pipe->dev;
++
++    DD("%s: id=%d channel=0x%llx flags=%d", __func__, (int)pipe->id,
++       pipe->channel, flags);
++
++    hwpipe_set_wanted(pipe, (unsigned char)flags);
++    dev->ops->wanted_list_add(dev, pipe);
++
++    /* Raise IRQ to indicate there are items on our list ! */
++    qemu_set_irq(dev->ps->irq, 1);
++    DD("%s: raising IRQ", __func__);
++
++    if (dev->measure_latency) {
++        dev->wake_us = pipe_dev_curr_time_us();
++    }
++}
++
++void goldfish_pipe_close_from_host(void *pipe_raw) {
++    GoldfishHwPipe *pipe = pipe_raw;
++
++    D("%s: id=%d channel=0x%llx (closed=%d)", __func__, (int)pipe->id,
++        pipe->channel, pipe->closed);
++
++    if (!pipe->closed) {
++        pipe->closed = 1;
++        goldfish_pipe_signal_wake(pipe, GOLDFISH_PIPE_WAKE_CLOSED);
++    }
++}
++
++/* Function to look up hwpipe by pipe id and vice versa. */
++int goldfish_pipe_get_id(void *pipe_raw) {
++    GoldfishHwPipe* pipe = pipe_raw;
++
++    assert(pipe->dev->device_version == PIPE_DEVICE_VERSION);
++    return pipe->id;
++}
++
++static HwPipe* hwpipe_new0(PipeDevice* dev) {
++    static const AndroidPipeHwFuncs vtbl = {
++        .closeFromHost = &goldfish_pipe_close_from_host,
++        .signalWake = &goldfish_pipe_signal_wake,
++        .getPipeId = &goldfish_pipe_get_id,
++    };
++
++    HwPipe* pipe;
++    pipe = g_malloc0(sizeof(HwPipe));
++    pipe->vtbl = &vtbl;
++    pipe->dev = dev;
++    return pipe;
++}
++
++static HwPipe* hwpipe_new(uint32_t id, uint64_t channel, PipeDevice* dev) {
++    HwPipe* pipe = hwpipe_new0(dev);
++    pipe->id = id;
++    pipe->channel = channel;
++    pipe->host_pipe = service_ops->guest_open(pipe);
++    return pipe;
++}
++
++static void hwpipe_free(HwPipe* pipe, GoldfishPipeCloseReason reason) {
++    if (pipe->host_pipe)
++        service_ops->guest_close(pipe->host_pipe, reason);
++
++    g_free(pipe);
++}
++
++// Wanted pipe linked list operations
++static HwPipe* wanted_pipes_pop_first_v2(PipeDevice* dev) {
++    HwPipe* pipe = dev->wanted_pipes_first;
++    if (pipe) {
++        dev->wanted_pipes_first = pipe->wanted_next;
++        assert(pipe->wanted_prev == NULL);
++        pipe->wanted_next = NULL;
++        if (dev->wanted_pipes_first) {
++            dev->wanted_pipes_first->wanted_prev = NULL;
++        }
++    }
++    return pipe;
++}
++
++static void wanted_pipes_add_v2(PipeDevice* dev, HwPipe* pipe) {
++    if (!pipe->wanted_next && !pipe->wanted_prev &&
++        dev->wanted_pipes_first != pipe) {
++        pipe->wanted_next = dev->wanted_pipes_first;
++        if (dev->wanted_pipes_first) {
++            dev->wanted_pipes_first->wanted_prev = pipe;
++        }
++        dev->wanted_pipes_first = pipe;
++    }
++}
++
++static void wanted_pipes_remove_v2(PipeDevice* dev, HwPipe* pipe) {
++    if (pipe->wanted_next) {
++        pipe->wanted_next->wanted_prev = pipe->wanted_prev;
++    }
++    if (pipe->wanted_prev) {
++        pipe->wanted_prev->wanted_next = pipe->wanted_next;
++        pipe->wanted_prev = NULL;
++    } else if (dev->wanted_pipes_first == pipe) {
++        dev->wanted_pipes_first = pipe->wanted_next;
++    }
++    pipe->wanted_next = NULL;
++}
++
++// same for v1
++static HwPipe* wanted_pipes_pop_first_v1(PipeDevice* dev) {
++    if (dev->wanted_pipe_after_channel_high) {
++        HwPipe* val = dev->wanted_pipe_after_channel_high;
++        dev->wanted_pipe_after_channel_high = NULL;
++        return val;
++    }
++    HwPipe* pipe = dev->wanted_pipes_first;
++    if (pipe) {
++        dev->wanted_pipes_first = pipe->wanted_next;
++        assert(pipe->wanted_prev == NULL);
++        pipe->wanted_next = NULL;
++        if (dev->wanted_pipes_first) {
++            dev->wanted_pipes_first->wanted_prev = NULL;
++        }
++    }
++    return pipe;
++}
++
++static void wanted_pipes_add_v1(PipeDevice* dev, HwPipe* pipe) {
++    if (!pipe->wanted_next && !pipe->wanted_prev &&
++        dev->wanted_pipes_first != pipe &&
++        dev->wanted_pipe_after_channel_high != pipe) {
++        pipe->wanted_next = dev->wanted_pipes_first;
++        if (dev->wanted_pipes_first) {
++            dev->wanted_pipes_first->wanted_prev = pipe;
++        }
++        dev->wanted_pipes_first = pipe;
++    }
++}
++
++static void wanted_pipes_remove_v1(PipeDevice* dev, HwPipe* pipe) {
++    if (dev->wanted_pipe_after_channel_high == pipe) {
++        dev->wanted_pipe_after_channel_high = NULL;
++    }
++
++    if (pipe->wanted_next) {
++        pipe->wanted_next->wanted_prev = pipe->wanted_prev;
++    }
++    if (pipe->wanted_prev) {
++        pipe->wanted_prev->wanted_next = pipe->wanted_next;
++        pipe->wanted_prev = NULL;
++    } else if (dev->wanted_pipes_first == pipe) {
++        dev->wanted_pipes_first = pipe->wanted_next;
++    }
++    pipe->wanted_next = NULL;
++}
++
++/* Map the guest buffer specified by the guest paddr 'phys'.
++ * Returns a host pointer which should be unmapped later via
++ * cpu_physical_memory_unmap(), or NULL if mapping failed (likely
++ * because the paddr doesn't actually point at RAM).
++ * Note that for RAM the "mapping" process doesn't actually involve a
++ * data copy.
++ */
++static void* map_guest_buffer(hwaddr phys, size_t size, int is_write) {
++    hwaddr l = size;
++    void* ptr;
++
++    ptr = cpu_physical_memory_map(phys, &l, is_write);
++    if (!ptr) {
++        /* Can't happen for RAM */
++        return NULL;
++    }
++    if (l != size) {
++        /* This will only happen if the address pointed at non-RAM,
++         * or if the size means the buffer end is beyond the end of
++         * the RAM block.
++         */
++        cpu_physical_memory_unmap(ptr, l, 0, 0);
++        return NULL;
++    }
++
++    return ptr;
++}
++
++static void unmap_command_buffer(void* buffer) {
++    cpu_physical_memory_unmap(buffer, COMMAND_BUFFER_SIZE, 1,
++                              COMMAND_BUFFER_SIZE);
++}
++
++static void close_all_pipes_v1(PipeDevice* dev, GoldfishPipeCloseReason reason) {
++    HwPipe* pipe = dev->pipes_list;
++    while (pipe) {
++        HwPipe* next = pipe->next;
++        hwpipe_free(pipe, reason);
++        pipe = next;
++    }
++    dev->pipes_list = NULL;
++}
++
++static void close_all_pipes_v2(PipeDevice* dev, GoldfishPipeCloseReason reason) {
++    int i = 0;
++    for (; i < dev->pipes_capacity; ++i) {
++        HwPipe* pipe = dev->pipes[i];
++        if (pipe) {
++            // Make sure to use the guest physical address to
++            // obtain the host address to unmap;
++            // it is possible a remap occurred.
++            //
++            // map_guest_buffer increments refcount
++            // on the memory region, so we need to explicitly
++            // unmap this.
++            void* current_buffer =
++                map_guest_buffer(
++                    pipe->command_buffer_addr,
++                    COMMAND_BUFFER_SIZE, 1);
++
++            // Unref for telling QEMU we are done with this command buffer.
++            cpu_physical_memory_unmap(
++                current_buffer, COMMAND_BUFFER_SIZE, 1,
++                COMMAND_BUFFER_SIZE);
++
++            // Explicitly unmap again because we just called
++            // map_guest_buffer.
++            cpu_physical_memory_unmap(
++                current_buffer, COMMAND_BUFFER_SIZE, 1,
++                COMMAND_BUFFER_SIZE);
++
++            hwpipe_free(pipe, reason);
++            dev->pipes[i] = NULL;
++        }
++    }
++}
++
++static void reset_pipe_device(PipeDevice* dev) {
++    dev->wanted_pipes_first = NULL;
++    dev->wanted_pipe_after_channel_high = NULL;
++    g_hash_table_remove_all(dev->pipes_by_channel);
++    qemu_set_irq(dev->ps->irq, 0);
++    service_ops->dma_reset_host_mappings();
++}
++
++static void pipeDevice_doCommand_v1(PipeDevice* dev, uint32_t command) {
++    HwPipe* pipe = (HwPipe*)g_hash_table_lookup(
++            dev->pipes_by_channel, hash_cast_key_from_channel(&dev->channel));
++
++    /* Check that we're referring a known pipe channel */
++    if (command != PIPE_CMD_OPEN && pipe == NULL) {
++        dev->status = GOLDFISH_PIPE_ERROR_INVAL;
++        return;
++    }
++
++    /* If the pipe is closed by the host, return an error */
++    if (pipe != NULL && pipe->closed && command != PIPE_CMD_CLOSE) {
++        dev->status = GOLDFISH_PIPE_ERROR_IO;
++        return;
++    }
++
++    switch (command) {
++    case PIPE_CMD_OPEN:
++        DD("%s: CMD_OPEN channel=0x%llx", __func__,
++           (unsigned long long)dev->channel);
++        if (pipe != NULL) {
++            dev->status = GOLDFISH_PIPE_ERROR_INVAL;
++            break;
++        }
++        pipe = hwpipe_new(0, dev->channel, dev);
++        if (!pipe->host_pipe) {
++            hwpipe_free(pipe, GOLDFISH_PIPE_CLOSE_ERROR);
++            dev->status = GOLDFISH_PIPE_ERROR_INVAL;
++            break;
++        }
++        pipe->next = dev->pipes_list;
++        dev->pipes_list = pipe;
++        dev->status = 0;
++        g_hash_table_insert(dev->pipes_by_channel,
++                            hash_create_key_from_channel(dev->channel), pipe);
++        break;
++
++    case PIPE_CMD_CLOSE: {
++        DD("%s: CMD_CLOSE channel=0x%llx", __func__,
++           (unsigned long long)dev->channel);
++        // Remove from device's lists.
++        // This linear lookup is potentially slow, but we don't delete pipes
++        // often enough for it to become noticable.
++        HwPipe** pnode = &dev->pipes_list;
++        while (*pnode && *pnode != pipe) {
++            pnode = &(*pnode)->next;
++        }
++        if (!*pnode) {
++            dev->status = GOLDFISH_PIPE_ERROR_INVAL;
++            break;
++        }
++        *pnode = pipe->next;
++        pipe->next = NULL;
++        g_hash_table_remove(dev->pipes_by_channel,
++                            hash_cast_key_from_channel(&pipe->channel));
++        wanted_pipes_remove_v1(dev, pipe);
++
++        hwpipe_free(pipe, GOLDFISH_PIPE_CLOSE_GRACEFUL);
++        break;
++    }
++
++    case PIPE_CMD_POLL:
++        dev->status = service_ops->guest_poll(pipe->host_pipe);
++        DD("%s: CMD_POLL > status=%d", __func__, dev->status);
++        break;
++
++    case PIPE_CMD_READ: {
++        /* Translate guest physical address into emulator memory. */
++        GoldfishPipeBuffer buffer;
++        buffer.data = map_guest_buffer(dev->address, dev->size, /*is_write*/1);
++        if (!buffer.data) {
++            dev->status = GOLDFISH_PIPE_ERROR_INVAL;
++            break;
++        }
++        buffer.size = dev->size;
++        dev->status = service_ops->guest_recv(pipe->host_pipe, &buffer, 1);
++        DD("%s: CMD_READ channel=0x%llx address=0x%16llx size=%d > status=%d",
++           __func__, (unsigned long long)dev->channel,
++           (unsigned long long)dev->address,
++           dev->size, dev->status);
++        cpu_physical_memory_unmap(buffer.data, dev->size,
++                                  /*is_write*/1, dev->size);
++        break;
++    }
++
++    case PIPE_CMD_WRITE: {
++        /* Translate guest physical address into emulator memory. */
++        GoldfishPipeBuffer  buffer;
++        buffer.data = map_guest_buffer(dev->address, dev->size, /*is_write*/0);
++        if (!buffer.data) {
++            dev->status = GOLDFISH_PIPE_ERROR_INVAL;
++            break;
++        }
++        buffer.size = dev->size;
++        dev->status = service_ops->guest_send(&pipe->host_pipe, &buffer, 1);
++        DD("%s: CMD_WRITE_BUFFER channel=0x%llx address=0x%16llx size=%d > "
++           "status=%d", __func__, (unsigned long long)dev->channel,
++           (unsigned long long)dev->address, dev->size, dev->status);
++        cpu_physical_memory_unmap(buffer.data, dev->size,
++                                  /*is_write*/0, dev->size);
++        break;
++    }
++
++    case PIPE_CMD_WAKE_ON_READ:
++        DD("%s: CMD_WAKE_ON_READ channel=0x%llx", __func__,
++           (unsigned long long)dev->channel);
++        if ((pipe->wanted & GOLDFISH_PIPE_WAKE_READ) == 0) {
++            pipe->wanted |= GOLDFISH_PIPE_WAKE_READ;
++            service_ops->guest_wake_on(pipe->host_pipe, pipe->wanted);
++        }
++        dev->status = 0;
++        break;
++
++    case PIPE_CMD_WAKE_ON_WRITE:
++        DD("%s: CMD_WAKE_ON_WRITE channel=0x%llx", __func__,
++           (unsigned long long)dev->channel);
++        if ((pipe->wanted & GOLDFISH_PIPE_WAKE_WRITE) == 0) {
++            pipe->wanted |= GOLDFISH_PIPE_WAKE_WRITE;
++            service_ops->guest_wake_on(pipe->host_pipe, pipe->wanted);
++        }
++        dev->status = 0;
++        break;
++    default:
++        D("%s: command=%d (0x%x)\n", __func__, command, command);
++    }
++}
++
++static void pipeDevice_doOpenClose_v2(PipeDevice* dev, uint32_t id) {
++    PipeCommand* commandBuffer = (PipeCommand*)map_guest_buffer(
++            dev->open_command->command_buffer_ptr,
++            COMMAND_BUFFER_SIZE, /*is_write*/1);
++    if (!commandBuffer) {
++        // well, what can we do here?
++        return;
++    }
++    if (dev->open_command->rw_params_max_count < 1) {
++        commandBuffer->status = GOLDFISH_PIPE_ERROR_INVAL;
++        unmap_command_buffer(commandBuffer);
++        return;
++    }
++    if (commandBuffer->id != id) {
++        commandBuffer->status = GOLDFISH_PIPE_ERROR_INVAL;
++        unmap_command_buffer(commandBuffer);
++        return;
++    }
++    if (commandBuffer->cmd == PIPE_CMD_CLOSE) {
++        // it's OK to close an already closed pipe
++        commandBuffer->status = 0;
++        unmap_command_buffer(commandBuffer);
++        return;
++    }
++    if (commandBuffer->cmd != PIPE_CMD_OPEN) {
++        commandBuffer->status = GOLDFISH_PIPE_ERROR_INVAL;
++        unmap_command_buffer(commandBuffer);
++        return;
++    }
++    if (id >= dev->pipes_capacity) {
++        int newCapacity = (id + 1 > 2 * dev->pipes_capacity)
++                                  ? id + 1
++                                  : 2 * dev->pipes_capacity;
++        HwPipe** pipes = calloc(newCapacity, sizeof(HwPipe*));
++        if (!pipes) {
++            commandBuffer->status = GOLDFISH_PIPE_ERROR_NOMEM;
++            unmap_command_buffer(commandBuffer);
++            return;
++        }
++        memcpy(pipes, dev->pipes, sizeof(HwPipe*) * dev->pipes_capacity);
++        dev->pipes = pipes;
++        dev->pipes_capacity = newCapacity;
++    }
++
++    HwPipe* pipe = hwpipe_new(id, 0, dev);
++    if (!pipe || !pipe->host_pipe) {
++        hwpipe_free(pipe, GOLDFISH_PIPE_CLOSE_ERROR);
++        commandBuffer->status = GOLDFISH_PIPE_ERROR_NOMEM;
++        unmap_command_buffer(commandBuffer);
++        return;
++    }
++
++    pipe->command_buffer_addr = dev->open_command->command_buffer_ptr;
++    pipe->command_buffer = commandBuffer;
++    pipe->rw_params_max_count = dev->open_command->rw_params_max_count;
++    dev->pipes[id] = pipe;
++    commandBuffer->status = 0;
++}
++
++static void pipeDevice_doCommand_v2(HwPipe* pipe) {
++    assert(pipe);
++    assert(pipe->command_buffer->cmd != PIPE_CMD_OPEN);
++
++    PipeDevice* dev = pipe->dev;
++    PipeCmd command = pipe->command_buffer->cmd;
++
++    /* If the pipe is closed by the host, return an error */
++    if (pipe->closed && command != PIPE_CMD_CLOSE) {
++        pipe->command_buffer->status = GOLDFISH_PIPE_ERROR_IO;
++        return;
++    }
++
++    switch (command) {
++        case PIPE_CMD_CLOSE: {
++            DD("%s: CMD_CLOSE id=%d", __func__, (int)pipe->id);
++            // Remove from device's lists.
++            dev->pipes[pipe->id] = NULL;
++            wanted_pipes_remove_v2(dev, pipe);
++            pipe->command_buffer->status = 0;
++            unmap_command_buffer(pipe->command_buffer);
++            hwpipe_free(pipe, GOLDFISH_PIPE_CLOSE_GRACEFUL);
++            break;
++        }
++
++        case PIPE_CMD_POLL:
++            pipe->command_buffer->status =
++                    service_ops->guest_poll(pipe->host_pipe);
++            DD("%s: CMD_POLL > status=%d", __func__,
++               pipe->command_buffer->status);
++            break;
++
++        case PIPE_CMD_READ:
++        case PIPE_CMD_WRITE:
++        case PIPE_CMD_CALL: {
++            const bool willModifyData = command != PIPE_CMD_WRITE;
++            const bool isCall = command == PIPE_CMD_CALL;
++            pipe->command_buffer->rw_params.consumed_size = 0;
++            unsigned buffers_count =
++                    pipe->command_buffer->rw_params.buffers_count;
++            if (buffers_count > pipe->rw_params_max_count) {
++                buffers_count = pipe->rw_params_max_count;
++            }
++
++            // This isn't supposed to happen, what's the puprose of calling
++            // us with no data?
++            assert(buffers_count);
++
++            // We know that the |rw_params| fit into single page as of now, so
++            // we're free to estimate the maximum size this way.
++            uint64_t* const rwPtrs = hwpipe_get_command_rw_ptrs(pipe);
++            uint32_t* const rwSizes = hwpipe_get_command_rw_sizes(pipe);
++            assert(buffers_count <=
++                   COMMAND_BUFFER_SIZE / (sizeof(*rwPtrs) + sizeof(*rwSizes)));
++            GoldfishPipeBuffer buffers[
++                    COMMAND_BUFFER_SIZE / (sizeof(*rwPtrs) + sizeof(*rwSizes))];
++
++// ARM Memory layout:
++// 0..128MB is space for a flash device bootrom code such as UEFI.
++// 128MB..256MB is used for miscellaneous device I/O.
++// 256MB..1GB is reserved for possible future PCI support (ie where the
++// PCI memory window will go if we add a PCI host controller).
++// 1GB and up is RAM (which may happily spill over into the
++// high memory region beyond 4GB).
++// For ARM this means, there will always be one single RAM region
++// (no splitting) so all buffer address interpolation will be done
++// using diffFromGuestPostSplit.
++#define RAM_SPLIT_BOUNDARY    0x40000000
++
++            // All passed buffers are allocated in the same guest process, so
++            // know they all have the same offset from the host address if they
++            // are in the same RAM region: below RAM_SPLIT_BOUNDARY or after.
++            // Use '1' as invalid value since real offsets always are aligned
++            // to page size.
++            ptrdiff_t diffFromGuestPreSplit = 1, diffFromGuestPostSplit = 1;
++            int count = 0;
++            int unmapIndex[2];
++            unsigned i;
++            for (i = 0; i < buffers_count; ++i) {
++                if ((rwPtrs[i] <= RAM_SPLIT_BOUNDARY && diffFromGuestPreSplit == 1) ||
++                    (rwPtrs[i] > RAM_SPLIT_BOUNDARY && diffFromGuestPostSplit == 1)) {
++                    buffers[i].data =
++                        map_guest_buffer(rwPtrs[i], rwSizes[i], willModifyData);
++                    if (rwPtrs[i] <= RAM_SPLIT_BOUNDARY) {
++                        diffFromGuestPreSplit =
++                            (intptr_t)buffers[i].data - (intptr_t)rwPtrs[i];
++                    } else {
++                        diffFromGuestPostSplit =
++                            (intptr_t)buffers[i].data - (intptr_t)rwPtrs[i];
++                    }
++                    unmapIndex[count++] = i;
++                } else {
++                    if (rwPtrs[i] <= RAM_SPLIT_BOUNDARY) {
++                        buffers[i].data =
++                            (void*)(intptr_t)(rwPtrs[i] + diffFromGuestPreSplit);
++                    } else {
++                        buffers[i].data =
++                            (void*)(intptr_t)(rwPtrs[i] + diffFromGuestPostSplit);
++                    }
++                }
++                buffers[i].size = rwSizes[i];
++                assert(buffers[i].data != NULL);
++                assert(buffers[i].size != 0);
++            }
++
++#ifndef NDEBUG
++            // Verify that our interpolated mappings are actually correct
++            for (i = 1; i < buffers_count; ++i) {
++                void* const mapping = map_guest_buffer(rwPtrs[i], rwSizes[i],
++                                                       willModifyData);
++                assert(mapping == buffers[i].data);
++                cpu_physical_memory_unmap(mapping, rwSizes[i],
++                                          willModifyData, rwSizes[i]);
++            }
++#endif
++
++            GoldfishPipeBuffer* send_buffers = NULL;
++            unsigned send_buffers_count = 0;
++            GoldfishPipeBuffer* recv_buffers = NULL;
++            unsigned recv_buffers_count = 0;
++
++            if (willModifyData) {
++                // CALL commands perform send/recv using a single command.
++                // |read_index| is the first buffer used for receiving.
++                if (isCall) {
++                    uint32_t read_index = hwpipe_get_command_rw_read_index(pipe);
++                    assert(read_index <= buffers_count);
++                    send_buffers = buffers;
++                    send_buffers_count = read_index;
++                    recv_buffers = &buffers[read_index];
++                    recv_buffers_count = buffers_count - read_index;
++                } else {
++                    recv_buffers = buffers;
++                    recv_buffers_count = buffers_count;
++                }
++            } else {
++                send_buffers = buffers;
++                send_buffers_count = buffers_count;
++            }
++
++            int32_t status = 0;
++            int32_t consumed_size = 0;
++            if (send_buffers_count) {
++                status = service_ops->guest_send(&pipe->host_pipe,
++                                                 send_buffers,
++                                                 send_buffers_count);
++                if (status > 0) {
++                    consumed_size += status;
++                }
++            }
++            if (status >= 0 && recv_buffers_count) {
++                status = service_ops->guest_recv(pipe->host_pipe,
++                                                 recv_buffers,
++                                                 recv_buffers_count);
++                if (status > 0) {
++                    consumed_size += status;
++                }
++            }
++            // TODO(zyy): create an extended version of send()/recv() functions
++            // to return both transferred size and resulting status in single
++            // call.
++            if (isCall) {
++                pipe->command_buffer->rw_params.consumed_size = consumed_size;
++                pipe->command_buffer->status = consumed_size > 0 ? 0 : status;
++            } else {
++                pipe->command_buffer->status = status;
++                pipe->command_buffer->rw_params.consumed_size =
++                    status < 0 ? 0 : status;
++            }
++
++            DD("%s: CMD_%s id=%d buffers=%d > status=%d", __func__,
++               (willModifyData ? (isCall ? "CALL" : "READ") : "WRITE"),
++               (int)pipe->id, (int)buffers_count, pipe->command_buffer->status);
++
++            for (i = 0; i < count; ++i) {
++                const int j = unmapIndex[i];
++                cpu_physical_memory_unmap(buffers[j].data, buffers[j].size,
++                                          willModifyData, buffers[j].size);
++            }
++            break;
++        }
++
++        case PIPE_CMD_WAKE_ON_READ:
++        case PIPE_CMD_WAKE_ON_WRITE: {
++            bool read = (command == PIPE_CMD_WAKE_ON_READ);
++            int wake_flags = read
++                    ? GOLDFISH_PIPE_WAKE_READ : GOLDFISH_PIPE_WAKE_WRITE;
++            DD("%s: CMD_WAKE_ON_%s id=%d", __func__, (read ? "READ" : "WRITE"),
++               (int)pipe->id);
++            if ((pipe->wanted & wake_flags) == 0) {
++                pipe->wanted |= wake_flags;
++                service_ops->guest_wake_on(pipe->host_pipe, pipe->wanted);
++            }
++            pipe->command_buffer->status = 0;
++            break;
++        }
++        case PIPE_CMD_DMA_MAPHOST:
++            service_ops->dma_add_buffer(
++                    pipe,
++                    pipe->command_buffer->dma_maphost_params.dma_paddr,
++                    pipe->command_buffer->dma_maphost_params.sz);
++            pipe->command_buffer->status = 0;
++            break;
++        case PIPE_CMD_DMA_UNMAPHOST:
++            service_ops->dma_remove_buffer(
++                    pipe->command_buffer->dma_maphost_params.dma_paddr);
++            pipe->command_buffer->status = 0;
++            break;
++        default:
++            D("%s: command=%d (0x%x)\n", __func__, command, command);
++    }
++}
++
++static void pipe_dev_write(void* opaque,
++                           hwaddr offset,
++                           uint64_t value,
++                           unsigned size) {
++    GoldfishPipeState* state = opaque;
++    PipeDevice* dev = state->dev;
++
++    DR("%s: offset = 0x%" HWADDR_PRIx " value=%" PRIu64 "/0x%" PRIx64, __func__,
++       offset, value, value);
++    if (offset == PIPE_REG_VERSION) {
++        dev->driver_version = value;
++    } else {
++        dev->ops->dev_write(dev, offset, value);
++    }
++}
++
++static uint64_t pipe_dev_read(void* opaque, hwaddr offset, unsigned size) {
++    GoldfishPipeState* s = (GoldfishPipeState*)opaque;
++    PipeDevice* dev = s->dev;
++    if (offset == PIPE_REG_VERSION) {
++        // PIPE_REG_VERSION is issued on probe, which means that
++        // we should clean up all existing stale pipes.
++        // This helps keep the right state on rebooting.
++        dev->ops->close_all(dev, GOLDFISH_PIPE_CLOSE_REBOOT);
++        reset_pipe_device(dev);
++        if (dev->driver_version < MAX_SUPPORTED_DRIVER_VERSION) {
++            // Old driver used to not report its version at all.
++            dev->device_version = PIPE_DEVICE_VERSION_v1;
++            dev->ops = &pipe_ops_v1;
++        } else {
++            dev->device_version = PIPE_DEVICE_VERSION;
++            dev->ops = &pipe_ops_v2;
++        }
++        return dev->device_version;
++    }
++    return dev->ops->dev_read(dev, offset);
++}
++
++static void pipe_dev_write_v1(PipeDevice* dev,
++                              hwaddr offset,
++                              uint64_t value) {
++    switch (offset) {
++    case PIPE_REG_CMD:
++        pipeDevice_doCommand_v1(dev, value);
++        break;
++
++    case PIPE_REG_SIZE:
++        dev->size = value;
++        break;
++
++    case PIPE_REG_ADDRESS:
++        uint64_set_low(&dev->address, value);
++        break;
++
++    case PIPE_REG_ADDRESS_HIGH:
++        uint64_set_high(&dev->address, value);
++        break;
++
++    case PIPE_REG_CHANNEL:
++        uint64_set_low(&dev->channel, value);
++        break;
++
++    case PIPE_REG_CHANNEL_HIGH:
++        uint64_set_high(&dev->channel, value);
++        break;
++
++    case PIPE_REG_PARAMS_ADDR_HIGH:
++        uint64_set_high(&dev->params_addr, value);
++        break;
++
++    case PIPE_REG_PARAMS_ADDR_LOW:
++        uint64_set_low(&dev->params_addr, value);
++        break;
++
++    case PIPE_REG_ACCESS_PARAMS:
++    {
++        union access_params aps;
++        uint32_t cmd;
++        bool is_64bit = true;
++
++        /* Don't touch aps.result if anything wrong */
++        if (dev->params_addr == 0)
++            break;
++
++        cpu_physical_memory_read(dev->params_addr, (void*)&aps, sizeof(aps.aps32));
++
++        /* This auto-detection of 32bit/64bit ness relies on the
++         * currently unused flags parameter. As the 32 bit flags
++         * overlaps with the 64 bit cmd parameter. As cmd != 0 if we
++         * find it as 0 it's 32bit
++         */
++        if (aps.aps32.flags == 0) {
++            is_64bit = false;
++        } else {
++            cpu_physical_memory_read(dev->params_addr, (void*)&aps, sizeof(aps.aps64));
++        }
++
++        if (is_64bit) {
++            dev->channel = aps.aps64.channel;
++            dev->size = aps.aps64.size;
++            dev->address = aps.aps64.address;
++            cmd = aps.aps64.cmd;
++        } else {
++            dev->channel = aps.aps32.channel;
++            dev->size = aps.aps32.size;
++            dev->address = aps.aps32.address;
++            cmd = aps.aps32.cmd;
++        }
++
++        if ((cmd != PIPE_CMD_READ) && (cmd != PIPE_CMD_WRITE))
++            break;
++
++        pipeDevice_doCommand_v1(dev, cmd);
++
++        if (is_64bit) {
++            aps.aps64.result = dev->status;
++            cpu_physical_memory_write(dev->params_addr, (void*)&aps, sizeof(aps.aps64));
++        } else {
++            aps.aps32.result = dev->status;
++            cpu_physical_memory_write(dev->params_addr, (void*)&aps, sizeof(aps.aps32));
++        }
++    }
++    break;
++
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR, "%s: unknown register offset = 0x%"
++                      HWADDR_PRIx " value=%" PRIu64 "/0x%" PRIx64 "\n",
++                      __func__, offset, value, value);
++        break;
++    }
++}
++
++#define LONG_PIPE_TRANSACTION_THRESHOLD_MS 1.0f
++
++static void pipe_dev_warn_long_duration(
++    const char* tag, uint64_t start_us, uint64_t end_us) {
++    float ms = (end_us - start_us) / 1000.0f;
++    if (ms > LONG_PIPE_TRANSACTION_THRESHOLD_MS) {
++        fprintf(stderr, "%s: high latency for [%s]: %f ms\n",
++                __func__, tag, ms);
++    }
++}
++
++static void pipe_dev_write_v2(PipeDevice* dev,
++                                  hwaddr offset,
++                                  uint64_t value) {
++    if (dev->measure_latency) {
++        dev->write_start_us = pipe_dev_curr_time_us();
++    }
++
++    switch (offset) {
++        case PIPE_REG_SIGNAL_BUFFER_HIGH:
++            dev->signalled_pipe_buffer_addr = value << 32;
++            break;
++        case PIPE_REG_SIGNAL_BUFFER:
++            dev->signalled_pipe_buffer_addr |= (uintptr_t)value;
++            break;
++        case PIPE_REG_SIGNAL_BUFFER_COUNT:
++            dev->signalled_pipe_buffer_size = value;
++            dev->signalled_pipe_buffer = (GuestSignalledPipe*)map_guest_buffer(
++                    dev->signalled_pipe_buffer_addr,
++                    sizeof(*dev->signalled_pipe_buffer) *
++                            dev->signalled_pipe_buffer_size,
++                    /*is_write*/1);
++            if (!dev->signalled_pipe_buffer) {
++                APANIC("%s: failed to map signalled pipe buffer\n", __func__);
++            }
++            break;
++        case PIPE_REG_OPEN_BUFFER_HIGH:
++            dev->open_command_addr = value << 32;
++            break;
++        case PIPE_REG_OPEN_BUFFER:
++            dev->open_command_addr |= (uintptr_t)value;
++            dev->open_command = (OpenCommandParams*)map_guest_buffer(
++                    dev->open_command_addr, sizeof(*dev->open_command),
++                    /*is_write*/0);
++            if (!dev->open_command) {
++                APANIC("%s: failed to map open command buffer\n", __func__);
++            }
++            break;
++        case PIPE_REG_CMD: {
++            unsigned id = value;
++            if (id < dev->pipes_capacity && dev->pipes[id]) {
++                pipeDevice_doCommand_v2(dev->pipes[id]);
++            } else {
++                pipeDevice_doOpenClose_v2(dev, id);
++            }
++            break;
++        }
++        default:
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "%s: unknown register offset = 0x%" HWADDR_PRIx
++                          " value=%" PRIu64 "/0x%" PRIx64 "\n",
++                          __func__, offset, value, value);
++            break;
++    }
++
++    if (dev->measure_latency) {
++        dev->write_end_us = pipe_dev_curr_time_us();
++        pipe_dev_warn_long_duration(
++            "pipe_write",
++            dev->write_start_us,
++            dev->write_end_us);
++    }
++}
++
++static uint64_t pipe_dev_read_v1(PipeDevice* dev, hwaddr offset)
++{
++    switch (offset) {
++    case PIPE_REG_STATUS:
++        DR("%s: REG_STATUS status=%d (0x%x)", __func__, dev->status, dev->status);
++        return dev->status;
++
++    case PIPE_REG_CHANNEL: {
++        HwPipe* wanted_pipe = wanted_pipes_pop_first_v1(dev);
++        if (wanted_pipe != NULL) {
++            dev->wakes = hwpipe_get_and_clear_wanted(wanted_pipe);
++            DR("%s: channel=0x%llx wanted=%d", __func__,
++               (unsigned long long)wanted_pipe->channel, dev->wakes);
++            return (uint32_t)(wanted_pipe->channel & 0xFFFFFFFFUL);
++        } else {
++            qemu_set_irq(dev->ps->irq, 0);
++            DD("%s: no signaled channels, lowering IRQ", __func__);
++            return 0;
++        }
++    }
++
++    case PIPE_REG_CHANNEL_HIGH: {
++        //  This call is really dangerous; currently the device would
++        //  stop the calls as soon as we return 0 here; but it means that if the
++        //  channel's upper 32 bits are zeroes (that happens), we won't be able
++        //  to wake either that channel or any following ones.
++        //  It is gone in v2.
++        HwPipe* wanted_pipe = wanted_pipes_pop_first_v1(dev);
++        if (wanted_pipe != NULL) {
++            dev->wanted_pipe_after_channel_high = wanted_pipe;
++            DR("%s: channel_high=0x%llx wanted=%d", __func__,
++               (unsigned long long)wanted_pipe->channel, wanted_pipe->wanted);
++            assert((uint32_t)(wanted_pipe->channel >> 32) != 0);
++            return (uint32_t)(wanted_pipe->channel >> 32);
++        } else {
++            qemu_set_irq(dev->ps->irq, 0);
++            DD("%s: no signaled channels (for high), lowering IRQ", __func__);
++            return 0;
++        }
++    }
++
++    case PIPE_REG_WAKES:
++        DR("%s: wakes %d", __func__, dev->wakes);
++        return dev->wakes;
++
++    case PIPE_REG_PARAMS_ADDR_HIGH:
++        return (uint32_t)(dev->params_addr >> 32);
++
++    case PIPE_REG_PARAMS_ADDR_LOW:
++        return (uint32_t)(dev->params_addr & 0xFFFFFFFFUL);
++
++    default:
++        qemu_log_mask(LOG_GUEST_ERROR, "%s: unknown register %" HWADDR_PRId
++                      " (0x%" HWADDR_PRIx ")\n", __func__, offset, offset);
++    }
++    return 0;
++}
++
++static uint64_t pipe_dev_read_v2(PipeDevice* dev, hwaddr offset) {
++    uint64_t res = 0;
++
++    if (dev->measure_latency) {
++        dev->read_start_us = pipe_dev_curr_time_us();
++    }
++
++    switch (offset) {
++        case PIPE_REG_GET_SIGNALLED: {
++            int count = 0;
++            HwPipe* pipe;
++            while (count < dev->signalled_pipe_buffer_size &&
++                   (pipe = wanted_pipes_pop_first_v2(dev)) != NULL) {
++                dev->signalled_pipe_buffer[count].id = pipe->id;
++                dev->signalled_pipe_buffer[count].flags =
++                        hwpipe_get_and_clear_wanted(pipe);
++                ++count;
++            }
++            if (!dev->wanted_pipes_first) {
++                qemu_set_irq(dev->ps->irq, 0);  // we've passed all wanted pipes
++            }
++            res = count;
++            break;
++        }
++        default:
++            qemu_log_mask(LOG_GUEST_ERROR, "%s: unknown register %" HWADDR_PRId
++                                           " (0x%" HWADDR_PRIx ")\n",
++                          __func__, offset, offset);
++    }
++
++    if (dev->measure_latency) {
++        dev->read_end_us = pipe_dev_curr_time_us();
++        pipe_dev_warn_long_duration(
++            "pipe_read",
++            dev->read_start_us,
++            dev->read_end_us);
++        pipe_dev_warn_long_duration(
++            "pipe_wake",
++            dev->wake_us,
++            dev->read_start_us);
++    }
++
++    return res;
++}
++
++static const MemoryRegionOps goldfish_pipe_iomem_ops = {
++        .read = pipe_dev_read,
++        .write = pipe_dev_write,
++        .endianness = DEVICE_NATIVE_ENDIAN
++};
++
++// Don't change this version unless you want to break forward compatibility.
++// Instead, use the different device version as a first saved field.
++enum {
++    GOLDFISH_PIPE_SAVE_VERSION = 1,
++};
++
++static void goldfish_pipe_save(QEMUFile* f, void* opaque) {
++    GoldfishPipeState* s = opaque;
++    PipeDevice* dev = s->dev;
++    service_ops->guest_pre_save(f);
++    dev->ops->save(f, dev);
++    service_ops->guest_post_save(f);
++}
++
++static void goldfish_pipe_save_v1(QEMUFile* file, PipeDevice* dev) {
++    assert(dev->device_version == PIPE_DEVICE_VERSION_v1);
++    qemu_put_be32(file, dev->device_version);
++
++    /* Save the device version */
++    /* Save i/o registers. */
++    qemu_put_be64(file, dev->address);
++    qemu_put_be32(file, dev->size);
++    qemu_put_be32(file, dev->status);
++    qemu_put_be64(file, dev->channel);
++    qemu_put_be32(file, dev->wakes);
++    qemu_put_be64(file, dev->params_addr);
++
++    /* Save the pipe count and state of the pipes. */
++    int pipe_count = 0;
++    HwPipe* pipe;
++    for (pipe = dev->pipes_list; pipe; pipe = pipe->next) {
++        ++pipe_count;
++    }
++    qemu_put_be32(file, pipe_count);
++    for (pipe = dev->pipes_list; pipe; pipe = pipe->next) {
++        qemu_put_be64(file, pipe->channel);
++        qemu_put_byte(file, pipe->closed);
++        qemu_put_byte(file, pipe->wanted);
++        // It's possible to get a 'save' command right after the 'load' one,
++        // when some force-closed pipes are still on the list.
++        if (pipe->host_pipe) {
++            qemu_put_byte(file, 1);
++            service_ops->guest_save(pipe->host_pipe, file);
++        } else {
++            qemu_put_byte(file, 0);
++        }
++    }
++
++    /* Save wanted pipes list. */
++    int wanted_pipes_count = 0;
++    for (pipe = dev->wanted_pipes_first; pipe; pipe = pipe->wanted_next) {
++        wanted_pipes_count++;
++    }
++    qemu_put_be32(file, wanted_pipes_count);
++    for (pipe = dev->wanted_pipes_first; pipe; pipe = pipe->wanted_next) {
++        qemu_put_be64(file, pipe->channel);
++    }
++    if (dev->wanted_pipe_after_channel_high) {
++        qemu_put_byte(file, 1);
++        qemu_put_be64(file, dev->wanted_pipe_after_channel_high->channel);
++    } else {
++        qemu_put_byte(file, 0);
++    }
++}
++
++static void goldfish_pipe_save_v2(QEMUFile* file, PipeDevice* dev) {
++    assert(dev->device_version == PIPE_DEVICE_VERSION);
++    qemu_put_be32(file, dev->device_version);
++
++    /* Save the device data. */
++    qemu_put_be32(file, dev->driver_version);
++    qemu_put_be32(file, dev->signalled_pipe_buffer_size);
++    qemu_put_be64(file, dev->signalled_pipe_buffer_addr);
++    qemu_put_be64(file, dev->open_command_addr);
++    qemu_put_be32(file, dev->pipes_capacity);
++
++    /* Save the pipes. */
++    int i;
++    int pipe_count = 0;
++    for (i = 0; i < dev->pipes_capacity; ++i) {
++        if (dev->pipes[i]) {
++            ++pipe_count;
++        }
++    }
++    qemu_put_be32(file, pipe_count);
++
++    for (i = 0; i < dev->pipes_capacity; ++i) {
++        HwPipe* pipe = dev->pipes[i];
++        if (!pipe) {
++            continue;
++        }
++        qemu_put_be32(file, pipe->id);
++        qemu_put_be64(file, pipe->command_buffer_addr);
++        qemu_put_be32(file, pipe->rw_params_max_count);
++        qemu_put_byte(file, pipe->closed);
++        qemu_put_byte(file, pipe->wanted);
++        // It's possible to get a 'save' command right after the 'load' one,
++        // when some force-closed pipes are still on the list.
++        if (pipe->host_pipe) {
++            qemu_put_byte(file, 1);
++            service_ops->guest_save(pipe->host_pipe, file);
++        } else {
++            qemu_put_byte(file, 0);
++        }
++    }
++
++    /* Save wanted pipes list. */
++    HwPipe* pipe;
++    int wanted_pipes_count = 0;
++    for (pipe = dev->wanted_pipes_first; pipe; pipe = pipe->wanted_next) {
++        wanted_pipes_count++;
++    }
++    qemu_put_be32(file, wanted_pipes_count);
++    for (pipe = dev->wanted_pipes_first; pipe; pipe = pipe->wanted_next) {
++        qemu_put_be32(file, pipe->id);
++    }
++
++    /* Invalidate all guest DMA buffer -> host ptr mappings. */
++    service_ops->dma_invalidate_host_mappings();
++
++    /* Save DMA map. */
++    service_ops->dma_save_mappings(file);
++}
++
++static int goldfish_pipe_load_v1(QEMUFile* file, PipeDevice* dev) {
++    HwPipe* pipe;
++
++    assert(dev->device_version == PIPE_DEVICE_VERSION_v1);
++    dev->driver_version = PIPE_DRIVER_VERSION_v1;
++
++    /* Load i/o registers. */
++    dev->address = qemu_get_be64(file);
++    dev->size = qemu_get_be32(file);
++    dev->status = qemu_get_be32(file);
++    dev->channel = qemu_get_be64(file);
++    dev->wakes = qemu_get_be32(file);
++    dev->params_addr = qemu_get_be64(file);
++
++    dev->ops = &pipe_ops_v1;
++
++    /* Restore pipes. */
++    int pipe_count = qemu_get_be32(file);
++    int pipe_n;
++    HwPipe** pipe_list_end = &dev->pipes_list;
++    *pipe_list_end = NULL;
++    uint64_t* force_closed_pipes = malloc(sizeof(uint64_t) * pipe_count);
++    int force_closed_pipes_count = 0;
++    for (pipe_n = 0; pipe_n < pipe_count; pipe_n++) {
++        HwPipe* pipe = hwpipe_new0(dev);
++        char force_close = 1;
++        pipe->channel = qemu_get_be64(file);
++        pipe->closed = qemu_get_byte(file);
++        pipe->wanted = qemu_get_byte(file);
++        char has_host_pipe = qemu_get_byte(file);
++        if (has_host_pipe) {
++            pipe->host_pipe = service_ops->guest_load(file, pipe, &force_close);
++            if (pipe->host_pipe) {
++              force_close = 0;
++            }
++        }
++        pipe->wanted_next = pipe->wanted_prev = NULL;
++
++        // |pipe| might be NULL in case it couldn't be saved. However,
++        // in that case |force_close| will be set by goldfish_pipe_guest_load,
++        // so |force_close| should be checked first so that the function
++        // can continue.
++        if (force_close) {
++            pipe->closed = 1;
++            force_closed_pipes[force_closed_pipes_count++] = pipe->channel;
++        } else if (!pipe->host_pipe) {
++            hwpipe_free(pipe, GOLDFISH_PIPE_CLOSE_LOAD_SNAPSHOT);
++            free(force_closed_pipes);
++            return -EIO;
++        }
++
++        pipe->next = NULL;
++        *pipe_list_end = pipe;
++        pipe_list_end = &(pipe->next);
++    }
++
++    /* Rebuild the pipes-by-channel table. */
++    g_hash_table_remove_all(dev->pipes_by_channel); /* Clean up old data. */
++    for(pipe = dev->pipes_list; pipe; pipe = pipe->next) {
++        g_hash_table_insert(dev->pipes_by_channel,
++                            hash_create_key_from_channel(pipe->channel),
++                            pipe);
++    }
++
++    /* Reconstruct wanted pipes list. */
++    HwPipe** wanted_pipe_list_end = &dev->wanted_pipes_first;
++    *wanted_pipe_list_end = NULL;
++    int wanted_pipes_count = qemu_get_be32(file);
++    uint64_t channel;
++    for (pipe_n = 0; pipe_n < wanted_pipes_count; ++pipe_n) {
++        channel = qemu_get_be64(file);
++        HwPipe* pipe = g_hash_table_lookup(dev->pipes_by_channel,
++                                           hash_cast_key_from_channel(&channel));
++        if (pipe) {
++            pipe->wanted_prev = *wanted_pipe_list_end;
++            pipe->wanted_next = NULL;
++            *wanted_pipe_list_end = pipe;
++            wanted_pipe_list_end = &(pipe->wanted_next);
++        } else {
++            free(force_closed_pipes);
++            return -EIO;
++        }
++    }
++    if (qemu_get_byte(file)) {
++        channel = qemu_get_be64(file);
++        dev->wanted_pipe_after_channel_high =
++            g_hash_table_lookup(dev->pipes_by_channel,
++                                hash_cast_key_from_channel(&channel));
++        if (!dev->wanted_pipe_after_channel_high) {
++            free(force_closed_pipes);
++            return -EIO;
++        }
++    } else {
++        dev->wanted_pipe_after_channel_high = NULL;
++    }
++
++    /* Add forcibly closed pipes to wanted pipes list */
++    for (pipe_n = 0; pipe_n < force_closed_pipes_count; pipe_n++) {
++        HwPipe* pipe =
++            g_hash_table_lookup(dev->pipes_by_channel,
++                                hash_cast_key_from_channel(
++                                    &force_closed_pipes[pipe_n]));
++        hwpipe_set_wanted(pipe, GOLDFISH_PIPE_WAKE_CLOSED);
++        pipe->closed = 1;
++        if (!pipe->wanted_next &&
++            !pipe->wanted_prev &&
++            pipe != dev->wanted_pipe_after_channel_high) {
++            pipe->wanted_prev = *wanted_pipe_list_end;
++            *wanted_pipe_list_end = pipe;
++            wanted_pipe_list_end = &(pipe->wanted_next);
++        }
++    }
++
++    free(force_closed_pipes);
++    return 0;
++}
++
++static int goldfish_pipe_load_v2(QEMUFile* file, PipeDevice* dev) {
++    int res = -EIO;
++    uint32_t* force_closed_pipes = NULL;
++
++    /* Load the device. */
++    dev->device_version = qemu_get_be32(file);
++    if (dev->device_version > PIPE_DEVICE_VERSION) {
++        goto done;
++    } else if (dev->device_version == PIPE_DEVICE_VERSION_v1) {
++        // redirect to the v1 loader if this is an old pipe.
++        return goldfish_pipe_load_v1(file, dev);
++    }
++
++    dev->driver_version = qemu_get_be32(file);
++    if (dev->driver_version > MAX_SUPPORTED_DRIVER_VERSION) {
++        goto done;
++    }
++
++    dev->signalled_pipe_buffer_size = qemu_get_be32(file);
++    dev->signalled_pipe_buffer_addr = qemu_get_be64(file);
++    dev->signalled_pipe_buffer = (GuestSignalledPipe*)map_guest_buffer(
++            dev->signalled_pipe_buffer_addr,
++            sizeof(*dev->signalled_pipe_buffer) *
++                    dev->signalled_pipe_buffer_size,
++            /*is_write*/1);
++    if (!dev->signalled_pipe_buffer) {
++        goto done;
++    }
++    dev->open_command_addr = qemu_get_be64(file);
++    dev->open_command = (OpenCommandParams*)map_guest_buffer(
++            dev->open_command_addr, sizeof(*dev->open_command), /*is_write*/0);
++    if (!dev->open_command) {
++        goto done;
++    }
++
++    dev->ops = &pipe_ops_v2;
++
++    int pipes_capacity = qemu_get_be32(file);
++    if (dev->pipes_capacity < pipes_capacity) {
++        void* pipes = calloc(pipes_capacity, sizeof(*dev->pipes));
++        if (!pipes) {
++            goto done;
++        }
++        // No need to memcpy() the old array - we've already freed
++        // all pipes there.
++        dev->pipes = pipes;
++    }
++    dev->pipes_capacity = pipes_capacity;
++
++    int pipe_count = qemu_get_be32(file);
++    force_closed_pipes = malloc(sizeof(*force_closed_pipes) * pipe_count);
++    if (!force_closed_pipes) {
++        goto done;
++    }
++    int i;
++    int force_closed_pipes_count = 0;
++    for (i = 0; i < pipe_count; ++i) {
++        HwPipe* pipe = hwpipe_new0(dev);
++        pipe->id = qemu_get_be32(file);
++        pipe->command_buffer_addr = qemu_get_be64(file);
++        pipe->command_buffer = (PipeCommand*)map_guest_buffer(
++                pipe->command_buffer_addr, COMMAND_BUFFER_SIZE, /*is_write*/1);
++        if (!pipe->command_buffer) {
++            hwpipe_free(pipe, GOLDFISH_PIPE_CLOSE_ERROR);
++            goto done;
++        }
++        pipe->rw_params_max_count = qemu_get_be32(file);
++        pipe->closed = qemu_get_byte(file);
++        pipe->wanted = qemu_get_byte(file);
++
++        char force_close = 0;
++        char has_host_pipe = qemu_get_byte(file);
++        if (has_host_pipe) {
++            pipe->host_pipe = service_ops->guest_load(file, pipe, &force_close);
++        } else {
++            force_close = 1;
++        }
++
++        // |pipe| might be NULL in case it couldn't be saved. However,
++        // in that case |force_close| will be set by goldfish_pipe_guest_load,
++        // so |force_close| should be checked first so that the function
++        // can continue.
++        if (force_close) {
++            pipe->closed = 1;
++            force_closed_pipes[force_closed_pipes_count++] = pipe->id;
++        } else if (!pipe->host_pipe) {
++            unmap_command_buffer(pipe->command_buffer);
++            hwpipe_free(pipe, GOLDFISH_PIPE_CLOSE_LOAD_SNAPSHOT);
++            goto done;
++        }
++
++        if (dev->pipes[pipe->id]) {
++            unmap_command_buffer(pipe->command_buffer);
++            hwpipe_free(pipe, GOLDFISH_PIPE_CLOSE_ERROR);
++            goto done;
++        }
++        dev->pipes[pipe->id] = pipe;
++    }
++
++    /* Reconstruct wanted pipes list. */
++    int wanted_pipes_count = qemu_get_be32(file);
++    for (i = 0; i < wanted_pipes_count; ++i) {
++        int id = qemu_get_be32(file);
++        HwPipe* pipe = dev->pipes[id];
++        if (!pipe) {
++            goto done;
++        }
++        wanted_pipes_add_v2(dev, pipe);
++    }
++
++    /* Add forcibly closed pipes to wanted pipes list */
++    for (i = 0; i < force_closed_pipes_count; ++i) {
++        HwPipe* pipe = dev->pipes[force_closed_pipes[i]];
++        hwpipe_set_wanted(pipe, GOLDFISH_PIPE_WAKE_CLOSED);
++        pipe->closed = 1;
++        wanted_pipes_add_v2(dev, pipe);
++    }
++
++    res = 0;
++
++    /* Load DMA mappings. */
++    service_ops->dma_load_mappings(file);
++
++    /* Invalidate all guest DMA buffer -> host ptr mappings. */
++    service_ops->dma_invalidate_host_mappings();
++
++done:
++    free(force_closed_pipes);
++    return res;
++}
++
++static int goldfish_pipe_load(QEMUFile* f, void* opaque, int version_id) {
++    GoldfishPipeState* s = opaque;
++    PipeDevice* dev = s->dev;
++
++    /* As a first step close all old pipes to make sure they don't interfere
++     * with the loading process.
++     */
++    dev->wanted_pipes_first = NULL;
++    dev->wanted_pipe_after_channel_high = NULL;
++    dev->ops->close_all(dev, GOLDFISH_PIPE_CLOSE_LOAD_SNAPSHOT);
++
++    service_ops->guest_pre_load(f);
++    int res = goldfish_pipe_load_v2(f, dev);
++    service_ops->guest_post_load(f);
++    return res;
++}
++
++/*
++ * NOTE: there is no postcopy in qemu6, hoping this is the
++ * same. // Janne
++ */
++static bool goldfish_pipe_post_load(void* opaque) {
++    /* This function gets invoked after all VM state has
++     * been loaded. Raising IRQ in the load handler causes
++     * problems.
++     */
++    PipeDevice* dev = ((GoldfishPipeState*)opaque)->dev;
++    qemu_set_irq(dev->ps->irq, 1);
++    return true;
++}
++
++static GoldfishPipeState* s_goldfish_pipe_state = NULL;
++
++int register_savevm_with_post_load(DeviceState *dev,
++                                   const char *idstr,
++                                   int instance_id,
++                                   int version_id,
++                                   SaveStateHandler *save_state,
++                                   LoadStateHandler *load_state,
++                                   bool (*post_load)(void *),
++                                   void *opaque)
++{
++    SaveVMHandlers *ops = g_new0(SaveVMHandlers, 1);
++    ops->save_state = save_state;
++    ops->load_state = load_state;
++    ops->has_postcopy = post_load;
++    return register_savevm_live(idstr, instance_id, version_id,
++                                ops, opaque);
++}
++
++static void goldfish_pipe_realize(DeviceState* dev, Error** errp) {
++    SysBusDevice* sbdev = SYS_BUS_DEVICE(dev);
++    GoldfishPipeState* s = GOLDFISH_PIPE(dev);
++    s_goldfish_pipe_state = s;
++
++    s->dev = (PipeDevice*)g_malloc0(sizeof(PipeDevice));
++    s->dev->ps = s; /* HACK: backlink */
++
++    s->dev->ops = &pipe_ops_v2;
++    s->dev->device_version = PIPE_DEVICE_VERSION;
++    s->dev->driver_version = PIPE_DRIVER_VERSION_v1;
++
++    s->dev->pipes_capacity = 64;
++    s->dev->pipes = calloc(s->dev->pipes_capacity, sizeof(*s->dev->pipes));
++    if (!s->dev->pipes) {
++        APANIC("%s: failed to initialize pipes array\n", __func__);
++    }
++
++    s->dev->pipes_by_channel = g_hash_table_new_full(
++            hash_channel, hash_channel_equal, hash_channel_destroy, NULL);
++    if (!s->dev->pipes_by_channel) {
++        APANIC("%s: failed to initialize pipes hash\n", __func__);
++    }
++
++    memory_region_init_io(&s->iomem, OBJECT(s), &goldfish_pipe_iomem_ops, s,
++                          "goldfish_pipe", 0x2000 /*TODO: ?how big?*/);
++    sysbus_init_mmio(sbdev, &s->iomem);
++    sysbus_init_irq(sbdev, &s->irq);
++
++    s->dev->measure_latency = false;
++    {
++        char* android_emu_trace_env_var =
++            getenv("ANDROID_EMU_TRACING");
++        s->dev->measure_latency =
++            android_emu_trace_env_var &&
++            !strcmp("1", android_emu_trace_env_var);
++    }
++
++    register_savevm_with_post_load(
++            dev, "goldfish_pipe", 0, GOLDFISH_PIPE_SAVE_VERSION,
++            goldfish_pipe_save, goldfish_pipe_load, goldfish_pipe_post_load, s);
++}
++
++GoldfishHwPipe* goldfish_pipe_lookup_by_id(int id) {
++    assert(s_goldfish_pipe_state->dev->device_version == PIPE_DEVICE_VERSION);
++    return s_goldfish_pipe_state->dev->pipes[id];
++}
++
++static void goldfish_pipe_class_init(ObjectClass* klass, void* data) {
++    DeviceClass* dc = DEVICE_CLASS(klass);
++    dc->realize = goldfish_pipe_realize;
++    dc->desc = "goldfish pipe";
++}
++
++static const TypeInfo goldfish_pipe_info = {
++    .name          = TYPE_GOLDFISH_PIPE,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(GoldfishPipeState),
++    .class_init    = goldfish_pipe_class_init
++};
++
++static void goldfish_pipe_register(void) {
++    type_register_static(&goldfish_pipe_info);
++}
++
++type_init(goldfish_pipe_register);
++
++static const PipeOperations pipe_ops_v2 = {
++        .wanted_list_add = &wanted_pipes_add_v2,
++        .close_all = &close_all_pipes_v2,
++        .save = &goldfish_pipe_save_v2,
++        .dev_read = &pipe_dev_read_v2,
++        .dev_write = &pipe_dev_write_v2
++};
++
++static const PipeOperations pipe_ops_v1 = {
++        .wanted_list_add = &wanted_pipes_add_v1,
++        .close_all = &close_all_pipes_v1,
++        .save = &goldfish_pipe_save_v1,
++        .dev_read = &pipe_dev_read_v1,
++        .dev_write = &pipe_dev_write_v1
++};
+diff --git a/hw/misc/goldfish_pstore.c b/hw/misc/goldfish_pstore.c
+new file mode 100644
+index 0000000000..878af19351
+--- /dev/null
++++ b/hw/misc/goldfish_pstore.c
+@@ -0,0 +1,173 @@
++/* Copyright (C) 2017 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#include "qemu/osdep.h"
++#include "qemu/log.h"
++#include "qapi/error.h"
++#include "hw/hw.h"
++#include "hw/sysbus.h"
++#include "hw/qdev-properties.h"
++#include "hw/misc/goldfish_pstore.h"
++#include "exec/address-spaces.h"
++#include "io/channel-file.h"
++#include "migration/qemu-file.h"
++#include "migration/qemu-file-channel.h"
++
++#define GOLDFISH_PSTORE(obj) OBJECT_CHECK(goldfish_pstore, (obj), TYPE_GOLDFISH_PSTORE)
++
++/**
++  A goldfish pstore is currently an area of reservered memory that survives reboots. The memory
++  is persisted to disk if the filename parameter has been given. We persist the memory region
++  when the device is unrealized.
++*/
++typedef struct goldfish_pstore {
++    DeviceState parent;
++
++    MemoryRegion memory;
++    uint64_t size;   /* Size of the region in bytes, keep in mind the larger this
++                        gets, the longer writes on exit take */
++    hwaddr   addr;   /* Physical guest address where this memory shows up */
++    char*    fname;  /* File where we will (re)store the bytes on entry/exit */
++} goldfish_pstore;
++
++static Property goldfish_pstore_properties[] = {
++    DEFINE_PROP_UINT64(GOLDFISH_PSTORE_ADDR_PROP, goldfish_pstore, addr, 0),
++    DEFINE_PROP_SIZE(GOLDFISH_PSTORE_SIZE_PROP, goldfish_pstore, size, 0),
++    DEFINE_PROP_STRING(GOLDFISH_PSTORE_FILE_PROP, goldfish_pstore, fname),
++    DEFINE_PROP_END_OF_LIST(),
++};
++
++/* Construct a QEMUFile object from the given fd. */
++static QEMUFile* qemu_file_from_fd(int fd, bool write)
++{
++    QIOChannel *ioc;
++    QEMUFile *f;
++    assert(fd > 0);
++
++    lseek(fd, 0, SEEK_SET);
++    ioc = QIO_CHANNEL(qio_channel_file_new_fd(fd));
++    if (write) {
++        f = qemu_fopen_channel_output(ioc);
++    } else {
++        f = qemu_fopen_channel_input(ioc);
++    }
++    object_unref(OBJECT(ioc));
++    return f;
++}
++
++static void goldfish_pstore_save_restore(goldfish_pstore *store, bool write) {
++  Error *local_err = NULL;
++  QEMUFile *file = NULL;
++  int fd = -1;
++  if (!store->fname) {
++    error_setg(&local_err, "No storage file has been specified");
++    goto Error;
++  }
++
++  // Let's get the file handle
++  if (write) {
++    fd = OPEN_WRITE(store->fname);
++  } else {
++    fd = OPEN_READ(store->fname);
++  }
++  if (fd == -1) {
++    if (write) {
++      error_setg_errno(&local_err, errno, "Unable to open %s", store->fname);
++    }
++    goto Error;
++  }
++
++  // And just read/write the memory contents.
++  file = qemu_file_from_fd(fd, write);
++  if (write) {
++    qemu_put_buffer(file, (uint8_t *)memory_region_get_ram_ptr(&store->memory),
++                    memory_region_size(&store->memory));
++  } else {
++    size_t read = qemu_get_buffer(
++        file, (uint8_t *)memory_region_get_ram_ptr(&store->memory),
++        memory_region_size(&store->memory));
++  }
++
++  if (qemu_file_get_error(file)) {
++    const char *flag_msg = write ? "write" : "read";
++    error_setg_errno(&local_err, errno, "Unable to %s memory using file: %s",
++                     flag_msg, store->fname);
++    goto Error;
++  }
++
++Error:
++  if (local_err && qemu_loglevel_mask(LOG_TRACE)) {
++      // pstore is best effort, users frequently see warnings which is confusing.
++      // pstore support is usually only needed for those that do low-level development
++      // and need the reporting upon reboot. Those developers should enable tracing to
++      // see the error messages
++      error_report_err(local_err);
++  }
++
++  if (file) {
++    qemu_fclose(file);
++  }
++#ifndef _MSC_VER
++  close(fd);
++#endif
++}
++
++static void goldfish_pstore_realize(DeviceState *dev, Error **errp) {
++  goldfish_pstore *s = GOLDFISH_PSTORE(dev);
++
++  // Reserve a slot of memory that we will use for our pstore.
++  memory_region_init_ram_nomigrate(&s->memory, OBJECT(s), GOLDFISH_PSTORE_DEV_ID, s->size,
++                         errp);
++
++  // Ok, now we just need to move it to the right physical address.
++  memory_region_add_subregion(get_system_memory(), s->addr, &s->memory);
++
++  // And restore the contents from disk
++  goldfish_pstore_save_restore(s, false);
++}
++
++static void goldfish_pstore_unrealize(DeviceState *dev) {
++  goldfish_pstore *s = GOLDFISH_PSTORE(dev);
++  goldfish_pstore_save_restore(s, true);
++}
++
++static void goldfish_dev_init(Object *obj) {
++  // ID registration needs to happen before realization, otherwise
++  // the device will show up with some unknown name in the dev tree
++  // or with a name that has been handed through command line parameters.
++  // We don't want any of that, so we set the device-id right here.
++  goldfish_pstore *s = GOLDFISH_PSTORE(obj);
++  s->parent.id = GOLDFISH_PSTORE_DEV_ID;
++}
++
++static void goldfish_pstore_class_init(ObjectClass *klass, void *data) {
++  DeviceClass *dc = DEVICE_CLASS(klass);
++
++  dc->realize = goldfish_pstore_realize;
++  dc->unrealize = goldfish_pstore_unrealize;
++  dc->desc = "goldfish emulated persistent storage ram";
++  device_class_set_props(dc, goldfish_pstore_properties);
++}
++
++static const TypeInfo goldfish_pstore_info = {
++    .name = TYPE_GOLDFISH_PSTORE,
++    .parent = TYPE_DEVICE,
++    .instance_size = sizeof(goldfish_pstore),
++    .instance_init = goldfish_dev_init,
++    .class_init = goldfish_pstore_class_init,
++};
++
++static void goldfish_pstore_register(void) {
++  type_register_static(&goldfish_pstore_info);
++}
++
++type_init(goldfish_pstore_register);
++
+diff --git a/hw/misc/goldfish_sync.c b/hw/misc/goldfish_sync.c
+new file mode 100644
+index 0000000000..284212f7c7
+--- /dev/null
++++ b/hw/misc/goldfish_sync.c
+@@ -0,0 +1,562 @@
++/* Copyright (C) 2016 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++
++#include "qemu/osdep.h"
++#include "hw/hw.h"
++#include "hw/sysbus.h"
++#include "qemu-common.h"
++#include "qemu/error-report.h"
++#include "qemu/main-loop.h"
++#include "trace.h"
++#include "hw/misc/goldfish_sync.h"
++#include "migration/register.h"
++#include "hw/irq.h"
++#include "hw/qdev-properties.h"
++#include "migration/qemu-file-types.h"
++#include <assert.h>
++
++// TODO(digit): Plug better logging for Android emulator.
++#define DPRINT(...)
++
++// Goldfish sync commands=======================================================
++
++// Batch command formats:
++// Host->guest:
++struct goldfish_sync_batch_cmd {
++    // sorted by size for alignment
++    uint64_t handle;
++    uint64_t hostcmd_handle;
++    uint32_t cmd;
++    uint32_t time_arg;
++};
++
++// guest->host:
++struct goldfish_sync_batch_guestcmd {
++    uint64_t host_command; // uint64_t for alignment
++    uint64_t glsync_handle;
++    uint64_t thread_handle;
++    uint64_t guest_timeline_handle;
++};
++
++// This is a suffix of batch cmd.
++// The purpose of the "pending_cmd" variant
++// is so we can queue up several batch commands
++// in the same IRQ level.
++struct goldfish_sync_pending_cmd {
++    uint64_t handle;
++    uint64_t hostcmd_handle;
++    uint32_t cmd;
++    uint32_t time_arg;
++    struct goldfish_sync_pending_cmd* next;
++};
++
++// Command numbers that can only be sent from the guest to the device.
++#define SYNC_GUEST_CMD_READY 0
++#define SYNC_GUEST_CMD_TRIGGER_HOST_WAIT 5
++
++// The register layout is:
++
++#define SYNC_REG_BATCH_COMMAND                0x00 // host->guest batch commands
++#define SYNC_REG_BATCH_GUESTCOMMAND           0x04 // guest->host batch commands
++#define SYNC_REG_BATCH_COMMAND_ADDR           0x08 // communicate physical address of host->guest batch commands
++#define SYNC_REG_BATCH_COMMAND_ADDR_HIGH      0x0c // 64-bit part
++#define SYNC_REG_BATCH_GUESTCOMMAND_ADDR      0x10 // communicate physical address of guest->host commands
++#define SYNC_REG_BATCH_GUESTCOMMAND_ADDR_HIGH 0x14 // 64-bit part
++#define SYNC_REG_INIT                         0x18 // to signal that the device has been detected by the kernel
++
++// The goldfish sync device is represented by the goldfish_sync_state struct.
++// Besides the machinery necessary to do I/O with the guest:
++// |pending|: a linked list of |goldfish_sync_pending_cmd|'s
++// that need to be processed by the kernel.
++// |first_pending_cmd|: maintains a pointer to the earliest pending command
++// that needs to be sent. We plan to process pending commands in the same
++// order in which they were received.
++// |current|: Intermediate value that represents a popped-off pending
++// command.
++// |batch_cmd_addr|: Physical memory address where we write the details
++// of each command that comes in from the host. We also read replies
++// from the same address (if applicable)
++// |batch_guestcmd_addr|: Physical memory address where we read the
++// details of each command that comes in from the guest.
++// |ops|: Callbacks to other areas of the emulator that need to be
++// triggered upon reading a guest->host command.
++struct goldfish_sync_state {
++    SysBusDevice parent;
++    MemoryRegion iomem;
++    qemu_irq irq;
++
++    struct goldfish_sync_pending_cmd* pending;
++    struct goldfish_sync_pending_cmd* first_pending_cmd;
++    struct goldfish_sync_pending_cmd* current;
++
++    uint64_t batch_cmd_addr;
++    uint64_t batch_guestcmd_addr;
++
++    struct goldfish_sync_ops* ops;
++};
++
++static struct goldfish_sync_state* s_goldfish_sync_dev;
++
++static const GoldfishSyncServiceOps* service_ops = NULL;
++
++void goldfish_sync_set_service_ops(const GoldfishSyncServiceOps *ops) {
++    service_ops = ops;
++}
++
++// Command list operations======================================================
++
++static struct goldfish_sync_pending_cmd*
++goldfish_sync_new_cmd(void) {
++    struct goldfish_sync_pending_cmd* res;
++    res = g_malloc0(sizeof(struct goldfish_sync_pending_cmd));
++    return res;
++}
++
++static void
++goldfish_sync_free_cmd(struct goldfish_sync_pending_cmd* cmd) {
++    g_free(cmd);
++}
++
++static void
++goldfish_sync_push_cmd(struct goldfish_sync_state* state,
++                       struct goldfish_sync_pending_cmd* cmd) {
++
++    cmd->next = NULL;
++
++    if (state->pending) {
++        state->pending->next = cmd;
++    }
++
++    // We need to reset first_pending_cmd if
++    // the list was empty to start with.
++    if (!state->pending) {
++        state->first_pending_cmd = cmd;
++    }
++
++    state->pending = cmd;
++}
++
++static struct goldfish_sync_pending_cmd*
++goldfish_sync_pop_first_cmd(struct goldfish_sync_state* state) {
++
++    struct goldfish_sync_pending_cmd* popped =
++        state->first_pending_cmd;
++
++    // Update list structure as follows:
++    // 1. Don't do anything if its already empty.
++    if (!popped) return NULL;
++
++    // 2. Update first_pending_cmd and pending fields,
++    // changing list structure to reflect the change.
++    state->first_pending_cmd = popped->next;
++    if (state->pending == popped) state->pending = NULL;
++
++    return popped;
++}
++
++static void goldfish_sync_clear_pending(struct goldfish_sync_state* state) {
++    struct goldfish_sync_pending_cmd* curr =
++        state->pending;
++
++    while (curr) {
++        struct goldfish_sync_pending_cmd* tmp = curr;
++        curr = curr->next;
++        goldfish_sync_free_cmd(tmp);
++    }
++
++    state->pending = NULL;
++    state->first_pending_cmd = NULL;
++}
++
++static void goldfish_sync_reset_device(struct goldfish_sync_state* state) {
++    goldfish_sync_clear_pending(state);
++    qemu_set_irq(state->irq, 0);
++}
++
++// Callbacks and hw_funcs struct================================================
++
++// goldfish_sync_send_command does the actual work of setting up
++// the sync device registers, causing IRQ blip,
++// and waiting for + reading back results from the guest
++// (if appplicable)
++void goldfish_sync_send_command(uint32_t cmd,
++                                uint64_t handle,
++                                uint32_t time_arg,
++                                uint64_t hostcmd_handle) {
++
++    struct goldfish_sync_state* s;
++    struct goldfish_sync_pending_cmd* to_send;
++    s = s_goldfish_sync_dev;
++
++    DPRINT("incoming cmd. "
++           "cmd=%u "
++           "handle=0x%llx "
++           "time_arg=%u "
++           "hostcmd_handle=0x%llx",
++           cmd, handle, time_arg, hostcmd_handle);
++
++    to_send = goldfish_sync_new_cmd();
++    to_send->cmd = cmd;
++    to_send->handle = handle;
++    to_send->time_arg = time_arg;
++    to_send->hostcmd_handle = hostcmd_handle;
++
++    goldfish_sync_push_cmd(s, to_send);
++
++    qemu_set_irq(s->irq, 1);
++
++    DPRINT("Exit");
++}
++
++#define TYPE_GOLDFISH_SYNC "goldfish_sync"
++#define GOLDFISH_SYNC(obj) \
++    OBJECT_CHECK(struct goldfish_sync_state, (obj), TYPE_GOLDFISH_SYNC)
++
++static uint64_t
++goldfish_sync_read(void *opaque,
++                   hwaddr offset,
++                   unsigned size) {
++
++    DPRINT("opaque=%p offset=0x%lx sz=0x%x", opaque, offset, size);
++
++    struct goldfish_sync_state* s = opaque;
++    struct goldfish_sync_batch_cmd* curr_batch_cmd;
++
++    switch (offset) {
++    // SYNC_REG_BATCH_COMMAND read:
++    // This is triggered by the kernel whenever we are processing
++    // any host->guest sync command, such as timeline increment.
++    // The role of this part is to pass command info (in the struct
++    // |goldfish_sync_batch_cmd|'s to the guest where the commands
++    // are actually run.
++    //
++    // SYNC_REG_BATCH_COMMAND is the first thing
++    // to happen on a IRQ level raise, and will continue re-issuing
++    // throughout IRQ active high, until all pending commands on the
++    // host (the linked list) are processed. At that point, IRQ
++    // is lowered.
++    case SYNC_REG_BATCH_COMMAND:
++        if (!s->batch_cmd_addr) return 0;
++
++        s->current = goldfish_sync_pop_first_cmd(s);
++        if (!s->current) {
++            DPRINT("Out of pending commands. Lower IRQ.");
++            struct goldfish_sync_batch_cmd quit_cmd = {
++                .cmd = 0, .handle = 0, .time_arg = 0, .hostcmd_handle = 0
++            };
++            cpu_physical_memory_write(s->batch_cmd_addr,
++                                      (void*)&quit_cmd,
++                                      sizeof(struct goldfish_sync_batch_cmd));
++            qemu_set_irq(s->irq, 0);
++            return 0;
++        } else {
++            // goldfish_sync_batch_cmd is a prefix of
++            // goldfish_sync_pending_cmd, so we can avoid a copy.
++            curr_batch_cmd = (struct goldfish_sync_batch_cmd*)(s->current);
++            DPRINT("read SYNC_REG_BATCH_COMMAND. writing to batch addr: "
++                   "cmd=%u handle=0x%llx time_arg=%u hostcmd_handle=0x%llx\n",
++                   curr_batch_cmd->cmd,
++                   (unsigned long long)curr_batch_cmd->handle,
++                   curr_batch_cmd->time_arg,
++                   (unsigned long long)curr_batch_cmd->hostcmd_handle);
++            cpu_physical_memory_write(s->batch_cmd_addr,
++                                      (void*)curr_batch_cmd,
++                                      sizeof(struct goldfish_sync_batch_cmd));
++            goldfish_sync_free_cmd(s->current);
++            s->current = NULL;
++        }
++        DPRINT("done SYNC_REG_BATCH_COMMAND. returning result val?");
++        return 0;
++    // SYNC_REG_BATCH_(GUEST)COMMAND_ADDR(_HIGH) read:
++    // Used solely to verify that the |s->batch_cmd_addr| on the host
++    // is the same physical address as the corresponding one
++    // on the guest.
++    case SYNC_REG_BATCH_COMMAND_ADDR:
++        return (uint64_t)(uint32_t)(s->batch_cmd_addr);
++    case SYNC_REG_BATCH_COMMAND_ADDR_HIGH:
++        return (uint64_t)(uint32_t)(s->batch_cmd_addr >> 32);
++    case SYNC_REG_BATCH_GUESTCOMMAND_ADDR:
++        return (uint64_t)(uint32_t)(s->batch_guestcmd_addr);
++    case SYNC_REG_BATCH_GUESTCOMMAND_ADDR_HIGH:
++        return (uint64_t)(uint32_t)(s->batch_guestcmd_addr >> 32);
++    default:
++        DPRINT("INVALID sync_read! reg=%u", offset);
++        assert(false);
++        return 0;
++    }
++    return 0;
++}
++// The guest kernel's goldfish_sync driver triggers goldfish_sync_read
++// and goldfish_sync_write. The only purpose of those two functions is to
++// pass the right value to and from the special |regs| field of the
++// goldfish_sync_state.
++
++static void
++goldfish_sync_write(void *opaque,
++                    hwaddr offset,
++                    uint64_t val,
++                    unsigned size) {
++    DPRINT("opaque=%p "
++           "offset=0x%lx "
++           "sz=0x%x "
++           "val=%" PRIu64,
++           opaque, offset, size, val);
++
++    struct goldfish_sync_state* s = opaque;
++
++    switch (offset) {
++    // SYNC_REG_BATCH_COMMAND write: Used to send acknowledgements
++    // to host->guest commands. Some commands that can be issued from
++    // the host, such as |goldfish_sync_create_timeline|, require a
++    // return value of the timeline pointer itself. Not all commands
++    // use this; for example, we never acknowledge any
++    // |goldfish_sync_timeline_inc| commands because that would
++    // decrease performance.
++    case SYNC_REG_BATCH_COMMAND:
++        if (!s->batch_cmd_addr) break;
++
++        DPRINT("write SYNC_REG_BATCH_COMMAND. obtaining batch cmd vals.");
++        struct goldfish_sync_batch_cmd incoming = {
++            .cmd = 0,
++            .handle = 0,
++            .time_arg = 0,
++            .hostcmd_handle = 0,
++        };
++        cpu_physical_memory_read(s->batch_cmd_addr,
++                                 (void*)&incoming,
++                                 sizeof(struct goldfish_sync_batch_cmd));
++        DPRINT("got: cmd=%u handle=0x%llx time_arg=%u hostcmd_handle=0x%llx",
++               incoming.cmd,
++               incoming.handle,
++               incoming.time_arg,
++               incoming.hostcmd_handle);
++        service_ops->receive_hostcmd_result(
++               incoming.cmd,
++               incoming.handle,
++               incoming.time_arg,
++               incoming.hostcmd_handle);
++        break;
++    // SYNC_REG_BATCH_GUESTCOMMAND write: Used to send
++    // guest->host commands. Currently, the only guest->host command
++    // that matters is SYNC_GUEST_CMD_TRIGGER_HOST_WAIT, which is used
++    // to cause a OpenGL client wait on the host GPU/CPU.
++    case SYNC_REG_BATCH_GUESTCOMMAND:
++        if (!s->batch_guestcmd_addr) break;
++
++        DPRINT("write SYNC_REG_BATCH_GUESTCOMMAND. obtaining batch cmd vals.");
++        struct goldfish_sync_batch_guestcmd guest_incoming = {
++            .host_command = 0,
++            .glsync_handle = 0,
++            .thread_handle = 0,
++            .guest_timeline_handle = 0,
++        };
++        cpu_physical_memory_read(s->batch_guestcmd_addr,
++                                 (void*)&guest_incoming,
++                                 sizeof(struct goldfish_sync_batch_guestcmd));
++        DPRINT("got: batchaddr 0x%llx cmd=%llu glsync=0x%llx thread=0x%llx timeline=0x%llx\n",
++               (unsigned long long)(s->batch_guestcmd_addr),
++               (unsigned long long)(guest_incoming.host_command),
++               (unsigned long long)(guest_incoming.glsync_handle),
++               (unsigned long long)(guest_incoming.thread_handle),
++               (unsigned long long)(guest_incoming.guest_timeline_handle));
++        switch (guest_incoming.host_command) {
++        case SYNC_GUEST_CMD_TRIGGER_HOST_WAIT:
++            DPRINT("exec SYNC_GUEST_CMD_TRIGGER_HOST_WAIT");
++            service_ops->trigger_host_wait(guest_incoming.glsync_handle,
++                                           guest_incoming.thread_handle,
++                                           guest_incoming.guest_timeline_handle);
++            break;
++        case SYNC_GUEST_CMD_READY:
++            DPRINT("exec SYNC_GUEST_CMD_READY");
++            break;
++        }
++        break;
++    // SYNC_REG_BATCH_(GUEST)COMMAND_ADDR(_HIGH) write:
++    // Used to communicate the physical address on the guest where
++    // we write all the info for commands.
++    case SYNC_REG_BATCH_COMMAND_ADDR:
++        s->batch_cmd_addr = val;
++        break;
++    case SYNC_REG_BATCH_COMMAND_ADDR_HIGH:
++        s->batch_cmd_addr |= (uint64_t)(val << 32);
++        DPRINT("Got batch command address. addr=0x%llx",
++               s->batch_cmd_addr);
++        break;
++    case SYNC_REG_BATCH_GUESTCOMMAND_ADDR:
++        s->batch_guestcmd_addr = val;
++        break;
++    case SYNC_REG_BATCH_GUESTCOMMAND_ADDR_HIGH:
++        s->batch_guestcmd_addr |= (uint64_t)(val << 32);
++        DPRINT("Got batch guestcommand address. addr=0x%llx",
++               s->batch_guestcmd_addr);
++        break;
++    case SYNC_REG_INIT:
++        goldfish_sync_reset_device(s);
++        break;
++    default:
++        DPRINT("INVALID sync_write! reg=%u", offset);
++        assert(false);
++    }
++}
++
++static const MemoryRegionOps goldfish_sync_iomem_ops = {
++    .read = goldfish_sync_read,
++    .write = goldfish_sync_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++    .impl.min_access_size = 4,
++    .impl.max_access_size = 4
++};
++
++static void
++save_pending_cmds(QEMUFile* file,
++                  struct goldfish_sync_pending_cmd* cmd) {
++    struct goldfish_sync_pending_cmd* curr = cmd;
++
++    qemu_put_byte(file, curr != 0);
++
++    while (curr) {
++        qemu_put_be64(file, curr->handle);
++        qemu_put_be64(file, curr->hostcmd_handle);
++        qemu_put_be64(file, curr->cmd);
++        qemu_put_be64(file, curr->time_arg);
++        curr = curr->next;
++        qemu_put_byte(file, curr != 0);
++    }
++}
++
++// Returns the head of the list.
++static struct goldfish_sync_pending_cmd*
++load_pending_cmds(QEMUFile* file) {
++    struct goldfish_sync_pending_cmd* res = 0;
++    struct goldfish_sync_pending_cmd* curr;
++
++    bool exists = qemu_get_byte(file);
++
++    if (!exists) {
++        return res;
++    }
++
++    res = goldfish_sync_new_cmd();
++    curr = res;
++
++    while (exists) {
++        curr->handle = qemu_get_be64(file);
++        curr->hostcmd_handle = qemu_get_be64(file);
++        curr->cmd = qemu_get_be64(file);
++        curr->time_arg = qemu_get_be64(file);
++        exists = qemu_get_byte(file);
++        if (exists) {
++            curr->next = goldfish_sync_new_cmd();
++            curr = curr->next;
++        } else {
++            curr->next = 0;
++        }
++    }
++
++    return res;
++}
++
++// Save/load order:
++// 1. Pipe
++// 2. Sync
++// (could be enforced by specification order in goldfish acpi dsdt, or
++// in IRQ seq?)
++static void goldfish_sync_save(QEMUFile* file, void* opaque) {
++    struct goldfish_sync_state* s = opaque;
++
++    qemu_put_be64(file, s->batch_cmd_addr);
++    qemu_put_be64(file, s->batch_guestcmd_addr);
++
++    save_pending_cmds(file, s->pending);
++
++    service_ops->save(file);
++}
++
++static int goldfish_sync_load(QEMUFile* file, void* opaque, int version_id) {
++    struct goldfish_sync_state* s = opaque;
++    goldfish_sync_reset_device(s);
++
++    s->batch_cmd_addr = qemu_get_be64(file);
++    s->batch_guestcmd_addr = qemu_get_be64(file);
++
++    s->pending = load_pending_cmds(file);
++    s->first_pending_cmd = s->pending;
++
++    // Do pending cmds after we restored the ones already
++    // in the state struct.
++    service_ops->load(file);
++
++    if (s->pending) {
++        qemu_set_irq(s->irq, 1);
++    }
++
++    return 0;
++}
++
++static SaveVMHandlers goldfish_sync_vmhandlers= {
++    .save_state = goldfish_sync_save,
++    .load_state = goldfish_sync_load
++};
++
++// goldfish_sync_realize is called on startup if the sync device is enabled.
++// It does the work of setting up the I/O, command queue, and function pointers.
++static void goldfish_sync_realize(DeviceState *dev, Error **errp) {
++    DPRINT("enter");
++    SysBusDevice* sbdev = SYS_BUS_DEVICE(dev);
++    struct goldfish_sync_state* s = GOLDFISH_SYNC(dev);
++
++    s_goldfish_sync_dev = s;
++
++    s->batch_cmd_addr = 0;
++    s->batch_guestcmd_addr = 0;
++    s->pending = NULL;
++    s->current = NULL;
++
++    memory_region_init_io(&s->iomem, OBJECT(s),
++                          &goldfish_sync_iomem_ops,
++                          s,
++                          "goldfish_sync",
++                          0x2000);
++    sysbus_init_mmio(sbdev, &s->iomem);
++    sysbus_init_irq(sbdev, &s->irq);
++
++    register_savevm_live("goldfish_sync", 0, 1, &goldfish_sync_vmhandlers, s);
++}
++
++static Property goldfish_sync_properties[] = {
++    DEFINE_PROP_END_OF_LIST(),
++};
++
++static void goldfish_sync_class_init(ObjectClass *klass, void *data)
++{
++    DPRINT("enter");
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = goldfish_sync_realize;
++    dc->desc = "goldfish sync";
++    device_class_set_props(dc, goldfish_sync_properties);
++}
++
++static const TypeInfo goldfish_sync_info = {
++    .name          = TYPE_GOLDFISH_SYNC,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(struct goldfish_sync_state),
++    .class_init    = goldfish_sync_class_init,
++};
++
++static void goldfish_sync_register(void)
++{
++    DPRINT("enter");
++    type_register_static(&goldfish_sync_info);
++}
++
++type_init(goldfish_sync_register);
+diff --git a/hw/misc/goldfish_sync.h b/hw/misc/goldfish_sync.h
+new file mode 100644
+index 0000000000..0d850585a0
+--- /dev/null
++++ b/hw/misc/goldfish_sync.h
+@@ -0,0 +1,61 @@
++/* Copyright (C) 2016 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++
++#ifndef HW_MISC_GOLDFISH_SYNC_H
++#define HW_MISC_GOLDFISH_SYNC_H
++
++#include <stdint.h>
++
++/* A list of commands to send to the guest through the goldfish_sync device
++ * CMD_CREATE_TIMELINE: used to create a new timeline handle.
++ * CMD_CREATE_FENCE: used to create a new sync fence handle.
++ * CMD_INCREMENT_TIMELINE: used to increment a timeline's value.
++ * CMD_DESTROY_TIMELINE: used to destroy a given timeline handle.
++ * and sync thread handle. */
++typedef enum {
++    GOLDFISH_SYNC_CMD_CREATE_TIMELINE = 1,
++    GOLDFISH_SYNC_CMD_CREATE_FENCE = 2,
++    GOLDFISH_SYNC_CMD_INCREMENT_TIMELINE = 3,
++    GOLDFISH_SYNC_CMD_DESTROY_TIMELINE = 4,
++} GoldfishSyncCommand;
++
++/* A set of callbacks that must be implemented by the host-side sync service
++ * and will be called by the virtual device at runtime. */
++typedef struct {
++    /* Called when the guest sends the result of a previous command to the
++     * host. */
++    void (*receive_hostcmd_result)(uint32_t cmd,
++                                   uint64_t handle,
++                                   uint32_t time_arg,
++                                   uint64_t hostcmd_handle);
++
++    /* Called when the guest wants to trigger a host-side wait for a
++     * specific glsync and thread pointer pair */
++    void (*trigger_host_wait)(uint64_t glsync_ptr,
++                              uint64_t thread_ptr,
++                              uint64_t timeline);
++    /* Save/Load hooks for pending sync operations. */
++    void (*save)(QEMUFile* file);
++    void (*load)(QEMUFile* file);
++} GoldfishSyncServiceOps;
++
++/* Register the host-side sync service callbacks with the device. This
++ * must be called at emulation setup time before the device runs. */
++void goldfish_sync_set_service_ops(const GoldfishSyncServiceOps *ops);
++
++/* Send a command to the guest through the goldfish_sync device. */
++void goldfish_sync_send_command(uint32_t cmd,
++                                uint64_t handle,
++                                uint32_t time_arg,
++                                uint64_t hostcmd_handle);
++
++#endif  /* HW_MISC_GOLDFISH_SYNC_H */
 diff --git a/hw/misc/meson.build b/hw/misc/meson.build
-index 21034dc60a..b7e74390e6 100644
+index 21034dc60a..6c6659bac6 100644
 --- a/hw/misc/meson.build
 +++ b/hw/misc/meson.build
-@@ -20,6 +20,7 @@ softmmu_ss.add(when: 'CONFIG_PL310', if_true: files('arm_l2x0.c'))
+@@ -20,6 +20,10 @@ softmmu_ss.add(when: 'CONFIG_PL310', if_true: files('arm_l2x0.c'))
  softmmu_ss.add(when: 'CONFIG_INTEGRATOR_DEBUG', if_true: files('arm_integrator_debug.c'))
  softmmu_ss.add(when: 'CONFIG_A9SCU', if_true: files('a9scu.c'))
  softmmu_ss.add(when: 'CONFIG_ARM11SCU', if_true: files('arm11scu.c'))
 +softmmu_ss.add(when: 'CONFIG_GOLDFISH_BATTERY', if_true: files('goldfish_battery.c'))
++softmmu_ss.add(when: 'CONFIG_GOLDFISH_PSTORE', if_true: files('goldfish_pstore.c'))
++softmmu_ss.add(when: 'CONFIG_GOLDFISH_SYNC', if_true: files('goldfish_sync.c'))
++softmmu_ss.add(when: 'CONFIG_GOLDFISH_PIPE', if_true: files('goldfish_pipe.c'))
  
  # Mac devices
  softmmu_ss.add(when: 'CONFIG_MOS6522', if_true: files('mos6522.c'))
+diff --git a/hw/timer/Kconfig b/hw/timer/Kconfig
+index bac2511715..8143846d63 100644
+--- a/hw/timer/Kconfig
++++ b/hw/timer/Kconfig
+@@ -54,3 +54,6 @@ config SSE_TIMER
+ 
+ config AVR_TIMER16
+     bool
++
++config GOLDFISH_TIMER
++    bool
+diff --git a/hw/timer/goldfish_timer.c b/hw/timer/goldfish_timer.c
+new file mode 100644
+index 0000000000..0011219c40
+--- /dev/null
++++ b/hw/timer/goldfish_timer.c
+@@ -0,0 +1,224 @@
++/* Copyright (C) 2007-2008 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#include "qemu/osdep.h"
++#include "qemu-common.h"
++#include "qemu/timer.h"
++#include "cpu.h"
++#include "hw/hw.h"
++#include "hw/sysbus.h"
++#include "migration/register.h"
++#include "migration/qemu-file-types.h"
++#include "hw/irq.h"
++
++enum {
++    TIMER_TIME_LOW          = 0x00, /* get low bits of current time        */
++                                    /* and update TIMER_TIME_HIGH          */
++    TIMER_TIME_HIGH         = 0x04, /* get high bits of time at            */
++                                    /* last TIMER_TIME_LOW read            */
++    TIMER_ALARM_LOW         = 0x08, /* set low bits of alarm               */
++                                    /* and activate it                     */
++    TIMER_ALARM_HIGH        = 0x0c, /* set high bits of next alarm         */
++    TIMER_IRQ_ENABLED       = 0x10,
++    TIMER_CLEAR_ALARM       = 0x14,
++    TIMER_ALARM_STATUS      = 0x18,
++    TIMER_CLEAR_INTERRUPT   = 0x1c
++};
++
++struct rtc_state {
++    SysBusDevice parent;
++
++    MemoryRegion iomem;
++    qemu_irq irq;
++
++    uint32_t alarm_low_ns;
++    int32_t alarm_high_ns;
++    int64_t time_base;
++    int64_t now_ns;
++    char irq_enabled;
++    char armed;
++    QEMUTimer *timer;
++};
++
++#define  GOLDFISH_RTC_SAVE_VERSION  1
++
++#define TYPE_GOLDFISH_RTC "goldfish_rtc"
++#define GOLDFISH_RTC(obj) \
++        OBJECT_CHECK(struct rtc_state, (obj), TYPE_GOLDFISH_RTC)
++
++static void goldfish_rtc_save(QEMUFile *f, void *opaque)
++{
++    struct rtc_state *s = opaque;
++
++    qemu_put_be64(f, s->now_ns);
++    /* in case the kernel is in the middle of a timer read */
++    qemu_put_byte(f, s->armed);
++    if (s->armed) {
++        int64_t now_ns   = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++        int64_t alarm_ns = (s->alarm_low_ns | (int64_t)s->alarm_high_ns << 32);
++        qemu_put_be64(f, alarm_ns - now_ns);
++    }
++}
++
++static int goldfish_rtc_load(QEMUFile *f, void *opaque, int version_id)
++{
++    struct rtc_state *s = opaque;
++
++    if (version_id != GOLDFISH_RTC_SAVE_VERSION) {
++        return -1;
++    }
++
++    s->now_ns = qemu_get_be64(f);
++    s->armed  = qemu_get_byte(f);
++    if (s->armed) {
++        int64_t now_tks   = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++        int64_t diff_tks  = qemu_get_be64(f);
++        int64_t alarm_tks = now_tks + diff_tks;
++
++        if (alarm_tks <= now_tks) {
++            qemu_set_irq(s->irq, 1);
++            s->armed = 0;
++        } else {
++            qemu_set_irq(s->irq, 0);
++            timer_mod(s->timer, alarm_tks);
++        }
++    }
++    return 0;
++}
++
++static uint64_t goldfish_rtc_read(void *opaque, hwaddr offset, unsigned size)
++{
++    struct rtc_state *s = (struct rtc_state *)opaque;
++    switch (offset) {
++    case TIMER_TIME_LOW:
++        s->now_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + s->time_base;
++        return s->now_ns;
++    case TIMER_TIME_HIGH:
++        return s->now_ns >> 32;
++    case TIMER_ALARM_LOW:
++        return s->alarm_low_ns;
++    case TIMER_ALARM_HIGH:
++        return s->alarm_high_ns;
++    case TIMER_ALARM_STATUS:
++        return s->armed;
++    default:
++        cpu_abort(current_cpu,
++                  "goldfish_rtc_read: Bad offset %" HWADDR_PRIx "\n",
++                  offset);
++        return 0;
++    }
++}
++
++static void goldfish_rtc_write(void *opaque, hwaddr offset, uint64_t value,
++                               unsigned size)
++{
++    struct rtc_state *s = (struct rtc_state *)opaque;
++    int64_t alarm_ns, now_ns;
++    switch (offset) {
++    case TIMER_ALARM_LOW:
++        s->alarm_low_ns = value;
++        alarm_ns = (s->alarm_low_ns | (int64_t)s->alarm_high_ns << 32);
++        now_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + s->time_base;
++        if (alarm_ns <= now_ns) {
++            if (s->irq_enabled) {
++                qemu_set_irq(s->irq, 1);
++            }
++        } else {
++            timer_mod(s->timer, alarm_ns - s->time_base);
++            s->armed = 1;
++            s->irq_enabled = 1;
++        }
++        break;
++    case TIMER_ALARM_HIGH:
++        s->alarm_high_ns = value;
++        break;
++    case TIMER_TIME_LOW:
++        now_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++        s->time_base = (((int64_t)s->time_base << 32) | value) - now_ns;
++        break;
++    case TIMER_TIME_HIGH:
++        s->time_base = value;
++        break;
++    case TIMER_CLEAR_ALARM:
++        timer_del(s->timer);
++        s->armed = 0;
++        /* fall through */
++    case TIMER_CLEAR_INTERRUPT:
++        qemu_set_irq(s->irq, 0);
++        break;
++    case TIMER_IRQ_ENABLED:
++        s->irq_enabled = value ? 1 : 0;
++        break;
++    default:
++        cpu_abort(current_cpu,
++                  "goldfish_rtc_write: Bad offset %" HWADDR_PRIx "\n",
++                  offset);
++    }
++}
++
++static void goldfish_rtc_tick(void *opaque)
++{
++    struct rtc_state *s = (struct rtc_state *)opaque;
++    s->armed = 0;
++    if (s->irq_enabled) {
++        qemu_set_irq(s->irq, 1);
++    }
++}
++
++static const MemoryRegionOps mips_qemu_timer_ops = {
++    .read = goldfish_rtc_read,
++    .write = goldfish_rtc_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++};
++static SaveVMHandlers goldfish_rtc_vmhandlers = {
++    .save_state = goldfish_rtc_save,
++    .load_state = goldfish_rtc_load
++};
++
++static void goldfish_rtc_realize(DeviceState *dev, Error **errp)
++{
++    SysBusDevice *sbdev = SYS_BUS_DEVICE(dev);
++    struct rtc_state *s = GOLDFISH_RTC(dev);
++
++    s->timer = timer_new(QEMU_CLOCK_VIRTUAL, SCALE_NS, goldfish_rtc_tick, s);
++
++    memory_region_init_io(&s->iomem, OBJECT(s), &mips_qemu_timer_ops, s,
++            "goldfish_rtc", 0x1000);
++    sysbus_init_mmio(sbdev, &s->iomem);
++    sysbus_init_irq(sbdev, &s->irq);
++    register_savevm_live("goldfish_rtc",
++                    0,
++                    GOLDFISH_RTC_SAVE_VERSION,
++                    &goldfish_rtc_vmhandlers,
++                    s);
++}
++
++static void goldfish_rtc_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->realize = goldfish_rtc_realize;
++    dc->desc = "goldfish RTC";
++}
++
++static const TypeInfo goldfish_rtc_info = {
++    .name          = TYPE_GOLDFISH_RTC,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(struct rtc_state),
++    .class_init    = goldfish_rtc_class_init,
++};
++
++static void goldfish_rtc_register(void)
++{
++    type_register_static(&goldfish_rtc_info);
++}
++
++type_init(goldfish_rtc_register);
+diff --git a/hw/timer/meson.build b/hw/timer/meson.build
+index 598d058506..c29245072e 100644
+--- a/hw/timer/meson.build
++++ b/hw/timer/meson.build
+@@ -38,3 +38,4 @@ softmmu_ss.add(when: 'CONFIG_STM32F2XX_TIMER', if_true: files('stm32f2xx_timer.c
+ softmmu_ss.add(when: 'CONFIG_XILINX', if_true: files('xilinx_timer.c'))
+ 
+ specific_ss.add(when: 'CONFIG_AVR_TIMER16', if_true: files('avr_timer16.c'))
++specific_ss.add(when: 'CONFIG_GOLDFISH_TIMER', if_true: files('goldfish_timer.c'))
 diff --git a/include/hw/display/goldfish_fb.h b/include/hw/display/goldfish_fb.h
 new file mode 100644
 index 0000000000..93a3591620
@@ -4915,6 +7957,245 @@ index 0000000000..d0bbcc6e4b
 +#endif
 +
 +#endif
+diff --git a/include/hw/misc/android_pipe_base.h b/include/hw/misc/android_pipe_base.h
+new file mode 100644
+index 0000000000..acfa2c5fae
+--- /dev/null
++++ b/include/hw/misc/android_pipe_base.h
+@@ -0,0 +1,22 @@
++/* Copyright (C) 2020 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#ifndef _HW_ANDROID_PIPE_BASE_H
++#define _HW_ANDROID_PIPE_BASE_H
++
++// vtbl in Android pipe.
++typedef struct AndroidPipeHwFuncs {
++    void (*closeFromHost)(void* hwpipe);
++    void (*signalWake)(void* hwpipe, unsigned flags);
++    int (*getPipeId)(void* hwpipe);
++} AndroidPipeHwFuncs;
++
++#endif /* _HW_ANDROID_PIPE_BASE_H */
+diff --git a/include/hw/misc/goldfish_pipe.h b/include/hw/misc/goldfish_pipe.h
+new file mode 100644
+index 0000000000..4847388793
+--- /dev/null
++++ b/include/hw/misc/goldfish_pipe.h
+@@ -0,0 +1,166 @@
++/* Copyright (C) 2016 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#ifndef _HW_GOLDFISH_PIPE_H
++#define _HW_GOLDFISH_PIPE_H
++
++#include "qemu/typedefs.h"
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++/* The Android pipe virtual device expects an implementation of
++ * pipe services to be provided according to the following interface
++ */
++typedef struct GoldfishPipeBuffer {
++    void* data;
++    size_t size;
++} GoldfishPipeBuffer;
++
++/* List of bitflags returned by guest_poll() */
++typedef enum {
++    GOLDFISH_PIPE_POLL_IN = (1 << 0),   /* means guest can read */
++    GOLDFISH_PIPE_POLL_OUT = (1 << 1),  /* means guest can write */
++    GOLDFISH_PIPE_POLL_HUP = (1 << 2),  /* means closed by host */
++} GoldfishPipePollFlags;
++
++/* List of bitflags used to call goldfish_pipe_signal_wake() and
++ * guest_wake_on() */
++typedef enum {
++    GOLDFISH_PIPE_WAKE_CLOSED = (1 << 0),     /* emulator closed the pipe */
++    GOLDFISH_PIPE_WAKE_READ = (1 << 1),       /* pipe can now be read from */
++    GOLDFISH_PIPE_WAKE_WRITE = (1 << 2),      /* pipe can now be written to */
++    GOLDFISH_PIPE_WAKE_UNLOCK_DMA  = (1 << 3),/* unlock this pipe's DMA buffer */
++} GoldfishPipeWakeFlags;
++
++/* List of error values possibly returned by guest_recv() and
++ * guest_send(). */
++typedef enum {
++    GOLDFISH_PIPE_ERROR_INVAL = -1,
++    GOLDFISH_PIPE_ERROR_AGAIN = -2,
++    GOLDFISH_PIPE_ERROR_NOMEM = -3,
++    GOLDFISH_PIPE_ERROR_IO = -4,
++} GoldfishPipeError;
++
++/* List of reasons why pipe is closed. */
++typedef enum {
++    GOLDFISH_PIPE_CLOSE_GRACEFUL = 0,
++    GOLDFISH_PIPE_CLOSE_REBOOT = 1,
++    GOLDFISH_PIPE_CLOSE_LOAD_SNAPSHOT = 2,
++    GOLDFISH_PIPE_CLOSE_ERROR = 3,
++} GoldfishPipeCloseReason;
++
++/* Opaque type of the hardware-side view of a pipe connection. This structure
++ * is implemented by the virtual device and is hidden from the host service
++ * implementation. */
++typedef struct GoldfishHwPipe GoldfishHwPipe;
++
++/* Opaque type of the host-side view of a pipe connection. This structure is
++ * implemented by the host pipe service implementation, and is hidden from
++ * the virtual device. */
++typedef struct GoldfishHostPipe GoldfishHostPipe;
++
++typedef struct {
++    // Open a new pipe. |hw_pipe| is a unique pointer value identifying the
++    // hardware-side view of the pipe, and will be passed to the
++    // goldfish_pipe_xxx() functions below. This returns a new host-specific
++    // pipe value that is only used by the virtual device to call other
++    // callbacks here. There is a one-to-one association between a |hw_pipe|
++    // and its |host_pipe| value, which can be reset by calling
++    // goldfish_pipe_reset().
++    GoldfishHostPipe* (*guest_open)(GoldfishHwPipe *hw_pipe);
++    GoldfishHostPipe* (*guest_open_with_flags)(GoldfishHwPipe *hw_pipe, uint32_t flags);
++
++    // Close and free a pipe. |host_pipe| must be the result of a previous
++    // guest_open() or guest_load() call, or the second parameter to
++    // goldfish_pipe_reset(). |reason| is why the pipe was closed.
++    void (*guest_close)(GoldfishHostPipe *host_pipe,
++                        GoldfishPipeCloseReason reason);
++
++    // A set of hooks to prepare and cleanup save/load operations. These are
++    // called once per each snapshot operation, as opposed to the following
++    // guest_load()/guest_save().
++    void (*guest_pre_load)(QEMUFile *file);
++    void (*guest_post_load)(QEMUFile *file);
++    void (*guest_pre_save)(QEMUFile *file);
++    void (*guest_post_save)(QEMUFile *file);
++
++    // Load the state of a  pipe from a stream. |file| is the input stream,
++    // |hw_pipe| is the hardware-side pipe descriptor. On success, return a new
++    // internal pipe instance (similar to one returned by guest_open()), and
++    // sets |*force_close| to 1 to indicate that the pipe must be force-closed
++    // just after its load/creation (only useful for certain services that can't
++    // preserve state into streams). Return NULL on faillure.
++    GoldfishHostPipe* (*guest_load)(QEMUFile *file, GoldfishHwPipe *hw_pipe,
++                                    char *force_close);
++
++    // Save the state of a pipe to a stream. |host_pipe| is the pipe
++    // instance from guest_open() or guest_load(). and |file| is the
++    // output stream.
++    void (*guest_save)(GoldfishHostPipe *host_pipe, QEMUFile *file);
++
++    // Poll the state of the pipe associated with |host_pipe|.
++    // This returns a combination of GoldfishPipePollFlags.
++    GoldfishPipePollFlags (*guest_poll)(GoldfishHostPipe *host_pipe);
++
++    // Called when the guest tries to receive data from the host through
++    // |host_pipe|. This will try to copy data to the memory ranges
++    // decribed by the array |buffers| or |num_buffers| items.
++    // Return number of bytes transferred, or a (negative) GoldfishPipeError
++    // value otherwise.
++    int (*guest_recv)(GoldfishHostPipe *host_pipe,
++                      GoldfishPipeBuffer *buffers,
++                      int num_buffers);
++
++    // Called when the guest tries to send data to the host through
++    // |host_pipe|. This will try to copy data from the memory ranges
++    // decribed by the array |buffers| or |num_buffers| items.
++    // Return number of bytes transferred, or a (negative) GoldfishPipeError
++    // value otherwise.
++    int (*guest_send)(GoldfishHostPipe **host_pipe,
++                      const GoldfishPipeBuffer *buffers,
++                      int num_buffers);
++
++    // Called when the guest wants to be waked on specific events.
++    // identified by the |wake_flags| bitmask. The host should call
++    // goldfish_pipe_signal_wake() with the appropriate bitmask when
++    // any of these events occur.
++    void (*guest_wake_on)(GoldfishHostPipe *host_pipe,
++                          GoldfishPipeWakeFlags wake_flags);
++
++    // called to register a new DMA buffer that can be mapped in guest + host.
++    void (*dma_add_buffer)(void* pipe, uint64_t guest_paddr, uint64_t);
++    // called when the guest is done with a particular DMA buffer.
++    void (*dma_remove_buffer)(uint64_t guest_paddr);
++    // called when host mappings change, such
++    // as on pipe save/load during snapshots.
++    void (*dma_invalidate_host_mappings)(void);
++    // called when device reboots and we need to reset pipe state completely.
++    void (*dma_reset_host_mappings)(void);
++    // For snapshot save/load of DMA buffer state.
++    void (*dma_save_mappings)(QEMUFile* file);
++    void (*dma_load_mappings)(QEMUFile* file);
++} GoldfishPipeServiceOps;
++
++/* Called by the service implementation to register its callbacks.
++ * The default implementation doesn't do anything except returning
++ * an error when |guest_open| or |guest_load| are called. */
++extern void goldfish_pipe_set_service_ops(
++        const GoldfishPipeServiceOps* ops);
++
++/* Query the service ops struct from other places. For use with
++ * virtio. */
++extern const GoldfishPipeServiceOps* goldfish_pipe_get_service_ops(void);
++
++extern GoldfishHwPipe* goldfish_pipe_lookup_by_id(int id);
++
++#endif /* _HW_GOLDFISH_PIPE_H */
+diff --git a/include/hw/misc/goldfish_pstore.h b/include/hw/misc/goldfish_pstore.h
+new file mode 100644
+index 0000000000..c6523d72a2
+--- /dev/null
++++ b/include/hw/misc/goldfish_pstore.h
+@@ -0,0 +1,33 @@
++/* Copyright (C) 2017 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#ifndef _HW_GOLDFISH_PSTORE_H
++#define _HW_GOLDFISH_PSTORE_H
++
++#define TYPE_GOLDFISH_PSTORE     "goldfish_pstore"
++#define GOLDFISH_PSTORE_DEV_ID   "goldfish_pstore"
++#define GOLDFISH_PSTORE_MEM_BASE 0xff018000
++#define GOLDFISH_PSTORE_MEM_SIZE 0x10000
++#define GOLDFISH_PSTORE_ADDR_PROP "addr"
++#define GOLDFISH_PSTORE_SIZE_PROP "size"
++#define GOLDFISH_PSTORE_FILE_PROP "file"
++
++#ifdef _WIN32
++ #include <io.h>
++ #include <fcntl.h>
++ #define OPEN_WRITE(fname) _open((fname), _O_CREAT|_O_TRUNC|_O_RDWR|_O_BINARY);
++ #define OPEN_READ(fname) _open((fname), _O_RDONLY|_O_BINARY);
++#else
++ #define OPEN_WRITE(fname) open((fname), O_CREAT|O_SYNC|O_TRUNC|O_WRONLY, S_IRUSR|S_IWUSR)
++ #define OPEN_READ(fname) open((fname), O_RDONLY);
++#endif
++#endif /* _HW_GOLDFISH_PSTORE_H */
++
 diff --git a/include/sysemu/ranchu.h b/include/sysemu/ranchu.h
 new file mode 100644
 index 0000000000..49c7c807b1
