@@ -18,10 +18,14 @@ static uint64_t jump_lock;
 
 static int compfunc(const void *v1, const void *v2)
 {
-	uint64_t val1 = (uint64_t)*(uint64_t *)v1;
-	uint64_t val2 = (uint64_t)*(uint64_t *)v2;
+	uint64_t val1 = *(uint64_t *)v1;
+	uint64_t val2 = *(uint64_t *)v2;
 
-	return (val1 - val2);
+	if (val1 < val2)
+		return -1;
+	if (val1 > val2)
+		return 1;
+	return 0;
 }
 
 int is_jump_valid(uint64_t addr)
@@ -29,7 +33,7 @@ int is_jump_valid(uint64_t addr)
 	uint64_t key = addr;
 	void *res;
 
-	res = bsearch((void *)&key, kvm_jump_vector, jump_count,
+	res = bsearch(&key, kvm_jump_vector, jump_count,
 		      sizeof(uint64_t), compfunc);
 	if (res)
 		return 1;
@@ -39,7 +43,7 @@ int is_jump_valid(uint64_t addr)
 
 int add_jump(uint64_t addr)
 {
-	if (jump_count > MAX_KVM_JUMPS)
+	if (jump_count >= MAX_KVM_JUMPS)
 		return -ENOSPC;
 
 	spin_lock(&jump_lock);

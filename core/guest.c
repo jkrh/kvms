@@ -501,10 +501,14 @@ int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count)
 
 static int compfunc(const void *v1, const void *v2)
 {
-	kvm_page_data *val1 = (kvm_page_data *)v1;
-	kvm_page_data *val2 = (kvm_page_data *)v2;
+	const kvm_page_data *val1 = v1;
+	const kvm_page_data *val2 = v2;
 
-	return (val1->phys_addr - val2->phys_addr);
+	if (val1->phys_addr < val2->phys_addr)
+		return -1;
+	if (val1->phys_addr > val2->phys_addr)
+		return 1;
+	return 0;
 }
 
 kvm_page_data *get_range_info(kvm_guest_t *guest, uint64_t ipa)
