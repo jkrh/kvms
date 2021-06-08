@@ -47,6 +47,16 @@ guest from the host memory) models implemented in the code:
    - The memory being mapped back is dedicated guest device memory (not RAM).
    - We are still in the middle of the quest kernel initialization phase.
 
+There is an option to extend the model to take the host entirely out of the
+TCB but this work is yet to be done. This involves adding an image signature
+check callback to the QEMU bootloader. After the QEMU has loaded (as in
+placed them in the memory for real) the relevant images that are about to be
+invoked, the hypervisor has to be invoked to verify them. Also note that the
+emulated hardware provided by the QEMU running inside the host have to be
+considered not be part of the TCB; in other words, the kernel will have all
+new attack vector as all host provided virtual devices can attempt to attack
+the guest.
+
 QEMU host emulation based development environment is provided in the source
 tree and it operates on top of the 'virt' machine. The host kernel and the
 hypervisor can be stepped through via a relatively comfortable environment.
@@ -77,6 +87,14 @@ Building and running on QEMU:
 - Work with the kernel under oss/linux, hyp
 
 
+Emulated hardware:
+------------------
+- QEMU 'virt' (the default)
+- A custom variant of ARMv8 'ranchu' board for Android emulation (this is work
+  in progress). Once ready it should be possible to run the stock AOSP build
+  via the default configuration as a guest inside the Linux or Android host.
+
+
 Testing on the virt platform:
 -------------------------------------
 - usage:
@@ -100,3 +118,5 @@ SHORT TERM TODO
    to be stage2 mapped
 6) Fuzz the guest input devices in order to prevent the easiest attacks for
    the malicious host.
+7) Android hardware support
+8) QEMU migration support bugfix (savevm causes a segfault)
