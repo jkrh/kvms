@@ -1,4 +1,4 @@
-From 62d17c08cc7bdb9fad831e56d467a193ee26be0a Mon Sep 17 00:00:00 2001
+From e94b356cc2b4803a87a2ed353ebd74da99acb1d8 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 26 May 2021 15:49:22 +0300
 Subject: [PATCH] target/ranchu: add support for android 'ranchu' board
@@ -11,27 +11,27 @@ to modern QEMU (6.0+). The code is work in progress.
 
 Status:
 - board declaration ok
-- moved to gicv3 (for hw, ok)
-- framebuffer ported
-- battery ported
-- audio ported
-- events ported
-- pic ported
-- pstore ported
-- sync ported
-- pipe ported
-- timer ported
+- added gicv3 support and it's now mandatory
+- added pci support
+- goldfish framebuffer ported
+- goldfish battery ported
+- goldfish audio ported
+- goldfish events ported
+- goldfish pic ported
+- goldfish pstore ported
+- goldfish sync ported
+- goldfish pipe ported
+- goldfish timer ported
 
-Android qemu has hacked qemu mainloop pretty badly, that needs to
-be investigated separately how much of that is actually needed.
-None of that is yet included here.
+Machine seems to boot up successfully but the code has some
+rough pieces from the porting effort.
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
  default-configs/devices/arm-softmmu.mak   |    1 +
  hw/arm/Kconfig                            |   41 +
  hw/arm/meson.build                        |    1 +
- hw/arm/ranchu.c                           |  730 ++++++++
+ hw/arm/ranchu.c                           |  878 ++++++++++
  hw/audio/Kconfig                          |    3 +
  hw/audio/goldfish_audio.c                 |  508 ++++++
  hw/audio/meson.build                      |    1 +
@@ -64,7 +64,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  include/hw/misc/goldfish_pipe.h           |  166 ++
  include/hw/misc/goldfish_pstore.h         |   33 +
  include/sysemu/ranchu.h                   |   41 +
- 36 files changed, 7972 insertions(+)
+ 36 files changed, 8120 insertions(+)
  create mode 100644 hw/arm/ranchu.c
  create mode 100644 hw/audio/goldfish_audio.c
  create mode 100644 hw/display/goldfish_fb.c
@@ -167,10 +167,10 @@ index be39117b9b..50346c2d07 100644
  arm_ss.add(when: 'CONFIG_EXYNOS4', if_true: files('exynos4_boards.c'))
 diff --git a/hw/arm/ranchu.c b/hw/arm/ranchu.c
 new file mode 100644
-index 0000000000..c44bb6b6f7
+index 0000000000..4955a99a4b
 --- /dev/null
 +++ b/hw/arm/ranchu.c
-@@ -0,0 +1,730 @@
+@@ -0,0 +1,878 @@
 +/*
 + * ARM Android emulator 'ranchu' board.
 + *
@@ -209,6 +209,8 @@ index 0000000000..c44bb6b6f7
 +#include "sysemu/kvm.h"
 +#include "hw/boards.h"
 +#include "hw/intc/arm_gicv3_common.h"
++#include "hw/pci/pci.h"
++#include "hw/pci-host/gpex.h"
 +#include "exec/address-spaces.h"
 +#include "qemu/bitops.h"
 +#include "qemu/error-report.h"
@@ -251,6 +253,10 @@ index 0000000000..c44bb6b6f7
 +    RANCHU_GOLDFISH_EVDEV,
 +    RANCHU_GOLDFISH_PIPE,
 +    RANCHU_GOLDFISH_SYNC,
++    RANCHU_PCIE,
++    RANCHU_PCIE_MMIO,
++    RANCHU_PCIE_PIO,
++    RANCHU_PCIE_ECAM,
 +    RANCHU_MMIO,
 +};
 +
@@ -269,6 +275,8 @@ index 0000000000..c44bb6b6f7
 +    bool secure;
 +    DeviceState *gic;
 +    MachineState *ms;
++    PCIBus *bus;
++    char *pciehb_nodename;
 +} VirtBoardInfo;
 +
 +/* Addresses and sizes of our components.
@@ -306,8 +314,10 @@ index 0000000000..c44bb6b6f7
 +    [RANCHU_MMIO] = { 0xa000000, 0x200 },
 +    [RANCHU_GOLDFISH_PIPE] = {0xa010000, 0x2000 },
 +    [RANCHU_GOLDFISH_SYNC] = {0xa020000, 0x2000 },
-+    /* ...repeating for a total of NUM_VIRTIO_TRANSPORTS, each of that size */
-+    /* 0x10000000 .. 0x40000000 reserved for PCI */
++    [RANCHU_PCIE_MMIO] =          { 0x10000000, 0x2eff0000 },
++    [RANCHU_PCIE_PIO] =           { 0x3eff0000, 0x00010000 },
++    [RANCHU_PCIE_ECAM] =          { 0x3f000000, 0x01000000 },
++
 +    [RANCHU_MEM] = { 0x40000000, 30ULL * 1024 * 1024 * 1024 },
 +};
 +
@@ -319,6 +329,7 @@ index 0000000000..c44bb6b6f7
 +    [RANCHU_GOLDFISH_EVDEV] = 5,
 +    [RANCHU_GOLDFISH_PIPE] = 6,
 +    [RANCHU_GOLDFISH_SYNC] = 7,
++    [RANCHU_PCIE] = 8,
 +    [RANCHU_MMIO] = 16, /* ...to 16 + NUM_VIRTIO_TRANSPORTS - 1 */
 +};
 +
@@ -326,6 +337,140 @@ index 0000000000..c44bb6b6f7
 +void qemu_device_tree_setup_callback(QemuDeviceTreeSetupFunc setup_func)
 +{
 +    device_tree_setup_func = setup_func;
++}
++
++static void create_pcie_irq_map(const MachineState *ms,
++                                uint32_t gic_phandle,
++                                int first_irq, const char *nodename)
++{
++    int devfn, pin;
++    uint32_t full_irq_map[4 * 4 * 10] = { 0 };
++    uint32_t *irq_map = full_irq_map;
++
++    for (devfn = 0; devfn <= 0x18; devfn += 0x8) {
++        for (pin = 0; pin < 4; pin++) {
++            int irq_type = GIC_FDT_IRQ_TYPE_SPI;
++            int irq_nr = first_irq + ((pin + PCI_SLOT(devfn)) % PCI_NUM_PINS);
++            int irq_level = GIC_FDT_IRQ_FLAGS_LEVEL_HI;
++            int i;
++
++            uint32_t map[] = {
++                devfn << 8, 0, 0,                           /* devfn */
++                pin + 1,                                    /* PCI pin */
++                gic_phandle, 0, 0, irq_type, irq_nr, irq_level }; /* GIC irq */
++
++            /* Convert map to big endian */
++            for (i = 0; i < 10; i++) {
++                irq_map[i] = cpu_to_be32(map[i]);
++            }
++            irq_map += 10;
++        }
++    }
++
++    qemu_fdt_setprop(ms->fdt, nodename, "interrupt-map",
++                     full_irq_map, sizeof(full_irq_map));
++
++    qemu_fdt_setprop_cells(ms->fdt, nodename, "interrupt-map-mask",
++                           cpu_to_be16(PCI_DEVFN(3, 0)), /* Slot 3 */
++                           0, 0,
++                           0x7           /* PCI irq */);
++}
++
++static void create_pcie(VirtBoardInfo *vbi)
++{
++    hwaddr base_mmio = vbi->memmap[RANCHU_PCIE_MMIO].base;
++    hwaddr size_mmio = vbi->memmap[RANCHU_PCIE_MMIO].size;
++    hwaddr base_pio = vbi->memmap[RANCHU_PCIE_PIO].base;
++    hwaddr size_pio = vbi->memmap[RANCHU_PCIE_PIO].size;
++    hwaddr base_ecam, size_ecam;
++    hwaddr base = base_mmio;
++    int nr_pcie_buses;
++    int irq = vbi->irqmap[RANCHU_PCIE];
++    MemoryRegion *mmio_alias;
++    MemoryRegion *mmio_reg;
++    MemoryRegion *ecam_alias;
++    MemoryRegion *ecam_reg;
++    DeviceState *dev;
++    char *nodename;
++    int i, ecam_id = 0;
++    PCIHostState *pci;
++    MachineState *ms = vbi->ms;
++
++    dev = qdev_new(TYPE_GPEX_HOST);
++    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
++
++    base_ecam = vbi->memmap[ecam_id].base;
++    size_ecam = vbi->memmap[ecam_id].size;
++    nr_pcie_buses = size_ecam / PCIE_MMCFG_SIZE_MIN;
++    /* Map only the first size_ecam bytes of ECAM space */
++    ecam_alias = g_new0(MemoryRegion, 1);
++    ecam_reg = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 0);
++    memory_region_init_alias(ecam_alias, OBJECT(dev), "pcie-ecam",
++                             ecam_reg, 0, size_ecam);
++    memory_region_add_subregion(get_system_memory(), base_ecam, ecam_alias);
++
++    /* Map the MMIO window into system address space so as to expose
++     * the section of PCI MMIO space which starts at the same base address
++     * (ie 1:1 mapping for that part of PCI MMIO space visible through
++     * the window).
++     */
++    mmio_alias = g_new0(MemoryRegion, 1);
++    mmio_reg = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 1);
++    memory_region_init_alias(mmio_alias, OBJECT(dev), "pcie-mmio",
++                             mmio_reg, base_mmio, size_mmio);
++    memory_region_add_subregion(get_system_memory(), base_mmio, mmio_alias);
++
++    /* Map IO port space */
++    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 2, base_pio);
++
++    for (i = 0; i < GPEX_NUM_IRQS; i++) {
++        sysbus_connect_irq(SYS_BUS_DEVICE(dev), i,
++                           qdev_get_gpio_in(vbi->gic, irq + i));
++        gpex_set_irq_num(GPEX_HOST(dev), i, irq + i);
++    }
++
++    pci = PCI_HOST_BRIDGE(dev);
++    vbi->bus = pci->bus;
++    if (vbi->bus) {
++        for (i = 0; i < nb_nics; i++) {
++            NICInfo *nd = &nd_table[i];
++
++            if (!nd->model) {
++                nd->model = g_strdup("virtio");
++            }
++
++            pci_nic_init_nofail(nd, pci->bus, nd->model, NULL);
++        }
++    }
++
++    nodename = vbi->pciehb_nodename = g_strdup_printf("/pcie@%" PRIx64, base);
++    qemu_fdt_add_subnode(ms->fdt, nodename);
++    qemu_fdt_setprop_string(ms->fdt, nodename,
++                            "compatible", "pci-host-ecam-generic");
++    qemu_fdt_setprop_string(ms->fdt, nodename, "device_type", "pci");
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "#address-cells", 3);
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "#size-cells", 2);
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "linux,pci-domain", 0);
++    qemu_fdt_setprop_cells(ms->fdt, nodename, "bus-range", 0,
++                           nr_pcie_buses - 1);
++    qemu_fdt_setprop(ms->fdt, nodename, "dma-coherent", NULL, 0);
++
++    if (vbi->msi_phandle) {
++        qemu_fdt_setprop_cells(ms->fdt, nodename, "msi-parent",
++                               vbi->msi_phandle);
++    }
++
++    qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "reg",
++                                 2, base_ecam, 2, size_ecam);
++
++    qemu_fdt_setprop_sized_cells(ms->fdt, nodename, "ranges",
++                                 1, FDT_PCI_RANGE_IOPORT, 2, 0,
++                                 2, base_pio, 2, size_pio,
++                                 1, FDT_PCI_RANGE_MMIO, 2, base_mmio,
++                                 2, base_mmio, 2, size_mmio);
++
++    qemu_fdt_setprop_cell(ms->fdt, nodename, "#interrupt-cells", 1);
++    create_pcie_irq_map(ms, vbi->gic_phandle, irq, nodename);
 +}
 +
 +static void create_fdt(VirtBoardInfo *vbi)
@@ -819,6 +964,7 @@ index 0000000000..c44bb6b6f7
 +
 +    vbi->ms = machine;
 +    vbi->memmap = memmap;
++    vbi->irqmap = irqmap;
 +    create_fdt(vbi);
 +    fdt_add_timer_nodes(vbi);
 +
@@ -852,6 +998,8 @@ index 0000000000..c44bb6b6f7
 +    memory_region_add_subregion(sysmem, memmap[RANCHU_MEM].base, ram);
 +
 +    create_gic(vbi, pic);
++    create_pcie(vbi);
++
 +    create_serial_device(0, vbi, pic, RANCHU_UART, "pl011",
 +                         "arm,pl011\0arm,primecell", 2, "uartclk\0apb_pclk", 2);
 +    create_simple_device(vbi, pic, RANCHU_GOLDFISH_FB, "goldfish_fb",
