@@ -1,4 +1,4 @@
-From da40b2a455065a39c8afa4b0ec1965f190abbd41 Mon Sep 17 00:00:00 2001
+From 62d17c08cc7bdb9fad831e56d467a193ee26be0a Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 26 May 2021 15:49:22 +0300
 Subject: [PATCH] target/ranchu: add support for android 'ranchu' board
@@ -31,7 +31,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  default-configs/devices/arm-softmmu.mak   |    1 +
  hw/arm/Kconfig                            |   41 +
  hw/arm/meson.build                        |    1 +
- hw/arm/ranchu.c                           |  729 ++++++++
+ hw/arm/ranchu.c                           |  730 ++++++++
  hw/audio/Kconfig                          |    3 +
  hw/audio/goldfish_audio.c                 |  508 ++++++
  hw/audio/meson.build                      |    1 +
@@ -39,7 +39,8 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  hw/display/goldfish_fb.c                  |  549 ++++++
  hw/display/meson.build                    |    1 +
  hw/input/Kconfig                          |    3 +
- hw/input/goldfish_events.c                |  954 ++++++++++
+ hw/input/goldfish_events.c                |  955 ++++++++++
+ hw/input/goldfish_events.h                |   69 +
  hw/input/goldfish_events_common.c         |  293 ++++
  hw/input/goldfish_events_common.h         |  259 +++
  hw/input/goldfish_rotary.c                |  131 ++
@@ -63,11 +64,12 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  include/hw/misc/goldfish_pipe.h           |  166 ++
  include/hw/misc/goldfish_pstore.h         |   33 +
  include/sysemu/ranchu.h                   |   41 +
- 35 files changed, 7901 insertions(+)
+ 36 files changed, 7972 insertions(+)
  create mode 100644 hw/arm/ranchu.c
  create mode 100644 hw/audio/goldfish_audio.c
  create mode 100644 hw/display/goldfish_fb.c
  create mode 100644 hw/input/goldfish_events.c
+ create mode 100644 hw/input/goldfish_events.h
  create mode 100644 hw/input/goldfish_events_common.c
  create mode 100644 hw/input/goldfish_events_common.h
  create mode 100644 hw/input/goldfish_rotary.c
@@ -165,10 +167,10 @@ index be39117b9b..50346c2d07 100644
  arm_ss.add(when: 'CONFIG_EXYNOS4', if_true: files('exynos4_boards.c'))
 diff --git a/hw/arm/ranchu.c b/hw/arm/ranchu.c
 new file mode 100644
-index 0000000000..39499f5964
+index 0000000000..c44bb6b6f7
 --- /dev/null
 +++ b/hw/arm/ranchu.c
-@@ -0,0 +1,729 @@
+@@ -0,0 +1,730 @@
 +/*
 + * ARM Android emulator 'ranchu' board.
 + *
@@ -667,6 +669,7 @@ index 0000000000..39499f5964
 +    int clocks_sz = 0;
 +
 +    SysBusDevice *s = SYS_BUS_DEVICE(dev);
++    sysbus_realize_and_unref(s, &error_fatal);
 +    sysbus_mmio_map(s, 0, base);
 +    if (pic[irq]) {
 +        sysbus_connect_irq(s, 0, pic[irq]);
@@ -2026,10 +2029,10 @@ index 55865bb386..f179a081d8 100644
 +    bool
 diff --git a/hw/input/goldfish_events.c b/hw/input/goldfish_events.c
 new file mode 100644
-index 0000000000..e7ff47c77b
+index 0000000000..429e8764e0
 --- /dev/null
 +++ b/hw/input/goldfish_events.c
-@@ -0,0 +1,954 @@
+@@ -0,0 +1,955 @@
 +/*
 + * Goldfish 'events' device model
 + *
@@ -2053,8 +2056,9 @@ index 0000000000..e7ff47c77b
 +#include "hw/input/android_keycodes.h"
 +#include "hw/input/linux_keycodes.h"
 +#include "hw/input/goldfish_events_common.h"
-+
 +#include "hw/input/goldfish_events.h"
++#include "hw/qdev-properties.h"
++#include "migration/vmstate.h"
 +
 +typedef struct {
 +    const char *name;
@@ -2966,7 +2970,7 @@ index 0000000000..e7ff47c77b
 +
 +    dc->realize = goldfish_evdev_realize;
 +    dc->reset = goldfish_evdev_reset;
-+    dc->props = goldfish_evdev_props;
++    device_class_set_props(dc, goldfish_evdev_props);
 +    dc->vmsd = &vmstate_goldfish_evdev;
 +}
 +
@@ -2984,6 +2988,81 @@ index 0000000000..e7ff47c77b
 +}
 +
 +type_init(goldfish_evdev_register_types)
+diff --git a/hw/input/goldfish_events.h b/hw/input/goldfish_events.h
+new file mode 100644
+index 0000000000..30af26049e
+--- /dev/null
++++ b/hw/input/goldfish_events.h
+@@ -0,0 +1,69 @@
++/* Copyright (C) 2007-2013 The Android Open Source Project
++**
++** This software is licensed under the terms of the GNU General Public
++** License version 2, as published by the Free Software Foundation, and
++** may be copied, distributed, and modified under those terms.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++** GNU General Public License for more details.
++*/
++#ifndef _HW_GOLDFISH_EVENT_H
++#define _HW_GOLDFISH_EVENT_H
++
++
++// Multi-touch support is implemented by an external component that interfaces
++// with the goldfish events device through a simple interface. Please read the
++// following to understand it:
++//
++//   https://www.kernel.org/doc/Documentation/input/multi-touch-protocol.txt
++//
++// When multi-touch is enabled, goldfish_event_enable_multitouch() must be
++// called, passing the address of a GoldfishEventMultitouchFuncs structure.
++//
++// This will have the following effects:
++//
++// 1/ When the events device is being setup, it will call get_max_slots(), to
++//    retrieve the maximum number of ABS_MTS_SLOTS to report to the kernel,
++//
++// 2/ Mouse / trackball events are sent from the UI directly to the events
++//    device, but must be converted into multi-touch events by the component.
++//    To do so, the device will call translate_mouse_event(), which may
++//    trigger the component to perform one or more calls to
++//    goldfish_event_send().
++//
++
++typedef struct {
++    // Retrieve the maximum ABS_MTS_SLOT value to report to the
++    // kernel. This is called once when the device is setup.
++    int (*get_max_slot)(void);
++
++    // Called by the device whenever a mouse or trackball event occurs.
++    // The implementation will translate this into appropriate MT events
++    // and call |event_func| registered above to do that.
++    // |x| and |y| are the absolute mouse position, and |button_state|
++    // contains two flags: bit0 indicates whether this is a press (1) or
++    // release (0), and bit1 indicates if this is the primary (0) or
++    // secondary (1) button.
++    void (*translate_mouse_event)(int dx,
++                                  int dy,
++                                  int button_state);
++} GoldfishEventMultitouchFuncs;
++
++// Enable multi-touch support in the event device. If this is not called,
++// or if |funcs| is NULL, the device will not report multi-touch capabilities
++// to the kernel, and will never translate mouse events into multi-touch ones.
++extern void goldfish_events_enable_multitouch(
++        const GoldfishEventMultitouchFuncs* funcs);
++
++extern int goldfish_get_event_type_count(void);
++extern int goldfish_get_event_type_name(int type, char *buf);
++extern int goldfish_get_event_type_value(char *codename);
++extern int goldfish_get_event_code_count(const char *typename);
++extern int goldfish_get_event_code_name(const char *typename, unsigned int code,
++                                  char *buf);
++extern int goldfish_get_event_code_value(int typeval, char *codename);
++extern int goldfish_event_send(int type, int code, int value);
++
++#endif
 diff --git a/hw/input/goldfish_events_common.c b/hw/input/goldfish_events_common.c
 new file mode 100644
 index 0000000000..ce37b630c0
@@ -3686,14 +3765,14 @@ index 0000000000..070da45635
 +
 +type_init(rotary_evdev_register_types)
 diff --git a/hw/input/meson.build b/hw/input/meson.build
-index 0042c3f0dc..ec53197608 100644
+index 0042c3f0dc..aab02bfd75 100644
 --- a/hw/input/meson.build
 +++ b/hw/input/meson.build
 @@ -17,3 +17,4 @@ softmmu_ss.add(when: 'CONFIG_MILKYMIST', if_true: files('milkymist-softusb.c'))
  softmmu_ss.add(when: 'CONFIG_PXA2XX', if_true: files('pxa2xx_keypad.c'))
  softmmu_ss.add(when: 'CONFIG_TSC210X', if_true: files('tsc210x.c'))
  softmmu_ss.add(when: 'CONFIG_LASIPS2', if_true: files('lasips2.c'))
-+softmmu_ss.add(when: 'CONFIG_GOLDFISH_EVENTS', if_true: files('goldfish_events_common.c', 'goldfish_rotary.c'))
++softmmu_ss.add(when: 'CONFIG_GOLDFISH_EVENTS', if_true: files('goldfish_events.c', 'goldfish_events_common.c', 'goldfish_rotary.c'))
 diff --git a/hw/misc/Kconfig b/hw/misc/Kconfig
 index c71ed25820..4bde37cc78 100644
 --- a/hw/misc/Kconfig
