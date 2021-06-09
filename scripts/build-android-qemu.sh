@@ -78,7 +78,9 @@ PKGLIST=`cat $BASE_DIR/scripts/package.list`
 
 cleanup()
 {
-	sudo umount $BASE_DIR/oss/ubuntu/build/qemu || true
+	[ -z "$ANDROID_EMU" ] && sudo umount $BASE_DIR/oss/ubuntu/build/qemu || true
+	sudo umount $CHROOTDIR/proc
+	sudo umount $CHROOTDIR/dev
 }
 trap cleanup SIGHUP SIGINT SIGTERM EXIT
 
@@ -86,6 +88,7 @@ do_clean()
 {
 	sudo rm -rf $BASE_DIR/oss/ubuntu
 	cd $BASE_DIR/oss/qemu; sudo git clean -xfd || true
+	sudo rm -rf $BASE_DIR/oss/emu
 }
 
 do_patch()
@@ -102,14 +105,20 @@ do_patch()
 
 do_sysroot()
 {
-	mkdir -p $BASE_DIR/oss/ubuntu/build
-	cd $BASE_DIR/oss/ubuntu
-	wget -c http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.1-base-arm64.tar.gz
-	tar xf ubuntu-base-20.04.1-base-arm64.tar.gz
-	echo "nameserver 8.8.8.8" > etc/resolv.conf
-	cp $QEMU_USER usr/bin
-	sudo chmod a+rwx tmp
-	sudo mknod $CHROOTDIR/dev/urandom  c 1 9
+	if [ -d $BASE_DIR/oss/ubuntu/build ]
+	then
+	    echo "Sysroot $BASE_DIR/oss/ubuntu already created ... update"
+	else
+		mkdir -p $BASE_DIR/oss/ubuntu/build
+		cd $BASE_DIR/oss/ubuntu
+		wget -c http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.1-base-arm64.tar.gz
+		tar xf ubuntu-base-20.04.1-base-arm64.tar.gz
+		echo "nameserver 8.8.8.8" > etc/resolv.conf
+		cp $QEMU_USER usr/bin
+		sudo chmod a+rwx tmp
+	fi
+	sudo mount --bind /dev $CHROOTDIR/dev
+	sudo mount -t proc none $CHROOTDIR/proc
 	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get update
 	DEBIAN_FRONTEND=noninteractive sudo -E chroot $CHROOTDIR apt-get -y install $PKGLIST
 }
@@ -145,11 +154,37 @@ do_hybris()
 	sudo -E chroot $CHROOTDIR sh -c "cd /build/libhybris/hybris; ./configure --prefix=/usr --enable-arch=arm64 --enable-adreno-quirks --enable-mesa --enable-ubuntu-linker-overrides --enable-property-cache --with-android-headers=/usr/local/android/headers; make -j$NJOBS; make install"
 }
 
-do_clean
+do_android_emulator()
+{
+	if [ ! -f ~/bin/repo ]
+	then
+	    echo "No repo installed at ~/bin - exit"
+		exit
+	fi
+	PATH=~/bin:$PATH
+	if [ -d "$BASE_DIR/oss/emu/external/qemu" ]
+	then
+	    echo "$BASE_DIR/oss/emu repo already in place"
+	else
+		rm -rf $BASE_DIR/oss/emu
+		mkdir $BASE_DIR/oss/emu
+		cd $BASE_DIR/oss/emu
+		repo init -u https://android.googlesource.com/platform/manifest -b emu-master-dev --depth=1
+		repo sync -qcj 12
+	fi
+	cd $BASE_DIR/oss/emu
+	cd $BASE_DIR/oss/emu/external/qemu
+	[ ! -f /lib/ld-linux-aarch64.so.1 ] && sudo ln -s $CHROOTDIR/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 /lib/ld-linux-aarch64.so.1
+	export LD_LIBRARY_PATH=$CHROOTDIR/usr/lib/aarch64-linux-gnu/
+	python android/build/python/cmake.py --noqtwebengine --noshowprefixforinfo --target linux_aarch64
+}
+
+[ -n "$CLEAN" ] && do_clean
 do_sysroot
-do_patch
-do_spice
-do_qemu
+[ -z "$ANDROID_EMU" ] && do_patch
+[ -z "$ANDROID_EMU" ] && do_spice
+do_android_emulator
+[ -z "$ANDROID_EMU" ] && do_qemu
 [ -n "$HYBRIS" ] && do_hybris
 
 echo "All ok!"
