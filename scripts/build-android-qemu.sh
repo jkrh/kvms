@@ -75,6 +75,7 @@ export CHROOTDIR=$BASE_DIR/oss/ubuntu
 
 NJOBS=`nproc`
 PKGLIST=`cat $BASE_DIR/scripts/package.list`
+REPO=`which repo`
 
 cleanup()
 {
@@ -105,10 +106,7 @@ do_patch()
 
 do_sysroot()
 {
-	if [ -d $BASE_DIR/oss/ubuntu/build ]
-	then
-	    echo "Sysroot $BASE_DIR/oss/ubuntu already created ... update"
-	else
+	if [ ! -d $BASE_DIR/oss/ubuntu/build ]; then
 		mkdir -p $BASE_DIR/oss/ubuntu/build
 		cd $BASE_DIR/oss/ubuntu
 		wget -c http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.1-base-arm64.tar.gz
@@ -146,7 +144,7 @@ do_qemu()
 do_hybris()
 {
 	cd $BASE_DIR/oss/ubuntu/build
-	rm -rf libhybris
+	sudo rm -rf libhybris
 	git clone https://github.com/libhybris/libhybris.git
 	cd libhybris; patch -p1 < $BASE_DIR/scripts/hybris.patch
 	tar xf $BASE_DIR/scripts/android-headers.tar.bz2 -C $BASE_DIR/oss/ubuntu/usr/local
@@ -156,21 +154,16 @@ do_hybris()
 
 do_android_emulator()
 {
-	if [ ! -f ~/bin/repo ]
-	then
-	    echo "No repo installed at ~/bin - exit"
-		exit
+	if [ -z "$REPO"  ]; then
+		curl https://storage.googleapis.com/git-repo-downloads/repo > $BASE_DIR/buildtools/usr/bin
+		chmod a+rwx $BASE_DIR/buildtools/usr/bin/repo
 	fi
-	PATH=~/bin:$PATH
-	if [ -d "$BASE_DIR/oss/emu/external/qemu" ]
-	then
-	    echo "$BASE_DIR/oss/emu repo already in place"
-	else
+	if [ ! -d "$BASE_DIR/oss/emu/external/qemu" ]; then
 		rm -rf $BASE_DIR/oss/emu
 		mkdir $BASE_DIR/oss/emu
 		cd $BASE_DIR/oss/emu
 		repo init -u https://android.googlesource.com/platform/manifest -b emu-master-dev --depth=1
-		repo sync -qcj 12
+		repo sync -c --no-tags -j4
 	fi
 	cd $BASE_DIR/oss/emu
 	cd $BASE_DIR/oss/emu/external/qemu
@@ -181,10 +174,10 @@ do_android_emulator()
 
 [ -n "$CLEAN" ] && do_clean
 do_sysroot
-[ -z "$ANDROID_EMU" ] && do_patch
-[ -z "$ANDROID_EMU" ] && do_spice
+do_patch
+do_spice
 do_android_emulator
-[ -z "$ANDROID_EMU" ] && do_qemu
+do_qemu
 [ -n "$HYBRIS" ] && do_hybris
 
 echo "All ok!"
