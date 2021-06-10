@@ -51,8 +51,6 @@ echo "VIRGL enabled"
 VIRGL="--enable-virglrenderer"
 fi
 
-set -e
-
 #
 # Note: cross-compilation is also possible, these can be passed through.
 #
@@ -77,16 +75,19 @@ NJOBS=`nproc`
 PKGLIST=`cat $BASE_DIR/scripts/package.list`
 REPO=`which repo`
 
+set -e
+
 cleanup()
 {
-	[ -z "$ANDROID_EMU" ] && sudo umount $BASE_DIR/oss/ubuntu/build/qemu || true
-	sudo umount $CHROOTDIR/proc
-	sudo umount $CHROOTDIR/dev
+	sudo umount $BASE_DIR/oss/ubuntu/build/qemu || true
+	sudo umount $CHROOTDIR/proc || true
+	sudo umount $CHROOTDIR/dev || true
 }
 trap cleanup SIGHUP SIGINT SIGTERM EXIT
 
 do_clean()
 {
+	cleanup
 	sudo rm -rf $BASE_DIR/oss/ubuntu
 	cd $BASE_DIR/oss/qemu; sudo git clean -xfd || true
 	sudo rm -rf $BASE_DIR/oss/emu
@@ -155,7 +156,7 @@ do_hybris()
 do_android_emulator()
 {
 	if [ -z "$REPO"  ]; then
-		curl https://storage.googleapis.com/git-repo-downloads/repo > $BASE_DIR/buildtools/usr/bin
+		curl https://storage.googleapis.com/git-repo-downloads/repo > $BASE_DIR/buildtools/usr/bin/repo
 		chmod a+rwx $BASE_DIR/buildtools/usr/bin/repo
 	fi
 	if [ ! -d "$BASE_DIR/oss/emu/external/qemu" ]; then

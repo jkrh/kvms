@@ -20,10 +20,6 @@ RUN usermod -aG sudo $username
 
 RUN echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-RUN mkdir /home/$username/bin
-RUN curl https://storage.googleapis.com/git-repo-downloads/repo > /home/$username/bin/repo
-RUN chmod a+x /home/$username/bin/repo
-
 COPY gitconfig /home/$username/.gitconfig
 RUN chown $userid:$groupid /home/$username/.gitconfig
 ENV HOME=/home/$username
