@@ -170,7 +170,9 @@ do_android_emulator()
 	cd $BASE_DIR/oss/emu/external/qemu
 	[ ! -f /lib/ld-linux-aarch64.so.1 ] && sudo ln -s $CHROOTDIR/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 /lib/ld-linux-aarch64.so.1
 	export LD_LIBRARY_PATH=$CHROOTDIR/usr/lib/aarch64-linux-gnu/
-	python android/build/python/cmake.py --noqtwebengine --noshowprefixforinfo --target linux_aarch64
+	EMUCONFIG="--config release"
+	[ -n "$DEBUG" ] && EMUCONFIG="--config debug"
+	python android/build/python/cmake.py $EMUCONFIG --noqtwebengine --noshowprefixforinfo --target linux_aarch64
 }
 
 [ -n "$CLEAN" ] && do_clean
