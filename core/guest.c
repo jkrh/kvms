@@ -337,15 +337,20 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 		 * intact.
 		 */
 		if (measure) {
-			/*
-			 * This is a mmu notifier chain call and the blob may
-			 * get swapped out or freed. Take a measurement to
-			 * make sure it does not change while out.
-			 */
-			res = add_range_info(guest, vaddr, paddr, PAGE_SIZE);
-			if (res)
-				ERROR("add_range_info(): guest %d %lld:%d\n",
-				      guest->vmid, vaddr, res);
+			if (guest->state == guest_running) {
+				/*
+				 * This is a mmu notifier chain call and the
+				 * blob may get swapped out or freed. Take a
+				 * measurement to make sure it does not change
+				 * while out.
+				 */
+				res = add_range_info(guest, vaddr, paddr,
+						     PAGE_SIZE);
+				if (res)
+					ERROR("add_range_info(%d): %d %p:%d\n",
+					      guest->vmid, vaddr, res);
+			} else
+				free_range_info(guest, paddr);
 		}
 		/*
 		 * Do not leak guest data
