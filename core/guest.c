@@ -356,6 +356,8 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 		 * Do not leak guest data
 		 */
 		memset((void *)paddr, 0, PAGE_SIZE);
+		dsb(); isb();
+
 		/*
 		 * Detach the page from the guest
 		 */

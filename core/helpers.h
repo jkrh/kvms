@@ -189,6 +189,8 @@ static inline void hexdump(const char *token, uint8_t *data, int len)
 
 #define wfi() __asm__ __volatile__("wfi\n" : : :);
 
+#define icialluis() __asm__ __volatile__("ic	ialluis\n" : : : "memory" );
+
 #define per_cpu_ptr(ptr, cpu)                                                  \
 	((typeof(ptr))((char *)(ptr) + (4 * sizeof(long)) * cpu))
 
