@@ -643,9 +643,9 @@ out:
 
 static int get_mapping_type(struct ptable *pgd)
 {
-	if (pgd == (struct ptable *)read_reg(TTBR0_EL2))
+	if (pgd == (struct ptable *)(read_reg(TTBR0_EL2) & TTBR_BADDR_MASK))
 		return MAPPING_ACTIVE;
-	if (pgd == (struct ptable *)read_reg(VTTBR_EL2))
+	if (pgd == (struct ptable *)(read_reg(VTTBR_EL2) & TTBR_BADDR_MASK))
 		return MAPPING_ACTIVE;
 	return MAPPING_INACTIVE;
 }
@@ -656,9 +656,9 @@ static void invalidate_va(struct ptable *pgd, uint64_t vaddr)
 		return;
 
 	dsb();
-	if (pgd == (struct ptable *)read_reg(TTBR0_EL2))
+	if (pgd == (struct ptable *)(read_reg(TTBR0_EL2) & TTBR_BADDR_MASK))
 		tlbi_el2_va(vaddr);
-	if (pgd == (struct ptable *)read_reg(VTTBR_EL2))
+	if (pgd == (struct ptable *)(read_reg(VTTBR_EL2) & TTBR_BADDR_MASK))
 		tlbi_el1_ipa(vaddr);
 	dsb();
 	isb();
