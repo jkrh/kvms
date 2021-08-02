@@ -20,6 +20,8 @@
 #define UART01x_DR 0x00 /* Data read or written from the interface. */
 #define UART01x_RSR 0x04 /* Receive status register (Read). */
 
+#define PLAT_VMID_MAX 255
+
 uint8_t __stack[STACK_SIZE * PLATFORM_CORE_COUNT] ALIGN(PAGE_SIZE) DATA;
 
 int _IO_putc (int c, FILE *fp);
@@ -211,6 +213,19 @@ void platform_mmu_prepare(void)
 
 uint32_t platform_get_next_vmid(uint32_t next_vmid)
 {
+	int i;
+	kvm_guest_t *guest;
+
+	if (next_vmid < GUEST_VMID_START)
+		next_vmid = GUEST_VMID_START;
+
+	for (i = next_vmid; i < PLAT_VMID_MAX; i++) {
+		guest = get_guest(i);
+		if (!guest) {
+			next_vmid = i;
+			break;
+		}
+	}
 	return next_vmid;
 }
 

@@ -68,8 +68,8 @@ el1_sync:
 	beq	1f
 	b	2f
 
-1:	cmp	x0, #HOST_VMID
-	beq	host_fastpath
+1:	cmp	x0, #GUEST_VMID_START
+	blt	host_fastpath
 
 2:	save_all_regs
 	cmp	x1, #0x24		// Data abort
@@ -100,8 +100,8 @@ el1_sync:
 	add	sp, sp, #(8 * PT_REGS_SIZE)
 	eret
 
-4:	cmp	x0, #HOST_VMID
-	b.ne	guest_hvc_trap
+4:	cmp	x0, #GUEST_VMID_START
+	bge	guest_hvc_trap
 	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	hvccall
 	b	3b
@@ -175,8 +175,8 @@ forward_aarch64sync:
 	platform_aarch64sync
 
 el1_trap:
-	cmp	x0, #HOST_VMID
-	b.ne	3f
+	cmp	x0, #GUEST_VMID_START
+	bge	3f
 	/*
 	 * Check if came here to serve host data
 	 * abort in verbose debug mode.
@@ -217,8 +217,8 @@ el1_trap:
 	br	x3
 
 fpsimd_trap:
-	cmp	x0, #HOST_VMID
-	b.ne	4f
+	cmp	x0, #GUEST_VMID_START
+	bge	4f
 	/* Not implemented */
 	mov	x0, #4
 	mov	x1, sp
@@ -240,8 +240,8 @@ el1_irq:
 
 	mrs	x0, VTTBR_EL2
 	asr	x0, x0, #48
-	cmp	x0, #HOST_VMID
-	beq	dumpcall
+	cmp	x0, #GUEST_VMID_START
+	blt	dumpcall
 
 	get_kern_exit	x3, x0
 	get_vcpu_ptr	x1, x0
@@ -274,8 +274,8 @@ el1_error:
 
 	mrs	x0, VTTBR_EL2
 	asr	x0, x0, #48
-	cmp	x0, #HOST_VMID
-	beq	dumpcall
+	cmp	x0, #GUEST_VMID_START
+	blt	dumpcall
 
 	get_kern_exit	x3, x0
 	get_vcpu_ptr	x1, x0
