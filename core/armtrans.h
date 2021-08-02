@@ -120,6 +120,7 @@
 #define S2_DEV_GRE		(S2_DEVICE | GRE)
 
 #define TTBR_BADDR_MASK	0x0000FFFFFFFFFFFEUL
+#define MAX_CONTIGUOUS	128
 
 void tdinfo_init(void);
 

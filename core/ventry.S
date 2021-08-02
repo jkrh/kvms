@@ -138,12 +138,14 @@ wait_core_ready:
 	 * another try to access the location. The faulting address
 	 * might well be mapped already.
 	 */
+	str	x30, [sp, #(8 * 30)]
 	mov	x0, x2
 	bl	spin_lock
 	/* Just wait for the hyp core and unlock once ready. */
 	bl	spin_unlock
 	ldp	x0, x1, [sp, #(8 * 0)]
 	ldp	x2, x3, [sp, #(8 * 2)]
+	ldr	x30, [sp, #(8 * 30)]
 	add	sp, sp, #(8 * PT_REGS_SIZE)
 	eret
 

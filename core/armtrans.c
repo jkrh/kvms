@@ -31,6 +31,8 @@
 #define L2_BLK_OADDR_MASK_4KGRANULE	0x0000FFFFFFE00000UL
 
 #define TABLE_OADDR_MASK_4KGRANULE	0x0000FFFFFFFFF000UL
+#define MAX_CONTIGUOUS_4KGRANULE	16
+
 #define DESCR_ATTR_MASK			0xFFFF00000001FFFFUL
 
 #define MAX_PADDR			VADDR_MASK
@@ -86,6 +88,7 @@ typedef struct
 {
 	kvm_guest_t *guest;
 	struct ptable *pgd;
+	uint64_t *contiguous[MAX_CONTIGUOUS];
 	uint64_t *ptep;
 	uint64_t vaddr;
 	uint64_t paddr;
@@ -101,6 +104,12 @@ typedef enum
 	MAPPING_ACTIVE = 1,
 	MAPPING_INACTIVE = 2,
 } mmap_change_type;
+
+struct entryinfo
+{
+	struct ptable *ttbl;
+	uint64_t idx;
+};
 
 static uint8_t invalidate;
 
@@ -231,7 +240,7 @@ int free_guest_tables(uint64_t vmid)
 }
 
 uint64_t __pt_walk(struct ptable *tbl, uint64_t vaddr, uint64_t **ptep,
-		   uint64_t *levels)
+		   uint64_t *levels, struct entryinfo *einfo)
 {
 	struct ptable *nl = tbl;
 	uint64_t noff, boff, ret, addr = 0, lvl = 0;
@@ -300,6 +309,11 @@ block_type:
 	if (ptep)
 		*ptep = &nl->entries[noff];
 
+	if (einfo) {
+		einfo->ttbl = nl;
+		einfo->idx = noff;
+	}
+
 	return ret;
 }
 
@@ -308,7 +322,7 @@ uint64_t pt_walk(struct ptable *tbl, uint64_t vaddr, uint64_t **ptep,
 {
 	uint64_t level = levels;
 
-	return __pt_walk(tbl, vaddr, ptep, &level);
+	return __pt_walk(tbl, vaddr, ptep, &level, NULL);
 }
 
 void print_mappings(uint32_t vmid, uint64_t stage, uint64_t vaddr, size_t sz)
@@ -454,19 +468,35 @@ void print_tables(uint64_t vmid)
  */
 bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 {
-	uint64_t paddr, offt;
+	uint64_t paddr, offt, tmp, i;
+	struct entryinfo einfo;
 
 	if (!block->guest || ((block->guest->s2_pgd != block->pgd) &&
 		(block->guest->s1_pgd != block->pgd)))
 		HYP_ABORT();
 
 	block->level = block->guest->table_levels;
-	paddr = __pt_walk(block->pgd, addr, &block->ptep, &block->level);
+	paddr = __pt_walk(block->pgd, addr, &block->ptep, &block->level, &einfo);
 	if (paddr == ~0UL)
 		return false;
 
 	if (bit_raised(*block->ptep, TABLE_TYPE_BIT))
 		return false;
+
+	if (bit_raised(*block->ptep, CONTIGUOUS_BIT)) {
+		/*
+		 * Only 4k granule supported for now. Collect the 16 adjacent and
+		 * aligned entries to the block information.
+		 */
+		tmp = (einfo.idx / MAX_CONTIGUOUS_4KGRANULE) * MAX_CONTIGUOUS_4KGRANULE;
+		for (i = 0; i < MAX_CONTIGUOUS_4KGRANULE; i++)
+			block->contiguous[i] = &einfo.ttbl->entries[i + tmp];
+		if (i < MAX_CONTIGUOUS)
+			block->contiguous[i] = NULL;
+		if (*block->ptep != einfo.ttbl->entries[einfo.idx])
+			HYP_ABORT();
+	} else
+		block->contiguous[0] = NULL;
 
 	if (block->level == 1) {
 		block->paddr = *block->ptep & tdinfo.l1_blk_oa_mask;
@@ -728,7 +758,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 		  uint64_t paddr, uint64_t prot, uint64_t type,
 		  uint64_t pgd_levels)
 {
-	uint64_t tvaddr, tpaddr, levels, bsize;
+	uint64_t tvaddr, tpaddr, bsize, i, tmp;
 	struct ptable *tbl;
 	int res = 0;
 	size_t rlen, tlen, mlen;
@@ -762,6 +792,26 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 		hit = get_block_info(tvaddr, block);
 		if (hit) {
 			/*
+			 * Tear down the possible set of blocks marked
+			 * as contiguous.
+			 */
+			if (block->contiguous[0] != NULL) {
+				for (i = 0; i < MAX_CONTIGUOUS; i++) {
+					if (!block->contiguous[i])
+						break;
+					tmp = *block->contiguous[i];
+					bit_drop(tmp, CONTIGUOUS_BIT);
+					*block->contiguous[i] = 0;
+					dsbish();
+					tlbialle1is();
+					*block->contiguous[i] = tmp;
+					dsbish();
+					block->contiguous[i] = NULL;
+				}
+				if (i % MAX_CONTIGUOUS_4KGRANULE)
+					HYP_ABORT();
+			}
+			/*
 			 * If we are at the block boundary and the
 			 * remaining length is equal (or larger)
 			 * to the size of the block we found:
@@ -785,8 +835,6 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			bsize = tdinfo.l2_blk_size;
 		}
 		if (hit) {
-			invalidate = 0;
-
 			/*
 			 * Get a table entry into which we start building our
 			 * new mapping. This will replace the block entry we
@@ -797,24 +845,30 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 				HYP_ABORT();
 
 			/*
-			 * Starting level of the new mapping.
-			 * If this was a level 1 block we need
-			 * to map it to blocks and pages starting
-			 * at level 2.
+			 * Break. This should make the concurrent threads in
+			 * other CPUs to generate an exception if they access the
+			 * area mapped by this entry.
 			 */
-			if (block->level == 1)
-				levels = 2;
-			else
-				levels = 1;
+			*block->ptep = 0;
+			dsbish();
+			tlbialle1is();
+			/*
+			 * Replace the block entry.
+			 */
+			*block->ptep = (uint64_t)tbl;
+			bit_set(*block->ptep, VALID_TABLE_BIT);
+			bit_set(*block->ptep, TABLE_TYPE_BIT);
+			dsbish();
+			isb();
 
 			/*
-			 * Create mapping for the address range covering the
+			 * Make. Create mapping for the address range covering the
 			 * original block range before the vaddr.
 			 */
 			tlen = tvaddr - block->vaddr;
-			res = __mmap_range(tbl, block->vaddr, block->paddr,
+			res = __mmap_range(block->pgd, block->vaddr, block->paddr,
 					   tlen, block->prot, block->type,
-					   levels, vmid);
+					   pgd_levels, vmid);
 			if (res)
 				HYP_ABORT();
 			LOG("head v:0x%lx p:0x%lx l:%lu\n",
@@ -836,8 +890,8 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			}
 
 			/* New range mapping */
-			res = __mmap_range(tbl, tvaddr, tpaddr, mlen, prot,
-					type, levels, vmid);
+			res = __mmap_range(block->pgd, tvaddr, tpaddr, mlen, prot,
+					type, pgd_levels, vmid);
 			if (res)
 				HYP_ABORT();
 			LOG("map v:0x%lx l:%lu\n", tvaddr, mlen);
@@ -850,26 +904,14 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			 * Create mapping for the address range covering the
 			 * original block range after the vaddr + rlen.
 			 */
-			res = __mmap_range(tbl, block->vaddr, block->paddr,
+			res = __mmap_range(block->pgd, block->vaddr, block->paddr,
 					   tlen, block->prot, block->type,
-					   levels, vmid);
+					   pgd_levels, vmid);
 			if (res)
 				HYP_ABORT();
 
 			LOG("tail v:0x%lx p:0x%lx l:%lu\n",
 			    block->vaddr, block->paddr, tlen);
-
-			/* Activate our Brave New mapping */
-			*block->ptep = (uint64_t)tbl;
-			bit_set(*block->ptep, VALID_TABLE_BIT);
-			bit_set(*block->ptep, TABLE_TYPE_BIT);
-
-			invalidate = 1;
-			/* Invalidate */
-			dsbishst();
-			tlbivmallis();
-			dsbish();
-			isb();
 		} else {
 			if (mlen == 0)
 				mlen = bsize;
