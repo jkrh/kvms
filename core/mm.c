@@ -14,7 +14,7 @@
 uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 uint64_t hyp_text_start;
 uint64_t hyp_text_end;
-uint64_t core_lock;
+extern uint64_t core_lock;
 
 #ifdef HOSTBLINDING_DEV
 static kvm_hyp_region kvm_hyp_regions[MAX_KVM_HYP_REGIONS];

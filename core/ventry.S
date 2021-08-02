@@ -59,29 +59,17 @@ el1_sync:
 	and	x1, x1, #0xFC000000
 	asr	x1, x1, #26
 
-	/* Fast path for host data abort handling */
-	cmp	x1, #0x24
-	beq	1f
-
-	/* Fast path for host SMC handling */
-	cmp	x1, #0x17
-	beq	1f
-	b	2f
-
-1:	cmp	x0, #GUEST_VMID_START
-	blt	host_fastpath
-
-2:	save_all_regs
 	cmp	x1, #0x24		// Data abort
-	beq	el1_trap
+	beq	handle_abort
 	cmp	x1, #0x20		// Inst abort
-	beq	el1_trap
+	beq	handle_abort
+	cmp	x1, #0x17		// SMC
+	beq	smc_trap
+	save_all_regs
 	cmp	x1, #0x01		// WFI/WFE
 	beq	el1_trap
 	cmp	x1, #0x07		// SVE, SIMD, FP
 	beq	fpsimd_trap
-	cmp	x1, #0x17		// SMC
-	beq	guest_smc_trap
 	cmp	x1, #0x18		// Debug trap
 	beq	el1_trap
 	cmp	x1, #0x32		// Software step
@@ -136,14 +124,77 @@ el2_sync:
 host_fastpath:
 	cmp	x1, #0x24
 	beq	host_data_abort
+	cmp	x1, #0x20
+	beq	host_instruction_abort
 	cmp	x1, #0x17
 	beq	host_smc_trap
 	/* We should never get here */
 	ldp	x0, x1, [sp, #(8 * 0)]
 	b	dumpcall
 
+wait_core_ready:
+	/*
+	 * Wait the hyp core to finish and give the aborting core
+	 * another try to access the location. The faulting address
+	 * might well be mapped already.
+	 */
+	mov	x0, x2
+	bl	spin_lock
+	/* Just wait for the hyp core and unlock once ready. */
+	bl	spin_unlock
+	ldp	x0, x1, [sp, #(8 * 0)]
+	ldp	x2, x3, [sp, #(8 * 2)]
+	add	sp, sp, #(8 * PT_REGS_SIZE)
+	eret
+
+handle_abort:
+	stp	x2, x3, [sp, #(8 * 2)]
+	/*
+	 * If the lock is held this abort may be running at
+	 * a core which is accessing the portion of memory
+	 * for which the mapping is being currently altered.
+	 */
+	adr	x2, core_lock
+	ldr	x3, [x2]
+	cbnz	x3, wait_core_ready
+	ldp	x2, x3, [sp, #(8 * 2)]
+
+	cmp	x1, #0x24		// Data abort
+	beq	data_abort
+	cmp	x1, #0x20		// Inst abort
+	beq	instruction_abort
+	ldp	x0, x1, [sp, #(8 * 0)]
+	b	dumpcall
+
+data_abort:
+	cmp	x0, #GUEST_VMID_START
+	blt	host_data_abort
+	b	guest_data_abort
+
 host_data_abort:
 	b	host_fastforward
+
+guest_data_abort:
+	save_all_regs
+	b	el1_trap
+
+instruction_abort:
+	cmp	x0, #GUEST_VMID_START
+	blt	host_instruction_abort
+	b	guest_instruction_abort
+
+host_instruction_abort:
+	b	host_fastforward
+
+guest_instruction_abort:
+	save_all_regs
+	b	el1_trap
+
+smc_trap:
+	cmp	x0, #GUEST_VMID_START
+	blt	host_smc_trap
+	load_all_regs
+	b	guest_smc_trap
 
 host_smc_trap:
 	ldr	x0, [sp, #(8 * 0)]
@@ -291,3 +342,9 @@ dumpcall:
 	mov	x0, #5
 	mov	x1, sp
 	b	dump_state
+
+.data
+.global core_lock
+.align	8
+core_lock:
+	.quad	0x000000000000
