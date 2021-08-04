@@ -138,6 +138,31 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			ERROR("kvm hyp region not found! %lx\n", a1);
 #endif // HOSTBLINDING_DEV
 		break;
+	/*
+	 * HYP_HOST_PREPARE_STAGE2 prepares a range of memory with an existing
+	 * stage2 translation table. HYP_HOST_PREPARE_STAGE2 does not change
+	 * the memory attributes as normal stage2 mapping operation may do, but
+	 * instead it only tears the possible contiguous areas that interleave
+	 * the range to be prepared. If the prepared area boundaries interleave
+	 * with existing block mappings the block will be split to align with
+	 * the mapped area.
+	 *
+	 * If you don't see the use for the API, don't use it. The primary use
+	 * is to avoid issues with a centralized TCU during the system runtime
+	 * when the mappings change.
+	 *
+	 * HYP_HOST_PREPARE_STAGE2 can be called with similar parameters as
+	 * HYP_HOST_MAP_STAGE2.
+	 */
+	case HYP_HOST_PREPARE_STAGE2:
+		guest = get_guest(HOST_VMID);
+		if (!guest) {
+			res = -ENOENT;
+			break;
+		}
+		res = mmap_range(guest->s2_pgd, STAGE2, a1, a2, a3, a4,
+				 KEEP_MATTR);
+		break;
 	case HYP_HOST_MAP_STAGE2:
 		guest = get_guest(HOST_VMID);
 		if (!guest) {

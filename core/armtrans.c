@@ -463,7 +463,8 @@ void print_tables(uint64_t vmid)
 
 /*
  * Return true if block mapping for the given virtual address is found
- * and block info is populated.
+ * and block info is populated. Memory attributes are populated also for
+ * page if mapping is found.
  * Return false if no block mapping is found for the address.
  */
 bool get_block_info(const uint64_t addr, mblockinfo_t *block)
@@ -477,11 +478,18 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 
 	block->level = block->guest->table_levels;
 	paddr = __pt_walk(block->pgd, addr, &block->ptep, &block->level, &einfo);
-	if (paddr == ~0UL)
+	if (paddr == ~0UL) {
+		block->type = INVALID_MEMORY;
 		return false;
+	}
 
-	if (bit_raised(*block->ptep, TABLE_TYPE_BIT))
-		return false;
+	if (block->stage == STAGE1) {
+		block->prot = *block->ptep & PROT_MASK_STAGE1;
+		block->type = (*block->ptep & TYPE_MASK_STAGE1);
+	} else {
+		block->prot = *block->ptep & PROT_MASK_STAGE2;
+		block->type = (*block->ptep & TYPE_MASK_STAGE2);
+	}
 
 	if (bit_raised(*block->ptep, CONTIGUOUS_BIT)) {
 		/*
@@ -498,20 +506,15 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 	} else
 		block->contiguous[0] = NULL;
 
+	if (bit_raised(*block->ptep, TABLE_TYPE_BIT))
+		return false;
+
 	if (block->level == 1) {
 		block->paddr = *block->ptep & tdinfo.l1_blk_oa_mask;
 		block->size = tdinfo.l1_blk_size;
 	} else {
 		block->paddr = *block->ptep & tdinfo.l2_blk_oa_mask;
 		block->size = tdinfo.l2_blk_size;
-	}
-
-	if (block->stage == STAGE1) {
-		block->prot = *block->ptep & PROT_MASK_STAGE1;
-		block->type = (*block->ptep & TYPE_MASK_STAGE1);
-	} else {
-		block->prot = *block->ptep & PROT_MASK_STAGE2;
-		block->type = (*block->ptep & TYPE_MASK_STAGE2);
 	}
 
 	offt = paddr - block->paddr;
@@ -754,11 +757,33 @@ int __mmap_range(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 	return 0;
 }
 
+static void __clear_contiguous_range(mblockinfo_t *block)
+{
+	uint64_t i, tmp;
+
+	if (block->contiguous[0] != NULL) {
+		for (i = 0; i < MAX_CONTIGUOUS; i++) {
+			if (!block->contiguous[i])
+				break;
+			tmp = *block->contiguous[i];
+			bit_drop(tmp, CONTIGUOUS_BIT);
+			*block->contiguous[i] = 0;
+			dsbish();
+			tlbialle1is();
+			*block->contiguous[i] = tmp;
+			dsbish();
+			block->contiguous[i] = NULL;
+		}
+		if (i % MAX_CONTIGUOUS_4KGRANULE)
+			HYP_ABORT();
+	}
+}
+
 int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 		  uint64_t paddr, uint64_t prot, uint64_t type,
 		  uint64_t pgd_levels)
 {
-	uint64_t tvaddr, tpaddr, bsize, i, tmp;
+	uint64_t tvaddr, tpaddr, bsize;
 	struct ptable *tbl;
 	int res = 0;
 	size_t rlen, tlen, mlen;
@@ -775,6 +800,8 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 	 * initial configuration.
 	 */
 	if (!machine_init_ready()) {
+		if (type == KEEP_MATTR)
+			HYP_ABORT();
 		res = __mmap_range(block->pgd, vaddr, paddr, len,
 				   prot, type, pgd_levels, vmid);
 		goto out_done;
@@ -790,27 +817,11 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 	rlen = len;
 	while (rlen > 0) {
 		hit = get_block_info(tvaddr, block);
+		/*
+		 * Tear down contiguous range of translation table entries.
+		 */
+		__clear_contiguous_range(block);
 		if (hit) {
-			/*
-			 * Tear down the possible set of blocks marked
-			 * as contiguous.
-			 */
-			if (block->contiguous[0] != NULL) {
-				for (i = 0; i < MAX_CONTIGUOUS; i++) {
-					if (!block->contiguous[i])
-						break;
-					tmp = *block->contiguous[i];
-					bit_drop(tmp, CONTIGUOUS_BIT);
-					*block->contiguous[i] = 0;
-					dsbish();
-					tlbialle1is();
-					*block->contiguous[i] = tmp;
-					dsbish();
-					block->contiguous[i] = NULL;
-				}
-				if (i % MAX_CONTIGUOUS_4KGRANULE)
-					HYP_ABORT();
-			}
 			/*
 			 * If we are at the block boundary and the
 			 * remaining length is equal (or larger)
@@ -846,8 +857,8 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 
 			/*
 			 * Break. This should make the concurrent threads in
-			 * other CPUs to generate an exception if they access the
-			 * area mapped by this entry.
+			 * other CPUs to generate an exception if they access
+			 * the area mapped by this entry.
 			 */
 			*block->ptep = 0;
 			dsbish();
@@ -862,8 +873,8 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			isb();
 
 			/*
-			 * Make. Create mapping for the address range covering the
-			 * original block range before the vaddr.
+			 * Make. Create mapping for the address range covering
+			 * the original block range before the vaddr.
 			 */
 			tlen = tvaddr - block->vaddr;
 			res = __mmap_range(block->pgd, block->vaddr, block->paddr,
@@ -890,8 +901,15 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			}
 
 			/* New range mapping */
-			res = __mmap_range(block->pgd, tvaddr, tpaddr, mlen, prot,
-					type, pgd_levels, vmid);
+			if (type == KEEP_MATTR)
+				res = __mmap_range(block->pgd, tvaddr, tpaddr,
+						   mlen, block->prot,
+						   block->type, pgd_levels,
+						   vmid);
+			else
+				res = __mmap_range(block->pgd, tvaddr, tpaddr,
+						   mlen, prot, type,
+						   pgd_levels, vmid);
 			if (res)
 				HYP_ABORT();
 			LOG("map v:0x%lx l:%lu\n", tvaddr, mlen);
@@ -917,10 +935,13 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 				mlen = bsize;
 			if (mlen > rlen)
 				mlen = rlen;
-			res = __mmap_range(block->pgd, tvaddr, tpaddr, mlen,
-					   prot, type, pgd_levels, vmid);
+			if (type != KEEP_MATTR) {
+				res = __mmap_range(block->pgd, tvaddr, tpaddr, mlen,
+						   prot, type, pgd_levels, vmid);
+			}
 			if (res)
 				HYP_ABORT();
+
 			/*LOG("map nohit v:0x%lx l:%lu\n", tvaddr, mlen);*/
 			tvaddr += mlen;
 			tpaddr += mlen;

@@ -85,6 +85,7 @@
 #define DEVICE_MEMORY DEVICE_ORDER
 #define INVALID_MEMORY		1 << 6
 #define KERNEL_MATTR		1 << 7
+#define KEEP_MATTR			1 << 8
 
 /* Shareability SH [9:8], Stage 1 and 2 */
 #define SH_SHIFT		0x8
