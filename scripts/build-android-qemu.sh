@@ -179,7 +179,7 @@ do_android_emulator()
 do_sysroot
 do_patch
 do_spice
-do_android_emulator
+[ -n "$ANDROID_EMU" ] && do_android_emulator
 do_qemu
 [ -n "$HYBRIS" ] && do_hybris
 
