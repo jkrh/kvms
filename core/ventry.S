@@ -47,7 +47,7 @@ __hyp_vectors:
 el1_sync:
 	msr	SPSel, #1
 
-	sub	sp, sp, #(8 * PT_REGS_SIZE)
+	sub	sp, sp, #(PT_REGS_SIZE)
 	stp	x0, x1, [sp, #(8 * 0)]
 
 	/* Collect VMID to x0 */
@@ -85,7 +85,7 @@ el1_sync:
 	b	4f			// Normal HVC
 
 3:	load_all_regs
-	add	sp, sp, #(8 * PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_SIZE)
 	eret
 
 4:	cmp	x0, #GUEST_VMID_START
@@ -110,7 +110,7 @@ el1_sync:
 el2_sync:
 	msr	SPSel, #1
 
-	sub	sp, sp, #(8 * PT_REGS_SIZE)
+	sub	sp, sp, #(PT_REGS_SIZE)
 	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
 
@@ -146,7 +146,7 @@ wait_core_ready:
 	ldp	x0, x1, [sp, #(8 * 0)]
 	ldp	x2, x3, [sp, #(8 * 2)]
 	ldr	x30, [sp, #(8 * 30)]
-	add	sp, sp, #(8 * PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_SIZE)
 	eret
 
 handle_abort:
@@ -224,7 +224,7 @@ host_fastforward:
  */
 forward_aarch64sync:
 	ldp	x0, x1, [sp, #(8 * 0)]
-	add	sp, sp, #(8 * PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_SIZE)
 	platform_aarch64sync
 
 el1_trap:
@@ -261,7 +261,7 @@ el1_trap:
 	 */
 	load_all_regs
 	ldr	x0, [sp, #(8 * 0)]
-	add	sp, sp, #(8 * PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_SIZE)
 	eret
 2:	b	forward_aarch64sync
 3:	get_kern_exit	x3, x0
@@ -318,7 +318,7 @@ guest_hvc_trap:
 	load_all_regs
 	bl	hvccall
 	load_all_regs
-	add	sp, sp, #(8 * PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_SIZE)
 	eret
 
 el1_error:
@@ -337,7 +337,7 @@ el1_error:
 
 dumpcall:
 	msr	SPSel, #1
-	sub	sp, sp, #(8 * PT_REGS_SIZE)
+	sub	sp, sp, #(PT_REGS_SIZE)
 	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
 
