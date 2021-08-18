@@ -97,7 +97,7 @@ qemu()
 {
 	mkdir -p $BASE_DIR/oss/qemu/build
 	cd $BASE_DIR/oss/qemu/build
-	../configure --prefix=$TOOLDIR/usr --target-list=aarch64-softmmu --enable-modules
+	../configure --prefix=$TOOLDIR/usr --target-list=aarch64-softmmu --enable-modules --enable-opengl --enable-virglrenderer
 	make -j$NJOBS
 	make install
 }

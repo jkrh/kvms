@@ -1,4 +1,4 @@
-From e94b356cc2b4803a87a2ed353ebd74da99acb1d8 Mon Sep 17 00:00:00 2001
+From 6d09e099de4fa049aa91ccd6b1e988a1c85d9b5d Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 26 May 2021 15:49:22 +0300
 Subject: [PATCH] target/ranchu: add support for android 'ranchu' board
@@ -167,7 +167,7 @@ index be39117b9b..50346c2d07 100644
  arm_ss.add(when: 'CONFIG_EXYNOS4', if_true: files('exynos4_boards.c'))
 diff --git a/hw/arm/ranchu.c b/hw/arm/ranchu.c
 new file mode 100644
-index 0000000000..4955a99a4b
+index 0000000000..a72396f826
 --- /dev/null
 +++ b/hw/arm/ranchu.c
 @@ -0,0 +1,878 @@
@@ -306,14 +306,14 @@ index 0000000000..4955a99a4b
 +    [RANCHU_GIC_ITS] =            { 0x08080000, 0x00020000 },
 +    /* This redistributor space allows up to 2*64kB*123 CPUs */
 +    [RANCHU_GIC_REDIST] =         { 0x080A0000, 0x00F60000 },
-+    [RANCHU_UART] = { 0x9000000, 0x1000 },
-+    [RANCHU_GOLDFISH_FB] = { 0x9010000, 0x100 },
-+    [RANCHU_GOLDFISH_BATTERY] = { 0x9020000, 0x1000 },
-+    [RANCHU_GOLDFISH_AUDIO] = { 0x9030000, 0x100 },
-+    [RANCHU_GOLDFISH_EVDEV] = { 0x9040000, 0x1000 },
-+    [RANCHU_MMIO] = { 0xa000000, 0x200 },
-+    [RANCHU_GOLDFISH_PIPE] = {0xa010000, 0x2000 },
-+    [RANCHU_GOLDFISH_SYNC] = {0xa020000, 0x2000 },
++    [RANCHU_UART] =               { 0x09000000, 0x1000     },
++    [RANCHU_GOLDFISH_FB] =        { 0x09010000, 0x100      },
++    [RANCHU_GOLDFISH_BATTERY] =   { 0x09020000, 0x1000     },
++    [RANCHU_GOLDFISH_AUDIO] =     { 0x09030000, 0x100      },
++    [RANCHU_GOLDFISH_EVDEV] =     { 0x09040000, 0x1000     },
++    [RANCHU_MMIO] =               { 0x0A000000, 0x200      },
++    [RANCHU_GOLDFISH_PIPE] =      { 0x0A010000, 0x2000     },
++    [RANCHU_GOLDFISH_SYNC] =      { 0x0A020000, 0x2000     },
 +    [RANCHU_PCIE_MMIO] =          { 0x10000000, 0x2eff0000 },
 +    [RANCHU_PCIE_PIO] =           { 0x3eff0000, 0x00010000 },
 +    [RANCHU_PCIE_ECAM] =          { 0x3f000000, 0x01000000 },
@@ -926,7 +926,7 @@ index 0000000000..4955a99a4b
 +    return board->fdt;
 +}
 +
-+#define DEFAULT_ARM_CPU_MODEL "cortex-a15"
++#define DEFAULT_ARM_CPU_MODEL "max"
 +
 +static char* splice_out_cpu_model(const char* cpu_type) {
 +    // We rely on the model being encoded in the cpu_type, so we validate
@@ -6425,7 +6425,7 @@ index 0000000000..411ecbdb4e
 +};
 diff --git a/hw/misc/goldfish_pstore.c b/hw/misc/goldfish_pstore.c
 new file mode 100644
-index 0000000000..878af19351
+index 0000000000..4152d8277b
 --- /dev/null
 +++ b/hw/misc/goldfish_pstore.c
 @@ -0,0 +1,173 @@
@@ -6522,7 +6522,7 @@ index 0000000000..878af19351
 +    qemu_put_buffer(file, (uint8_t *)memory_region_get_ram_ptr(&store->memory),
 +                    memory_region_size(&store->memory));
 +  } else {
-+    size_t read = qemu_get_buffer(
++    qemu_get_buffer(
 +        file, (uint8_t *)memory_region_get_ram_ptr(&store->memory),
 +        memory_region_size(&store->memory));
 +  }
