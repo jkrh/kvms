@@ -24,6 +24,7 @@ unset WARNINGS
 unset DEFINES
 
 export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin
+export PKG_CONFIG_PATH=$TOOLDIR/usr/local/lib/x86_64-linux-gnu/pkgconfig
 
 KERNEL_PATCHFILE="$BASE_DIR/patches/0001-KVM-external-hypervisor-5.10-kernel-baseport.patch"
 TTRIPLET="aarch64-linux-gnu"
@@ -37,6 +38,7 @@ clean()
 	cd $BASE_DIR/oss/glibc; git clean -xfd || true
 	cd $BASE_DIR/oss/qemu; git clean -xfd || true
 	cd $BASE_DIR/oss/linux; git clean -xfd || true
+	cd $BASE_DIR/oss; rm -rf mesa-20.2.6* || true
 }
 
 binutils-gdb()
@@ -93,11 +95,26 @@ gcc()
 	make DESTDIR=$TOOLDIR install
 }
 
+mesa()
+{
+	cd $BASE_DIR/oss
+	wget -c https://archive.mesa3d.org//mesa-20.2.6.tar.xz
+	tar xf mesa-20.2.6.tar.xz
+	cd mesa-20.2.6
+	meson build --prefix $TOOLDIR/usr/local -Dopengl=true -Dosmesa=gallium -Dgallium-drivers=swrast -Dshared-glapi=enabled
+	cd build
+	meson install
+}
+
 qemu()
 {
 	mkdir -p $BASE_DIR/oss/qemu/build
 	cd $BASE_DIR/oss/qemu/build
-	../configure --prefix=$TOOLDIR/usr --target-list=aarch64-softmmu --enable-modules --enable-opengl --enable-virglrenderer
+	#
+	# Qemu build bug: it never passes GBM_LIBS and GBM_CFLAGS to make regardless of
+	# the fact that pkg-config finds valid arguments ok. So, pass as extra.
+	#
+	../configure --prefix=$TOOLDIR/usr --extra-cflags="-I$TOOLDIR/usr/local/include -L$TOOLDIR/usr/local/lib/x86_64-linux-gnu -lgbm" --target-list=aarch64-softmmu --enable-modules --enable-opengl --enable-virglrenderer
 	make -j$NJOBS
 	make install
 }
@@ -111,5 +128,6 @@ binutils-gdb
 kernel_headers
 glibc
 gcc
+mesa
 qemu
 kernel
