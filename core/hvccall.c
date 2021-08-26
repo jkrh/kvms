@@ -86,11 +86,9 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	    register_t a8, register_t a9)
 {
 	kvm_guest_t *guest = NULL;
-	uint64_t *pte = NULL;
 	int64_t res = -EINVAL;
 	bool retried = false;
 	hyp_func_t *func;
-	uint64_t addr;
 	uint32_t vmid;
 
 	vmid = get_current_vmid();
@@ -242,17 +240,9 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = guest_unmap_range(guest, a2, a3, a4);
 		break;
 	case HYP_MKYOUNG:
-		guest = get_guest(a1);
-		if (!guest) {
-			res = -ENOENT;
-			break;
-		}
-		addr = pt_walk(guest->s2_pgd, a2, &pte, TABLE_LEVELS);
-		if (addr != ~0UL) {
-			bit_set(*pte, AF_BIT);
-			res = 0;
-		} else
-			res = -ENOENT;
+	case HYP_MKOLD:
+	case HYP_ISYOUNG:
+		res = guest_stage2_access_flag(cn, a1, a2, a3);
 		break;
 	case HYP_INIT_GUEST:
 		res = init_guest((void *)a1);

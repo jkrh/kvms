@@ -179,4 +179,19 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd);
  */
 int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count);
 
+/**
+ * Stage2 page table access flag (AF) software management functions
+ *
+ * @param operation set, clear and get for AF
+ * @param vmid guest virtual machine identification
+ * @param ipa guest physical address
+ * @param size range size
+ * @return operation specific return value, zero if descriptor is not found
+ * 	   HYP_MKYOUNG zero
+ * 	   HYP_MKOLD one if the operation was done, zero otherwise
+ * 	   HYP_ISYOUNG state of the AF flag (1 young, 0 old)
+ */
+int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
+			     uint64_t size);
+
 #endif // __KVM_GUEST_H__
