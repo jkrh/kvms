@@ -224,7 +224,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	 */
 	res = is_range_valid(vaddr, len, guest->slots);
 	if (!res) {
-		ERROR("vmid %x attempting to map invalid range 0x%lx - 0x%lx\n",
+		ERROR("vmid %d attempting to map invalid range 0x%lx - 0x%lx\n",
 		      guest->vmid, vaddr, vaddr + len);
 		res = -EINVAL;
 		goto out_error;
@@ -250,18 +250,8 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 			ERROR("vmid %x 0x%lx already mapped: 0x%lx != 0x%lx\n",
 			      guest->vmid, (uint64_t)page_vaddr,
 			      taddr, page_paddr);
-			/*
-			 * TODO: Find and fix the issue causing this error
-			 * during guest boot. Memory related to this issue
-			 * is initially mapped by do_xor_speed calling
-			 * xor_8regs_2 (uses pages got by __get_free_pages).
-			 * Later on the guest boot the same physical pages
-			 * get mapped without unmapping them first and we
-			 * end up here.
-			 *
 			res = -EPERM;
 			goto out_error;
-			*/
 		}
 		/*
 		 * Track identical existing mappings
@@ -607,4 +597,50 @@ int verify_range(kvm_guest_t *guest, uint64_t ipa, uint64_t addr, uint64_t len)
 		return -EINVAL;
 
 	return 0;
+}
+
+int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
+			     uint64_t size)
+{
+	int res;
+	kvm_guest_t *guest;
+	uint64_t addr, *pte;
+
+	res = 0;
+	guest = NULL;
+	addr = 0;
+	pte = NULL;
+
+	/* We only support page granularity at the moment */
+	if ((size != PAGE_SIZE) && (size != 0))
+		goto out_no_entry;
+
+	guest = get_guest(vmid);
+	if (guest == NULL)
+		goto out_no_entry;
+
+	addr = pt_walk(guest->s2_pgd, ipa, &pte, TABLE_LEVELS);
+
+	if (addr == ~0UL)
+		goto out_no_entry;
+
+	switch (operation) {
+	case HYP_MKYOUNG:
+		bit_set(*pte, AF_BIT);
+		break;
+	case HYP_MKOLD:
+		res = !!(*pte & AF_BIT);
+		if (res) {
+			bit_drop(*pte, AF_BIT);
+		}
+		break;
+	case HYP_ISYOUNG:
+		res = !!(*pte & AF_BIT);
+		break;
+	default:
+		HYP_ABORT();
+	}
+
+out_no_entry:
+	return res;
 }
