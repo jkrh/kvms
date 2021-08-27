@@ -87,23 +87,12 @@ Building and running on QEMU:
 - Work with the kernel under oss/linux, hyp
 
 
-Emulated hardware:
+Guest support
 ------------------
-- QEMU 'virt' (the default)
-- A custom variant of ARMv8 'ranchu' board for Android emulation (this is work
-  in progress). Once ready it should be possible to run the stock AOSP build
-  via the default configuration as a guest inside the Linux or Android host.
-
-
-Testing on the virt platform:
--------------------------------------
-- usage:
-  ./scripts/module-compile.sh \
-  && make test
-- clones and compiles kernel and qemu
-- compiles hyp
-- downloads BOOTIMG
-- performs small module-test
+- All QEMU boards, 'virt' for the host emulation / sdk
+- Preliminary 'ranchu' support for Android but no support for 'Android pipe'
+- Android via 'virt' emulation to run arm64 cuttlefish. Given the mesa/gallium
+  driver stack even the Virtio-GPU may run on some systems.
 
 
 SHORT TERM TODO
