@@ -60,7 +60,7 @@ set -e
 [ -z "$SMP" ] && SMP="-smp 4"
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICESOCK="unix=on,addr=$SPICEMNT/sock/$PORT"
-[ -z "$SCREEN" ] && SCREEN="-serial mon:stdio -device virtio-gpu-pci,id=gpu0,virgl=on -spice $SPICESOCK,disable-ticketing=on,gl=on $VDAGENT"
+[ -z "$SCREEN" ] && SCREEN="-serial mon:stdio -device virtio-gpu-pci,id=gpu0,virgl=on -display egl-headless,gl=on -spice $SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migration=on $VDAGENT"
 #SCREEN="-serial mon:stdio -vga std -device ramfb"
 [ -n "$PROFILE" ] && PROFILE="pmu=on"
 [ -z "$PROFILE" ] && PROFILE="pmu=off"
@@ -77,21 +77,25 @@ if [ "$USER" = "root" ]; then
 	[ ! -d $SPICEMNT ] && mkdir -p $SPICEMNT && chmod 0777 $SPICEMNT
 	[ -z "$(mount | grep $SPICEMNT)" ] && mount -t tmpfs -o size=1g tmpfs $SPICEMNT
 	[ ! -d $SPICEMNT/sock ] && mkdir -p $SPICEMNT/sock && chmod 0777 $SPICEMNT/sock
+	[ -d /dev/dri ] && chmod 0666 /dev/dri/render*
 fi
 
 USB="-device qemu-xhci -device usb-kbd -device usb-tablet"
+RNG="-device virtio-rng-pci,id=rng0,max-bytes=1024,period=2000"
+BALLOON="-device virtio-balloon-pci,id=balloon0"
 
 INITRD="-initrd ${ANDROID_DIR}/ramdisk.img"
 SUPER="-drive file=${ANDROID_DIR}/composite.img,format=raw"
 PARTITIONS="$INITRD $SUPER"
 
-KERNEL_OPTS="ro selinux=0 nokaslr console=ttyAMA0 loglevel=8 androidboot.boot_devices=4010000000.pcie androidboot.fstab_suffix=f2fs androidboot.slot_suffix=_a androidboot.selinux=permissive hw.gpu.mode=mesa ro.kernel.qemu.gltransport=virtio-gpu androidboot.hardware=cutf_cvm androidboot.hardware.gltransport=virtio-gpu androidboot.hardware.vulkan=pastel androidboot.hardware.egl=mesa"
+KERNEL_OPTS="ro selinux=0 nokaslr console=ttyAMA0 loglevel=8 androidboot.boot_devices=4010000000.pcie androidboot.fstab_suffix=f2fs androidboot.slot_suffix=_a androidboot.hardware.hwcomposer=drm_minigbm androidboot.selinux=permissive hw.gpu.mode=mesa ro.kernel.qemu.gltransport=virtio-gpu androidboot.hardware=cutf_cvm androidboot.hardware.gltransport=virtio-gpu androidboot.hardware.vulkan=pastel androidboot.hardware.egl=mesa androidboot.hardware.gralloc=minigbm androidboot.hardware.hwcomposer=drm_minigbm androidboot.lcd_density=160"
 
 if [ -z "$KVM" ]; then
-QEMUOPTS="-cpu cortex-a53,${PROFILE} ${SMP} -M ${MACHINE} -m ${MEM} ${DEBUGOPTS} ${NETOPTS} ${AUDIO} ${DEBUG}"
+CPU="-cpu max,${PROFILE} "
 else
-QEMUOPTS="-enable-kvm -cpu host,${PROFILE} ${SMP} -M ${MACHINE} -m ${MEM} ${DEBUGOPTS} ${NETOPTS} ${AUDIO} ${DEBUG}"
+CPU="-enable-kvm -cpu host,${PROFILE}"
 fi
+QEMUOPTS="${CPU} ${SMP} -M ${MACHINE} -m ${MEM} ${DEBUGOPTS} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUG}"
 
 echo "Running $TOOLDIR/qemu-system-aarch64 as user $USER"
 echo "- Guest ssh access available at $LOCALIP:$PORT"
