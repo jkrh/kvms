@@ -60,8 +60,7 @@ set -e
 [ -z "$SMP" ] && SMP="-smp 4"
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICESOCK="unix=on,addr=$SPICEMNT/sock/$PORT"
-[ -z "$SCREEN" ] && SCREEN="-serial mon:stdio -device virtio-gpu-pci,id=gpu0,virgl=on -display egl-headless,gl=on -spice $SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migration=on $VDAGENT"
-#SCREEN="-serial mon:stdio -vga std -device ramfb"
+[ -z "$SCREEN" ] && SCREEN="-serial mon:stdio -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless,gl=on -spice $SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migration=on $VDAGENT"
 [ -n "$PROFILE" ] && PROFILE="pmu=on"
 [ -z "$PROFILE" ] && PROFILE="pmu=off"
 

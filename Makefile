@@ -16,6 +16,13 @@ $(info KERNEL_DIR:	$(KERNEL_DIR))
 $(info PLATFORM:	$(PLATFORM))
 $(info CHIPSET:		$(CHIPSET))
 
+#
+# Android QEMU defaults. The host QEMU is always build with these enabled.
+#
+export OPENGL := 1
+export SPICE := 1
+export VIRGL := 1
+
 all: check dirs
 check:
 	@[ "${KERNEL_DIR}" ] && echo -n "" || ( echo "KERNEL_DIR is not set"; exit 1 )

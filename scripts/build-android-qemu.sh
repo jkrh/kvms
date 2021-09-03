@@ -7,7 +7,10 @@
 
 TOOLDIR=$BASE_DIR/buildtools
 QEMU_USER=`which qemu-aarch64-static`
-QEMU_PATCHFILE="$BASE_DIR/patches/0001-target-ranchu-add-support-for-android-ranchu-board.patch"
+
+#
+# Default: dynamic, opengl, spice, virgl, hybris
+#
 
 if [ "x$STATIC" = "x1" ]; then
 echo "Static build"
@@ -35,20 +38,20 @@ echo "Spice disabled"
 SPICE="--disable-spice"
 fi
 
-if [ "x$SDL" = "x0" ]; then
-echo "SDL disabled"
-SDL="--disable-sdl --audio-drv-list="
-else
+if [ "x$SDL" = "x1" ]; then
 echo "SDL enabled"
 SDL="--enable-sdl --audio-drv-list=sdl"
+else
+echo "SDL disabled"
+SDL="--disable-sdl --audio-drv-list="
 fi
 
-if [ "x$VIRGL" = "x0" ]; then
-echo "VIRGL disabled"
-VIRGL="--disable-virglrenderer"
-else
+if [ "x$VIRGL" = "x1" ]; then
 echo "VIRGL enabled"
 VIRGL="--enable-virglrenderer"
+else
+echo "VIRGL disabled"
+VIRGL="--disable-virglrenderer"
 fi
 
 #
@@ -177,10 +180,9 @@ do_android_emulator()
 
 [ -n "$CLEAN" ] && do_clean
 do_sysroot
-do_patch
 do_spice
 [ -n "$ANDROID_EMU" ] && do_android_emulator
 do_qemu
-[ -n "$HYBRIS" ] && do_hybris
+[ -z "$STATIC" ] && do_hybris
 
 echo "All ok!"

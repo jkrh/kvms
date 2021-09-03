@@ -18,7 +18,7 @@ VDAGENT="-device virtio-serial-pci -device virtserialport,chardev=spicechannel0,
 [ -z "$SMP" ] && SMP="-smp 4"
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICESOCK="unix,addr=$SPICEMNT/sock/$PORT"
-[ -z "$SCREEN" ] && SCREEN="-nographic -device virtio-gpu-pci -spice $SPICESOCK,disable-ticketing $VDAGENT"
+[ -z "$SCREEN" ] && SCREEN="-serial mon:stdio -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless,gl=on -spice $SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migration=on $VDAGENT"
 [ -n "$DEBUG" ] && DEBUGOPTS="-S -s"
 [ -n "$PROFILE" ] && PROFILE="pmu=on"
 [ -z "$PROFILE" ] && PROFILE="pmu=off"
