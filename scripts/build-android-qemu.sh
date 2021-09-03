@@ -134,6 +134,15 @@ do_spice()
 	sudo -E chroot $CHROOTDIR sh -c "cd /build/spice-0.14.3; ./configure --prefix=/usr $SSTATIC --disable-celt051 ; make -j$NJOBS ; make install"
 }
 
+do_mesa()
+{
+	cd $BASE_DIR/oss/ubuntu/build
+	wget -c https://archive.mesa3d.org//mesa-20.2.6.tar.xz
+	tar xf mesa-20.2.6.tar.xz
+	cd mesa-20.2.6
+	sudo -E chroot $CHROOTDIR sh -c "cd /build/mesa-20.2.6; meson build --prefix /usr/local -Dopengl=true -Dosmesa=gallium -Dgallium-drivers=swrast,freedreno -Dshared-glapi=enabled ; cd build; meson install"
+}
+
 do_qemu()
 {
 	mkdir -p $BASE_DIR/oss/ubuntu/build/qemu
@@ -141,7 +150,7 @@ do_qemu()
 	mkdir -p $BASE_DIR/oss/ubuntu/build/qemu/build
 	cd $BASE_DIR/oss/ubuntu/build
 	sed -i '/spice-server &&/i spice_libs="  -L/usr/lib/aarch64-linux-gnu -lgobject-2.0 -lgmodule-2.0 -lglib-2.0 $spice_libs -lopus -ljpeg -lm"' qemu/configure
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
+	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --extra-cflags=\"-I/usr/local/include -L/usr/local/lib/x86_64-linux-gnu -lgbm\" $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
 	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; make -j$NJOBS; make install"
 }
 
@@ -181,6 +190,7 @@ do_android_emulator()
 [ -n "$CLEAN" ] && do_clean
 do_sysroot
 do_spice
+do_mesa
 [ -n "$ANDROID_EMU" ] && do_android_emulator
 do_qemu
 [ -z "$STATIC" ] && do_hybris
