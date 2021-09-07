@@ -325,6 +325,92 @@ uint64_t pt_walk(struct ptable *tbl, uint64_t vaddr, uint64_t **ptep,
 	return __pt_walk(tbl, vaddr, ptep, &level, NULL);
 }
 
+static int lock_kernel_page(uint64_t vaddr, uint64_t levels)
+{
+	struct ptable *s1pgd;
+	struct ptable *s2pgd;
+	uint64_t phys, ipa;
+	uint64_t *ptep;
+
+	s1pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	if (!s1pgd)
+		HYP_ABORT();
+
+	ipa = pt_walk(s1pgd, vaddr, &ptep, levels);
+	if ((ipa == ~0UL) || !*ptep)
+		return -EINVAL;
+
+	s2pgd = (struct ptable *)(read_reg(VTTBR_EL2) & TTBR_BADDR_MASK);
+	phys = pt_walk(s2pgd, ipa, &ptep, 4);
+	if ((phys == ~0UL) || !*ptep)
+		return -EINVAL;
+
+	*ptep |= PAGE_KERNEL_RO;
+	tlbi_el1_ipa(vaddr);
+
+	return 0;
+}
+
+int lock_host_kernel_area(uint64_t vaddr, size_t size)
+{
+	uint64_t noff, end, levels;
+	kvm_guest_t *guest = NULL;
+	struct ptable *nl;
+
+	guest = get_guest(HOST_VMID);
+	if (!guest)
+		HYP_ABORT();
+
+	nl = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	if (!nl)
+		HYP_ABORT();
+
+	levels = guest->table_levels;
+	lock_kernel_page((uint64_t)nl, levels);
+
+	end = vaddr + size;
+	while (vaddr < end) {
+		if (levels >= 4) {
+			/* Level 0 */
+			noff = (vaddr & TABLE_0_MASK) >> L0_SHIFT;
+			if (!bit_raised(nl->entries[noff], VALID_TABLE_BIT))
+				goto cont;
+			nl = (struct ptable *)table_oaddr(nl->entries[noff]);
+			if (!nl)
+				goto cont;
+			lock_kernel_page((uint64_t)nl, levels);
+		}
+
+		if (levels >= 3) {
+			/* Level 1 */
+			noff = (vaddr & TABLE_1_MASK) >> L1_SHIFT;
+			if (!bit_raised(nl->entries[noff], VALID_TABLE_BIT))
+				goto cont;
+			if (!bit_raised(nl->entries[noff], TABLE_TYPE_BIT))
+				goto cont;
+			nl = (struct ptable *)table_oaddr(nl->entries[noff]);
+			if (!nl)
+				goto cont;
+			lock_kernel_page((uint64_t)nl, levels);
+		}
+
+		/* Level 2 */
+		noff = (vaddr & TABLE_2_MASK) >> L2_SHIFT;
+		if (!bit_raised(nl->entries[noff], VALID_TABLE_BIT))
+			goto cont;
+		if (!bit_raised(nl->entries[noff], TABLE_TYPE_BIT))
+			goto cont;
+		nl = (struct ptable *)table_oaddr(nl->entries[noff]);
+		if (!nl)
+			goto cont;
+		lock_kernel_page((uint64_t)nl, levels);
+
+cont:
+		vaddr += 0x1000;
+	}
+	return 0;
+}
+
 void print_mappings(uint32_t vmid, uint64_t stage, uint64_t vaddr, size_t sz)
 {
 	uint64_t start_vaddr = 0, end_vaddr = 0, start_addr = 0, perms = 0;

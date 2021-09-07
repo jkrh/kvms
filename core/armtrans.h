@@ -172,6 +172,17 @@ int free_guest_tables(uint64_t vmid);
 uint64_t pt_walk(struct ptable *table, uint64_t vaddr, uint64_t **ptep,
 		 uint64_t levels);
 
+
+/**
+ * Prevents the calling kernel from ever changing its internal memory
+ * area EL1 mappings.
+ *
+ * @param vaddr virtual address base
+ * @param size size of the range
+ * @return zero on success or negative error code on failure
+ */
+int lock_host_kernel_area(uint64_t addr, size_t size);
+
 /**
  * Print memory mappings for given guest to console/log
  *

@@ -10,6 +10,14 @@
 #define KERNEL_BASE	0x4000000000
 
 /*
+ * Kernel lock flags
+ */
+#define HOST_STAGE1_LOCK	0x1
+#define HOST_STAGE2_LOCK	0x2
+#define HOST_KVM_CALL_LOCK	0x4
+#define HOST_PT_LOCK		0x8
+
+/*
  * Host protection support
  */
 #define HYP_FIRST_HOSTCALL		0x8000

@@ -38,7 +38,7 @@ extern uint64_t core_lock;
 uint64_t crash_lock;
 uint64_t hostflags;
 
-int set_lockflags(uint64_t flags)
+int set_lockflags(uint64_t flags, uint64_t addr, size_t sz)
 {
 	if (flags & HOST_STAGE2_LOCK)
 		hostflags |= HOST_STAGE2_LOCK;
@@ -46,6 +46,8 @@ int set_lockflags(uint64_t flags)
 		hostflags |= HOST_STAGE1_LOCK;
 	if (flags & HOST_KVM_CALL_LOCK)
 		hostflags |= HOST_KVM_CALL_LOCK;
+	if (flags & HOST_PT_LOCK)
+		return lock_host_kernel_area(addr, sz);
 
 	return 0;
 }
@@ -178,7 +180,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = platform_get_next_vmid(a1);
 		break;
 	case HYP_HOST_SET_LOCKFLAGS:
-		res = set_lockflags(a1);
+		res = set_lockflags(a1, a2, a3);
 		break;
 	/*
 	 * Control functions
@@ -319,7 +321,7 @@ void print_abort(void)
 NORETURN
 void hyp_abort(const char *func, const char *file, int line)
 {
-	ERROR("Aborted: file %s func %s line %lu\n", func, file, line);
+	ERROR("Aborted: %s:%lu func %s\n", file, line, func);
 
 #ifdef CRASHDUMP
 	print_tables(get_current_vmid());

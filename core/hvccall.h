@@ -4,10 +4,6 @@
 
 #include "hvccall-defines.h"
 
-#define HOST_STAGE1_LOCK	0x1
-#define HOST_STAGE2_LOCK	0x2
-#define HOST_KVM_CALL_LOCK	0x4
-
 #define HYP_ABORT() hyp_abort(__func__, __FILE__, __LINE__)
 
 void hyp_abort(const char *func, const char *file, int line);
@@ -25,8 +21,10 @@ void dump_state(uint64_t level, void *sp);
  * Set hypervisor lock flags, see above for supported locks.
  *
  * @param flags, the lock flags. See the definitions above.
+ * @param vaddr, if applicable for the given lock
+ * @param sz, if applicable for the given lock
  * @return zero on success or negative error code on failure
  */
-int set_lockflags(uint64_t flags);
+int set_lockflags(uint64_t flags, uint64_t vaddr, size_t sz);
 
 #endif
