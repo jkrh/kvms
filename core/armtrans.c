@@ -1064,6 +1064,9 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	if (!host || !pgd)
 		HYP_ABORT();
 
+	if ((vaddr > MAX_VADDR) || (paddr > MAX_PADDR) || (length > SZ_1G * 4))
+		return -EINVAL;
+
 	memset(&block, 0, sizeof(block));
 
 	switch (stage) {
@@ -1150,6 +1153,9 @@ int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 
 	if (!host)
 		HYP_ABORT();
+
+	if ((vaddr > MAX_VADDR) || (length > SZ_1G * 4))
+		return -EINVAL;
 
 	if (!pgd) {
 		block.guest = get_guest(HOST_VMID);
