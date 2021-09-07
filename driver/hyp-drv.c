@@ -27,9 +27,10 @@ MODULE_DESCRIPTION("Hypervisor call module for userspace");
 MODULE_LICENSE("GPL v2");
 
 #define DEVICE_NAME "hyp-drv"
-
-/* TODO: can we make this work? should we? */
+#define ADDR_MASK 0xFFFFFFFFFFFF
+#define ROUND_DOWN(N,M) ((N) & ~((M) - 1))
 #define KADDR_MASK 0xFFFFFFFFFFUL
+
 #define ats1e1r(va) \
 	({ \
 		u64 value; \
@@ -86,9 +87,9 @@ do_host_map(struct hypdrv_mem_region *reg)
 	u64 size, prot;
 	int ret;
 
-	section_start = kaddr_to_phys(reg->start);
-	section_end   = kaddr_to_phys(reg->end);
-	size = reg->end - reg->start;
+	section_start = kaddr_to_phys(reg->start) & ADDR_MASK;
+	section_end   = kaddr_to_phys(reg->end) & ADDR_MASK;
+	size = ROUND_DOWN(reg->end - reg->start, 0x1000);
 	prot = reg->prot;
 
 #ifdef DEBUG
@@ -96,7 +97,7 @@ do_host_map(struct hypdrv_mem_region *reg)
                 reg->start, reg->end, prot, section_start, section_end, size);
 #endif
 	ret = call_hyp(HYP_HOST_MAP_STAGE2, section_start, section_start,
-		       size, prot, s2_iwb);
+		       size, prot | s2_wb, 0);
 
 	return ret;
 }
@@ -119,26 +120,9 @@ kernel_lock(void)
 	if (err)
 		goto out;
 
-	/* kernel data */
-	reg = MK_HMR(_data__addr, __bss_stop__addr, HYPDRV_PAGE_KERNEL);
-	err = do_host_map(&reg);
-	if (err)
-		goto out;
-
-	/* vdso */
-	reg = MK_HMR(vdso_start__addr, vdso_end__addr, HYPDRV_PAGE_VDSO);
-	err = do_host_map(&reg);
-	if (err)
-		goto out;
-
 	/* rodata */
 	reg = MK_HMR(__start_rodata__addr, vdso_start__addr,
 		     HYPDRV_PAGE_KERNEL_RO);
-	err = do_host_map(&reg);
-	if (err)
-		goto out;
-
-	reg = MK_HMR(vdso_end__addr, __end_rodata__addr, HYPDRV_PAGE_KERNEL_RO);
 	err = do_host_map(&reg);
 
 out:
@@ -294,7 +278,7 @@ int init_module(void)
 		pr_err("HYPDRV register_chrdev failed with %d\n", major);
 		return major;
 	}
-	pr_info("HYPDRV mknod /dev/%s c %d 0", DEVICE_NAME, major);
+	pr_info("HYPDRV mknod /dev/%s c %d 0\n", DEVICE_NAME, major);
 
 	return 0;
 }

@@ -1,6 +1,6 @@
 # ccflags-y := -Wp,-w
 ifeq ($(DEBUG),1)
-export OPTS := -g -O0 -DDEBUG
+export OPTS := -g -O1 -DDEBUG
 endif
 KERNEL_DIR := $(PWD)/../oss/linux
 
