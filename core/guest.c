@@ -19,7 +19,13 @@
 #define KVM_ARCH 0
 #define KVM_ARCH_VMID 0
 #define KVM_ARCH_PGD 0
+#define KVM_EXT_OPS 0
 #endif
+
+struct hyp_extension_ops {
+	int (*load_host_stage2)(void);
+	int (*load_guest_stage2)(uint64_t vmid);
+};
 
 /*
  * FIXME: calculate vmid offset
@@ -34,17 +40,65 @@
 			  KVM_ARCH_VMID + KVM_ARCH_VMID_OFFT)
 
 #define KVM_GET_VMID(x) (*(uint32_t *)_KVM_GET_VMID(x))
-#define KVM_GET_PGD_PTR(x) (uint64_t *)(_KVM_GET_ARCH((char *)x) + KVM_ARCH_PGD)
+#define KVM_GET_PGD_PTR(x) ((uint64_t *)(_KVM_GET_ARCH((char *)x) + KVM_ARCH_PGD))
+#define KVM_GET_EXT_OPS_PTR(x) ((struct hyp_extension_ops *)(_KVM_GET_ARCH((char *)x) + KVM_EXT_OPS))
 
+#define INVALID_VMID PRODUCT_VMID_MAX
+#define INVALID_GUEST MAX_GUESTS
+
+static uint16_t guest_index[PRODUCT_VMID_MAX];
 static kvm_guest_t guests[MAX_GUESTS];
 
-kvm_guest_t *get_free_guest()
+void init_guest_array(void)
 {
 	int i;
 
+	for (i = 0; i < PRODUCT_VMID_MAX; i++)
+		guest_index[i] = INVALID_GUEST;
+
+	memset(guests, 0, sizeof(guests));
+	for (i = 0; i < MAX_GUESTS; i++)
+		guests[i].vmid = INVALID_VMID;
+}
+
+int load_host_s2(void)
+{
+	write_reg(VTCR_EL2, guests[guest_index[HOST_VMID]].ctxt.vtcr_el2);
+	write_reg(VTTBR_EL2, guests[guest_index[HOST_VMID]].ctxt.vttbr_el2);
+	return 0;
+}
+
+int load_guest_s2(uint64_t vmid)
+{
+	kvm_guest_t *guest;
+
+	guest = &guests[guest_index[vmid]];
+	if (guest == NULL) {
+		ERROR("No guest for vmid %d\n", vmid);
+		return -ENOENT;
+	}
+
+	guests[guest_index[HOST_VMID]].ctxt.vtcr_el2 = read_reg(VTCR_EL2);
+	guests[guest_index[HOST_VMID]].ctxt.vttbr_el2 = read_reg(VTTBR_EL2);
+	write_reg(VTTBR_EL2, guest->ctxt.vttbr_el2);
+
+	return 0;
+}
+
+kvm_guest_t *get_free_guest(uint64_t vmid)
+{
+	int i;
+
+	if ((guest_index[vmid] != INVALID_GUEST) &&
+	    (vmid != 0))
+		return NULL;
+
 	for (i = 0; i < MAX_GUESTS; i++) {
-		if (!guests[i].s2_pgd)
+		if (guests[i].vmid == INVALID_VMID) {
+			guest_index[vmid] = i;
+			guests[i].vmid = vmid;
 			return &guests[i];
+		}
 	}
 	return NULL;
 }
@@ -52,27 +106,18 @@ kvm_guest_t *get_free_guest()
 kvm_guest_t *get_guest(uint64_t vmid)
 {
 	kvm_guest_t *guest = NULL;
-	int i;
+	uint16_t i;
 
-	if (vmid != HOST_VMID) {
-		for (i = 0; i < MAX_GUESTS; i++) {
-			if (guests[i].kvm &&
-			   (vmid == (uint64_t)KVM_GET_VMID(guests[i].kvm))) {
-				guests[i].vmid = vmid;
-				guest = &guests[i];
-				goto out;
-			}
-		}
-	} else {
-		for (i = 0; i < MAX_GUESTS; i++) {
-			if (guests[i].vmid == HOST_VMID) {
-				guest = &guests[i];
-				goto out;
-			}
-		}
-		guest = get_free_guest();
-		guest->vmid = HOST_VMID;
+	if (vmid >= PRODUCT_VMID_MAX)
+		goto out;
+
+	i = guest_index[vmid];
+	if (i != INVALID_GUEST) {
+		guest = &guests[i];
+		if (guest->vmid != vmid)
+			guest = NULL;
 	}
+
 out:
 	return guest;
 }
@@ -106,7 +151,8 @@ int init_guest(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
 	uint64_t *pgd;
-	int i;
+	uint64_t i, vmid = 0;
+	struct hyp_extension_ops *eops;
 
 	if (!kvm)
 		return -EINVAL;
@@ -120,17 +166,14 @@ int init_guest(void *kvm)
 	}
 
 	if (!guest) {
-		guest = get_free_guest();
+		vmid = (uint64_t)KVM_GET_VMID(kvm);
+		guest = get_free_guest(vmid);
 		if (!guest)
 			return -ENOSPC;
 
-		/*
-		 * VMID is not allocated yet, so use host
-		 * tracking and a separate free.
-		 */
-		guest->s2_pgd = alloc_table(HOST_VMID);
+		guest->s2_pgd = alloc_table(vmid);
 		if (!guest->s2_pgd) {
-			free_guest(guest);
+			free_guest(kvm);
 			return -ENOMEM;
 		}
 	}
@@ -143,6 +186,11 @@ int init_guest(void *kvm)
 	*pgd = (uint64_t)guest->s2_pgd;
 	guest->kvm = kvm;
 	guest->table_levels = TABLE_LEVELS;
+
+	guest->ctxt.vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
+	eops = KVM_GET_EXT_OPS_PTR(kvm);
+	eops->load_host_stage2 = load_host_s2;
+	eops->load_guest_stage2 = load_guest_s2;
 
 	/* Save the current VM process stage1 PGD */
 	guest->s1_pgd = (struct ptable *)read_reg(TTBR0_EL1);
@@ -206,6 +254,35 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 		}
 	}
 	return guest;
+}
+
+int guest_set_vmid(void *kvm, uint64_t vmid)
+{
+	kvm_guest_t *guest = NULL;
+	int i, res = -ENOENT;
+
+	if (vmid < GUEST_VMID_START)
+		return res;
+
+	kvm = kern_hyp_va(kvm);
+
+	for (i = 0; i < MAX_GUESTS; i++) {
+		if (guests[i].kvm == kvm) {
+			guest = &guests[i];
+			break;
+		}
+	}
+
+	if (guest != NULL) {
+		i = guest_index[guest->vmid];
+		guest_index[guest->vmid] = INVALID_GUEST;
+		guest->vmid = vmid;
+		guest_index[vmid] = i;
+		guest->ctxt.vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
+		res = 0;
+	}
+
+	return res;
 }
 
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
@@ -383,7 +460,12 @@ out_error:
 int free_guest(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
+	kvm_guest_t *host = NULL;
 	int i, res;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		return -EINVAL;
 
 	if (!kvm)
 		return -EINVAL;
@@ -398,16 +480,38 @@ int free_guest(void *kvm)
 	if (!guest)
 		return 0;
 
-	if (guest->vmid) {
-		res = restore_host_mappings(guest);
-		if (res)
-			return res;
+	if (guest->s2_pgd == host->s2_pgd)
+		HYP_ABORT();
 
-		free_guest_tables(guest->vmid);
-		free_table(guest->s2_pgd);
+	if (guest->vmid == HOST_VMID)
+		return 0;
+
+	res = restore_host_mappings(guest);
+	if (res)
+		return res;
+
+	free_guest_tables(guest->vmid);
+	free_table(guest->s2_pgd);
+	/*
+	 * Handle VMID zero as a special case since it is used
+	 * for early init purposes and there may exist another
+	 * KVM instance already with VMID zero (for which
+	 * the VMID will be assigned before its first run).
+	 */
+	if (guest->vmid)
+		guest_index[guest->vmid] = INVALID_GUEST;
+	else {
+		for (i = 0; i < MAX_GUESTS; i++) {
+			if ((guests[i].kvm != 0) && guests[i].vmid == 0) {
+				guest_index[0] = i;
+				break;
+			}
+		}
 	}
 
-	memset (guest, 0, sizeof(*guest));
+	memset(guest, 0, sizeof(*guest));
+	guest->vmid = INVALID_VMID;
+
 #if DEBUGDUMP
 	print_mappings(0, STAGE2, SZ_1G, SZ_1G*5);
 #endif

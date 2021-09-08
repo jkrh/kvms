@@ -27,6 +27,11 @@
 
 typedef int kernel_func_t(uint64_t, ...);
 
+typedef struct {
+	uint64_t vttbr_el2;
+	uint64_t vtcr_el2;
+} sys_context_t;
+
 typedef enum {
 	guest_invalid = 0x0,
 	guest_stopped = 0x1,
@@ -46,7 +51,13 @@ typedef struct {
 	uint64_t pd_index;
 	uint32_t sn;
 	uint32_t table_levels;
+	sys_context_t ctxt;
 } kvm_guest_t;
+
+/**
+ * Initialize the guests and guest lookup array.
+ */
+void init_guest_array(void);
 
 /**
  * Initialize a new kvm guest. KVM structure must be allocated
@@ -159,6 +170,14 @@ int verify_range(kvm_guest_t *guest, uint64_t ipa, uint64_t addr,
 		 uint64_t len);
 
 /**
+ * Allocate guest structure for a VMID
+ *
+ * @param vmid of the guest
+ * @return kvm_guest_t
+ */
+kvm_guest_t *get_free_guest(uint64_t vmid);
+
+/**
  * Fetch given guest structure
  *
  * @param vmid of the guest
@@ -168,6 +187,15 @@ kvm_guest_t *get_guest(uint64_t vmid);
 kvm_guest_t *get_guest_by_kvm(void *kvm);
 kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd);
 kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd);
+
+/**
+ * Set VMID for a KVM
+ *
+ * @param kvm structure of the guest
+ * @param vmid to be set for the guest
+ * @return zero on success or negative error code on failure
+ */
+int guest_set_vmid(void *kvm, uint64_t vmid);
 
 /**
  * Perform memory copy for the current guest

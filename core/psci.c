@@ -84,7 +84,7 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 		}
 		break;
 	default:
-		LOG("VMID %lu unknown PSCI call %lx\n", vmid, cn);
+		/*LOG("VMID %lu unknown PSCI call %lx\n", vmid, cn);*/
 		break;
 	}
 }

@@ -120,11 +120,14 @@ int main(int argc UNUSED, char **argv UNUSED)
 	LOG("HYP: core %d started at %ldus\n", init_index, tv.tv_usec);
 
 	if (init_index == 0) {
-		tdinfo_init();
-		table_init();
-		host = get_guest(HOST_VMID);
+		init_guest_array();
+		if (HOST_VMID == 0)
+			HYP_ABORT();
+		host = get_free_guest(HOST_VMID);
 		if (!host)
 			HYP_ABORT();
+		tdinfo_init();
+		table_init();
 		res = machine_init(host);
 		if (res)
 			return res;

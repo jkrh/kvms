@@ -177,7 +177,8 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = 0;
 		break;
 	case HYP_HOST_GET_VMID:
-		res = platform_get_next_vmid(a1);
+		res = platform_get_next_vmid(a2);
+		guest_set_vmid((void *)a1, res);
 		break;
 	case HYP_HOST_SET_LOCKFLAGS:
 		res = set_lockflags(a1, a2, a3);
