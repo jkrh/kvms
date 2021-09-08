@@ -345,7 +345,8 @@ static int lock_kernel_page(uint64_t vaddr, uint64_t levels)
 	if ((phys == ~0UL) || !*ptep)
 		return -EINVAL;
 
-	*ptep |= PAGE_KERNEL_RO;
+	*ptep &= ~0x600000000000C0;
+	*ptep |= PAGE_HYP_RO;
 	tlbi_el1_ipa(vaddr);
 
 	return 0;
