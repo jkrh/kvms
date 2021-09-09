@@ -100,10 +100,10 @@ void __stack_chk_fail(void)
 
 int main(int argc UNUSED, char **argv UNUSED)
 {
-	struct timeval tv;
+	struct timeval tv ALIGN(16);
 	uint64_t init_index;
-	int res;
 	kvm_guest_t *host;
+	int res;
 
 	__asm__ __volatile__("str	x26, %[__lr_addr]\n"
 			     "str	x27, %[__ret_addr]\n"

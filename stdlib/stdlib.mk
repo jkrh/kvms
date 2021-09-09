@@ -32,15 +32,10 @@ STDLIB_SRCS	:=	$(addprefix lib/stdlib/,	\
 			abort.c				\
 			assert.c			\
 			exit.c				\
-			mem.c				\
 			printf.c			\
 			putchar.c			\
 			puts.c				\
 			sscanf.c			\
-			strchr.c			\
-			strcmp.c			\
-			strlen.c			\
-			strncmp.c			\
 			subr_prf.c)
 
 INCLUDES	+=	-Iinclude/lib/stdlib		\

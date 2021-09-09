@@ -83,7 +83,7 @@ typedef struct tdinfo_t
 	uint64_t l1_blk_size;
 	uint64_t l2_blk_size;
 	uint64_t table_oa_mask;
-} tdinfo_t;
+} tdinfo_t ALIGN(16);
 
 typedef struct
 {
@@ -98,7 +98,7 @@ typedef struct
 	uint64_t type;
 	uint64_t level;
 	uint64_t stage;
-} mblockinfo_t;
+} mblockinfo_t ALIGN(16);
 
 typedef enum
 {
@@ -216,7 +216,7 @@ int free_table(struct ptable *table)
 
 	for (i = 0; i < NUM_TABLES; i++) {
 		if (table == &tables[i]) {
-			memset (&tables[i], 0, sizeof(struct ptable));
+			memset(&tables[i], 0, sizeof(struct ptable));
 			table_props[i] = 0x0;
 			res = 0;
 		}
@@ -232,7 +232,7 @@ int free_guest_tables(uint64_t vmid)
 	for (i = 0; i < NUM_TABLES; i++) {
 		owner_vm = table_props[i] >> 8;
 		if (vmid == owner_vm) {
-			memset (&tables[i], 0, sizeof(struct ptable));
+			memset(&tables[i], 0, sizeof(struct ptable));
 			table_props[i] = 0x0;
 			res += 1;
 		}
@@ -1060,7 +1060,7 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type)
 {
 	kvm_guest_t *host = get_guest(HOST_VMID);
-	mblockinfo_t block;
+	mblockinfo_t block ALIGN(16);
 	uint64_t attr, nattr, val, *pte;
 
 	if (!host || !pgd)
@@ -1069,7 +1069,7 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	if ((vaddr > MAX_VADDR) || (paddr > MAX_PADDR) || (length > SZ_1G * 4))
 		return -EINVAL;
 
-	memset(&block, 0, sizeof(block));
+	_zeromem16(&block, sizeof(block));
 
 	switch (stage) {
 	case STAGE2:
@@ -1240,7 +1240,7 @@ void enable_mmu(void)
 
 	sctlr = read_reg(SCTLR_EL2);
 	bit_set(sctlr, SCTLR_MMU);
-	bit_set(sctlr, SCTLR_A);
+	bit_drop(sctlr, SCTLR_A);
 	bit_set(sctlr, SCTLR_C);
 	write_reg(SCTLR_EL2, sctlr);
 

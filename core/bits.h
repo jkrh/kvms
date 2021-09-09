@@ -53,6 +53,7 @@
 #define SCTLR_MMU 0
 #define SCTLR_A 1
 #define SCTLR_C 2
+#define SCTLR_NAA 6
 
 /* VTCR */
 #define VTCR_IRGN0_BIT1 8

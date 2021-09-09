@@ -9,6 +9,7 @@
 #include "guest.h"
 #include "armtrans.h"
 #include "hvccall.h"
+#include "mhelpers.h"
 #include "mm.h"
 #include "bits.h"
 
@@ -46,8 +47,8 @@ struct hyp_extension_ops {
 #define INVALID_VMID PRODUCT_VMID_MAX
 #define INVALID_GUEST MAX_GUESTS
 
-static uint16_t guest_index[PRODUCT_VMID_MAX];
-static kvm_guest_t guests[MAX_GUESTS];
+static uint16_t guest_index[PRODUCT_VMID_MAX] ALIGN(16);
+static kvm_guest_t guests[MAX_GUESTS] ALIGN(16);
 
 void init_guest_array(void)
 {
@@ -56,7 +57,7 @@ void init_guest_array(void)
 	for (i = 0; i < PRODUCT_VMID_MAX; i++)
 		guest_index[i] = INVALID_GUEST;
 
-	memset(guests, 0, sizeof(guests));
+	_zeromem16(guests, sizeof(guests));
 	for (i = 0; i < MAX_GUESTS; i++)
 		guests[i].vmid = INVALID_VMID;
 }
