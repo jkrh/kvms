@@ -16,6 +16,7 @@
 #include "bits.h"
 #include "cache.h"
 #include "hvccall.h"
+#include "mhelpers.h"
 
 #define NUM_TABLES      8192
 #define PT_SIZE_WORDS   512
@@ -1208,10 +1209,12 @@ void table_init(void)
 	kvm_guest_t *host;
 
 	/* Clean up everything */
-	memset(tables, 0, sizeof(tables));
+	if (_zeromem16(tables, sizeof(tables)))
+		ERROR("tables not initialized, check alignment!");
 	__flush_dcache_area((void *)tables, sizeof(tables));
 
-	memset(table_props, 0, sizeof(table_props));
+	if (_zeromem16(table_props, sizeof(table_props)))
+		ERROR("table_props not initialized, check alignment!");
 	__flush_dcache_area((void *)table_props, sizeof(table_props));
 	isb();
 
