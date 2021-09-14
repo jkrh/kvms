@@ -12,10 +12,11 @@
 /*
  * Kernel lock flags
  */
-#define HOST_STAGE1_LOCK	0x1
-#define HOST_STAGE2_LOCK	0x2
-#define HOST_KVM_CALL_LOCK	0x4
-#define HOST_PT_LOCK		0x8
+#define HOST_STAGE1_LOCK		0x1
+#define HOST_STAGE2_LOCK		0x2
+#define HOST_KVM_CALL_LOCK		0x4
+#define HOST_PT_LOCK			0x8
+#define HOST_KVM_TRAMPOLINE_LOCK	0x10
 
 /*
  * Host protection support

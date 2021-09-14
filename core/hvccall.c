@@ -56,10 +56,10 @@ int is_apicall(uint64_t cn)
 {
 	if ((cn >= HYP_FIRST_GUESTCALL) &&
 	    (cn <= HYP_LAST_GUESTCALL))
-		return CALL_TYPE_HOSTCALL;
+		return CALL_TYPE_GUESTCALL;
 	if ((cn >= HYP_FIRST_HOSTCALL) &&
 	    (cn <= HYP_LAST_HOSTCALL))
-		return CALL_TYPE_GUESTCALL;
+		return CALL_TYPE_HOSTCALL;
 	return CALL_TYPE_UNKNOWN;
 }
 
@@ -92,12 +92,17 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	bool retried = false;
 	hyp_func_t *func;
 	uint32_t vmid;
+	int ct;
+
+	ct = is_apicall(cn);
+	if ((ct == CALL_TYPE_GUESTCALL) && (hostflags & HOST_KVM_CALL_LOCK))
+		return -EPERM;
 
 	vmid = get_current_vmid();
 	if (vmid != HOST_VMID)
 		return guest_hvccall(cn, a1, a2, a3, a4, a5, a6, a7, a8, a9);
 
-	if (is_apicall(cn))
+	if (ct)
 		spin_lock(&core_lock);
 
 	switch (cn) {
@@ -260,6 +265,9 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_USER_COPY:
 		res = guest_user_copy(a6, a1, a2);
 		break;
+	/*
+	 * Unlocked misc calls
+	 */
 	case HYP_READ_LOG:
 		res = read_log();
 		break;
@@ -274,7 +282,8 @@ do_retry:
 			res = func((void *)a1, a2, a3, a4, a5, a6, a7, a8, a9);
 		} else {
 			if ((cn >= hyp_text_start) && (cn < hyp_text_end) &&
-			   !(hostflags & HOST_KVM_CALL_LOCK) && !retried) {
+			   !(hostflags & HOST_KVM_TRAMPOLINE_LOCK) &&
+			   !retried) {
 				res = add_jump(cn);
 				if (!res) {
 					retried = true;
@@ -285,7 +294,7 @@ do_retry:
 		}
 		break;
 	}
-	if (is_apicall(cn))
+	if (ct)
 		spin_unlock(&core_lock);
 
 	return res;
