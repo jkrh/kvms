@@ -5,7 +5,7 @@
 #ifndef __LINUXMACROS__
 #define __LINUXMACROS__
 
-#include "include/generated/asm-offsets.h"
+#include "hyp_config.h"
 #include "hvccall-defines.h"
 #include "host_defs.h"
 
@@ -14,9 +14,6 @@
 #define ARM_EXCEPTION_TRAP 2
 #define ARM_EXCEPTION_IL 3
 
-#ifndef HOST_DATA_CONTEXT
-#define HOST_DATA_CONTEXT 0
-#endif
 /*
  * Utility macros
  */

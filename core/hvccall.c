@@ -7,7 +7,7 @@
 
 #include <host_platform.h>
 
-#include "include/generated/asm-offsets.h"
+#include "hyp_config.h"
 #include "armtrans.h"
 #include "bits.h"
 #include "helpers.h"

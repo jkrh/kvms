@@ -14,14 +14,7 @@
 #include "bits.h"
 
 #include "host_platform.h"
-#include "include/generated/asm-offsets.h"
-
-#ifndef KVM_ARCH
-#define KVM_ARCH 0
-#define KVM_ARCH_VMID 0
-#define KVM_ARCH_PGD 0
-#define KVM_EXT_OPS 0
-#endif
+#include "hyp_config.h"
 
 struct hyp_extension_ops {
 	int (*load_host_stage2)(void);

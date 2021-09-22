@@ -6,10 +6,22 @@
 # driver.
 #
 ifeq ($(DEBUG),1)
-export OPTS := -g -Os -DDEBUG -DCRASHDUMP
+BUILDOPTS := -g -Os -DDEBUG -DCRASHDUMP
 else
-export OPTS := -g -O2 -D_FORTIFY_SOURCE -DCRASHDUMP
+BUILDOPTS := -g -O2 -D_FORTIFY_SOURCE -DCRASHDUMP
 endif
+#
+# Default build will include headers from linux kernel and
+# work as KVM extension. Standalone build on the other hand
+# will compile without the defines from linux kernel headers.
+# Standalone version is intended to work as basis for things
+# like host memory protection and intrusion detection.
+#
+ifeq ($(STANDALONE),1)
+BUILDOPTS += -DSTANDALONE
+endif
+#
+export OPTS := $(BUILDOPTS)
 #
 # Use to make qemu wait for debugger connection, aka
 # 'make gdb'

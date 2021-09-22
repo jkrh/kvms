@@ -7,7 +7,7 @@
 #include "armtrans.h"
 #include "guest.h"
 #include "hvccall-defines.h"
-#include "include/generated/asm-offsets.h"
+#include "hyp_config.h"
 #include "hvccall.h"
 #include "bits.h"
 
