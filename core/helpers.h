@@ -80,7 +80,7 @@
 	do {                                                                   \
 		__asm__ __volatile__("mov	x20, %[vaddr]\n"               \
 				     "lsr	%[vaddr], %[vaddr], #12\n"     \
-				     "tlbi	ipas2le1is, %[vaddr]\n"        \
+				     "tlbi	ipas2e1is, %[vaddr]\n"        \
 				     "mov	%[vaddr], x20\n"               \
 				     :                                         \
 				     : [vaddr] "r"(va)                         \
@@ -162,6 +162,8 @@ static inline void hexdump(const char *token, uint8_t *data, int len)
 #define tlbialle1() __asm__ __volatile__("tlbi	alle1\n" : : : "memory");
 
 #define tlbialle1is() __asm__ __volatile__("tlbi	alle1is\n" : : : "memory");
+
+#define tlbivmalle1is() __asm__ __volatile__("tlbi	vmalle1is\n" : : : "memory");
 
 #define tlbialle2() __asm__ __volatile__("tlbi	alle2\n" : : : "memory");
 

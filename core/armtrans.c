@@ -839,7 +839,8 @@ int __mmap_range(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 	}
 
 	if (invalidate)
-		tlbialle1is();
+		tlbivmalle1is();
+	dsb();
 	isb();
 
 	return 0;
