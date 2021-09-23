@@ -17,6 +17,10 @@
 #include "hvccall.h"
 #include "kentry.h"
 
+struct timeval tv1 ALIGN(16);
+struct timeval tv2 ALIGN(16);
+uint8_t init_index;
+
 extern uint64_t entrylock;
 extern uint64_t __stack[];
 extern uint64_t __fdt_addr;
@@ -100,8 +104,6 @@ void __stack_chk_fail(void)
 
 int main(int argc UNUSED, char **argv UNUSED)
 {
-	struct timeval tv ALIGN(16);
-	uint64_t init_index;
 	kvm_guest_t *host;
 	int res;
 
@@ -115,9 +117,8 @@ int main(int argc UNUSED, char **argv UNUSED)
 			     : "memory");
 
 	init_index = smp_processor_id();
-	gettimeofday(&tv, NULL);
+	gettimeofday(&tv1, NULL);
 	platform_console_init();
-	LOG("HYP: core %d started at %ldus\n", init_index, tv.tv_usec);
 
 	if (init_index == 0) {
 		init_guest_array();
@@ -138,11 +139,15 @@ int main(int argc UNUSED, char **argv UNUSED)
 				     : [__my_sp] "r"(__my_sp)
 				     :);
 	}
+	/*
+	 * Note: we may have just swapped stack ^
+	 */
 	early_setup();
 	enable_mmu();
 
-	gettimeofday(&tv, NULL);
-	LOG("HYP: core %d entering el1 at %ldus\n", init_index, tv.tv_usec);
+	gettimeofday(&tv2, NULL);
+	LOG("HYP: core %ld initialization latency was %ldms\n",
+	     init_index, (tv2.tv_usec - tv1.tv_usec) / 1000);
 	init_index++;
 	spin_unlock(&entrylock);
 
