@@ -173,8 +173,8 @@ int init_guest(void *kvm)
 	}
 
 	/*
-	 * FIXME: the real thing to do here is to protect the kernel
-	 * writable shared blobs, like the kvm.
+	 * The address field (pgd ptr) set below is merely an indication to EL1
+	 * that the guest has been initialized.
 	 */
 	pgd = KVM_GET_PGD_PTR(kvm);
 	*pgd = (uint64_t)guest->s2_pgd;
