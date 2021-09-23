@@ -37,3 +37,10 @@ cd hyp
 # itself is being built.
 
 make
+
+# Make qemu-for-android.
+
+make android-qemu
+
+# If this make fails due to permission issues, re-run the docker image
+# with additional parameters '--cap-add=SYS_ADMIN --privileged=true'.
