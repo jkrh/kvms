@@ -41,6 +41,6 @@ struct log_frag {
 #define HYPDRV_PAGE_VDSO	(_XN(0UL, 1UL)|_SH(1UL, 1UL)|_S2AP(1UL, 1UL))
 #define HYPDRV_PAGE_KERNEL_RO	(_XN(1UL, 0UL)|_SH(1UL, 1UL)|_S2AP(0UL, 1UL))
 
-#define s2_wb	(0xF << 2)        /* Outer & inner Write-Back Cacheable */
+#define s2_wb (0xF << 2)	/* Outer & inner Write-Back Cacheable */
 
 #endif // __HYP_DRV__

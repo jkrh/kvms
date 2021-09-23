@@ -29,19 +29,10 @@ MODULE_LICENSE("GPL v2");
 #define DEVICE_NAME "hyp-drv"
 #define ADDR_MASK 0xFFFFFFFFFFFF
 #define ROUND_DOWN(N,M) ((N) & ~((M) - 1))
-#define KADDR_MASK 0xFFFFFFFFFFUL
-
-#define ats1e1r(va) \
-	({ \
-		u64 value; \
-			__asm__ __volatile__( \
-					"at	s1e1r, %[vaddr]\n" \
-					"mrs	%[paddr], PAR_EL1\n" \
-					: [paddr] "=r"(value) \
-					: [vaddr] "r"(va) \
-					:); \
-		value; \
-	})
+#define MK_HMR(START, END, PROT) (struct hypdrv_mem_region)\
+	{PAGE_ALIGN((u64)(START)), PAGE_ALIGN((u64)(END)), PROT}
+#define BUG_ON_NONALIGNED(START) \
+	BUILD_BUG_ON(!PAGE_ALIGNED(START));
 
 static int major;
 static int dopen;
@@ -49,21 +40,18 @@ static int dopen;
 static u64 kaddr_to_phys(u64 kaddr)
 {
 	return virt_to_phys((void *)kaddr);
-
-	/* WAS: return ats1e1r(kaddr) & KADDR_MASK; */
 }
 
 #define __asmeq(x, y)  ".ifnc " x "," y " ; .err ; .endif\n\t"
 
 static noinline int
-call_hyp(u64 function_id, u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4)
+call_hyp(u64 function_id, u64 arg0, u64 arg1, u64 arg2, u64 arg3)
 {
 	register u64 reg0 asm ("x0") = function_id;
 	register u64 reg1 asm ("x1") = arg0;
 	register u64 reg2 asm ("x2") = arg1;
 	register u64 reg3 asm ("x3") = arg2;
 	register u64 reg4 asm ("x4") = arg3;
-	register u64 reg5 asm ("x5") = arg4;
 
 	__asm__ __volatile__ (
 		__asmeq("%0", "x0")
@@ -73,11 +61,50 @@ call_hyp(u64 function_id, u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4)
 		__asmeq("%4", "x4")
 		"hvc	#0\n"
 		: "+r"(reg0)
-		: "r"(reg1), "r"(reg2), "r"(reg3), "r"(reg4), "r"(reg5)
+		: "r"(reg1), "r"(reg2), "r"(reg3), "r"(reg4)
 		: "memory");
 
 	return reg0;
 }
+
+/* Not supported in the virt environment currently:
+static noinline int
+_smc(u64 function_id, u64 arg0, u64 arg1, u64 arg2, u64 arg3, u64 arg4)
+{
+        register int reg0 asm ("x0") = function_id;
+        register u64 reg1 asm ("x1") = arg0;
+        register u64 reg2 asm ("x2") = arg1;
+        register u64 reg3 asm ("x3") = arg2;
+        register u64 reg4 asm ("x4") = arg3;
+        register u64 reg5 asm ("x5") = arg4;
+
+        __asm__ __volatile__ (
+                __asmeq("%0", "x0")
+                __asmeq("%1", "x1")
+                __asmeq("%2", "x2")
+                __asmeq("%3", "x3")
+                __asmeq("%4", "x4")
+                __asmeq("%5", "x5")
+                "smc    #0\n"
+                : "+r"(reg0)
+                : "r"(reg1), "r"(reg2), "r"(reg3), "r"(reg4), "r"(reg5)
+                : "memory");
+
+        return reg0;
+}
+
+static int is_kvms(void)
+{
+	int ret;
+
+	ret = _smc(0xFFFFFFFFE, 0, 0, 0, 0, 0);
+	if (ret != 0x99)
+		ret = 0;
+
+	return ret;
+}
+*/
+
 
 static ssize_t
 do_host_map(struct hypdrv_mem_region *reg)
@@ -96,14 +123,22 @@ do_host_map(struct hypdrv_mem_region *reg)
         pr_info("HYPDRV %s: %llx %llx %llx [ %llx %llx %llx ]\n", __func__,
                 reg->start, reg->end, prot, section_start, section_end, size);
 #endif
+
 	ret = call_hyp(HYP_HOST_MAP_STAGE2, section_start, section_start,
-		       size, prot | s2_wb, 0);
+		       size, prot | s2_wb);
 
 	return ret;
 }
 
-#define MK_HMR(START, END, PROT)                                \
-        (struct hypdrv_mem_region){(u64)START, (u64)END, PROT}
+static int
+do_hvc_lock(void)
+{
+	return call_hyp(HYP_HOST_SET_LOCKFLAGS,
+			HOST_STAGE1_LOCK |
+			HOST_STAGE2_LOCK |
+			HOST_KVM_CALL_LOCK,
+			0 , 0, 0);
+}
 
 static ssize_t
 kernel_lock(void)
@@ -111,11 +146,37 @@ kernel_lock(void)
 	struct hypdrv_mem_region reg;
 	int err = -ENODEV;
 
+	BUG_ON_NONALIGNED(_text__addr);
+	BUG_ON_NONALIGNED(_etext__addr);
+	BUG_ON_NONALIGNED(_data__addr);
+	BUG_ON_NONALIGNED(__start_rodata__addr);
+	BUG_ON_NONALIGNED(vdso_start__addr);
+	BUG_ON_NONALIGNED(vdso_end__addr);
+
 	preempt_disable();
 	local_irq_disable();
 
+	/*
+	if (!is_kvms()) {
+		pr_err("HYPDRV: hyp mode not available?");
+		goto out;
+	}
+	*/
+
 	/* kernel text section */
 	reg = MK_HMR(_text__addr, _etext__addr, HYPDRV_KERNEL_EXEC);
+	err = do_host_map(&reg);
+	if (err)
+		goto out;
+
+	/* kernel data */
+	reg = MK_HMR(_data__addr, __bss_stop__addr, HYPDRV_PAGE_KERNEL);
+	err = do_host_map(&reg);
+	if (err)
+		goto out;
+
+	/* vdso */
+	reg = MK_HMR(vdso_start__addr, vdso_end__addr, HYPDRV_PAGE_VDSO);
 	err = do_host_map(&reg);
 	if (err)
 		goto out;
@@ -125,12 +186,26 @@ kernel_lock(void)
 		     HYPDRV_PAGE_KERNEL_RO);
 	err = do_host_map(&reg);
 
+	if (err)
+		goto out;
+
+	reg = MK_HMR(vdso_end__addr, __end_rodata__addr, HYPDRV_PAGE_KERNEL_RO);
+	err = do_host_map(&reg);
+	if (err)
+		goto out;
+
+	err = do_hvc_lock();
+
 out:
 	local_irq_enable();
 	preempt_enable();
 
+
+	if (err)
+		pr_err( "HYPDRV %s: return %d\n", __func__, err);
 #ifdef DEBUG
-	pr_info("HYPDRV %s: return %d\n", __func__, err);
+	else
+		pr_info("HYPDRV %s: return %d\n", __func__, err);
 #endif
 
 	return err;
@@ -200,7 +275,7 @@ do_read(void __user *argp)
 	uint64_t res, ret;
 	int n;
 
-	res = call_hyp(HYPDRV_READ_LOG, 0, 0, 0, 0, 0);
+	res = call_hyp(HYPDRV_READ_LOG, 0, 0, 0, 0);
 
 	n = res & 0xFF;
 	if (n == 0 || n > 7)
@@ -249,12 +324,12 @@ device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	case TCGETS:
 #ifdef DEBUG
-		pr_info("HYPDRV not a TTY\n");
+		pr_info("HYPDRV: not a TTY\n");
 #endif
 		ret = -ENOTSUPP;
 		break;
 	default:
-		WARN(1, "HYPDRV unknown ioctl: 0x%x\n", cmd);
+		WARN(1, "HYPDRV: unknown ioctl: 0x%x\n", cmd);
 	}
 
 	return ret;
@@ -275,7 +350,7 @@ int init_module(void)
 	major = register_chrdev(0, DEVICE_NAME, &fops);
 
 	if (major < 0) {
-		pr_err("HYPDRV register_chrdev failed with %d\n", major);
+		pr_err("HYPDRV: register_chrdev failed with %d\n", major);
 		return major;
 	}
 	pr_info("HYPDRV mknod /dev/%s c %d 0\n", DEVICE_NAME, major);
