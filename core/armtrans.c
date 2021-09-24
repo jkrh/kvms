@@ -1094,12 +1094,17 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			break;
 		/*
 		 * Reducing permissions allowed for locked
-		 * kernel stage2 mapping.
+		 * kernel stage2 mapping. Allow remap for
+		 * one page at a time.
 		 */
+		if (length != PAGE_SIZE)
+			return -EPERM;
+
 		pt_walk(block.pgd, vaddr, &pte, TABLE_LEVELS);
 		attr = (*pte &
 			(PROT_MASK_STAGE2 | TYPE_MASK_STAGE2));
 		nattr = (type | prot);
+
 		/* Remap with same parameters denied */
 		if (nattr == attr)
 			return -EPERM;
@@ -1117,8 +1122,8 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 				return -EPERM;
 		}
 
-		nattr &= ~(S2AP_MASK | S2_EXEC_MASK);
-		attr &= ~(S2AP_MASK | S2_EXEC_MASK);
+		nattr &= ~(S2AP_WRITE | S2_EXEC_MASK);
+		attr &= ~(S2AP_WRITE | S2_EXEC_MASK);
 		if (attr != nattr)
 			return -EPERM;
 		break;
