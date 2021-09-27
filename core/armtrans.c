@@ -326,38 +326,41 @@ uint64_t pt_walk(struct ptable *tbl, uint64_t vaddr, uint64_t **ptep,
 	return __pt_walk(tbl, vaddr, ptep, &level, NULL);
 }
 
-static int lock_kernel_page(uint64_t vaddr, uint64_t levels)
+static int lock_kernel_page(uint64_t ipa, uint64_t levels, int lvl)
 {
-	struct ptable *s1pgd;
 	struct ptable *s2pgd;
-	uint64_t phys, ipa;
+	uint64_t phys;
 	uint64_t *ptep;
 
-	s1pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
-	if (!s1pgd)
+	s2pgd = (struct ptable *)(read_reg(VTTBR_EL2) & TTBR_BADDR_MASK);
+	if (!s2pgd)
 		HYP_ABORT();
 
-	ipa = pt_walk(s1pgd, vaddr, &ptep, levels);
-	if ((ipa == ~0UL) || !*ptep)
+	phys = pt_walk(s2pgd, ipa, &ptep, levels);
+	if ((phys == ~0UL) || !*ptep) {
+		ERROR("lock_kernel_page(): ipa %p without a map?\n", ipa);
 		return -EINVAL;
-
-	s2pgd = (struct ptable *)(read_reg(VTTBR_EL2) & TTBR_BADDR_MASK);
-	phys = pt_walk(s2pgd, ipa, &ptep, 4);
-	if ((phys == ~0UL) || !*ptep)
-		return -EINVAL;
-
+	}
 	*ptep &= ~0x600000000000C0;
 	*ptep |= PAGE_HYP_RO;
-	tlbi_el1_ipa(vaddr);
 
+	dsbish();
+	isb();
+	tlbi_el1_ipa(ipa);
+	dsbish();
+	isb();
+
+	LOG("Locked %d level page at %p\n", lvl, ipa);
 	return 0;
 }
 
-int lock_host_kernel_area(uint64_t vaddr, size_t size)
+int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 {
-	uint64_t noff, end, levels;
+	uint64_t ipa, noff, end, levels, ovaddr = vaddr;
 	kvm_guest_t *guest = NULL;
 	struct ptable *nl;
+
+	LOG("Area lock requested for kernel %p, size %lu bytes\n", vaddr, size);
 
 	guest = get_guest(HOST_VMID);
 	if (!guest)
@@ -366,25 +369,38 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size)
 	nl = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
 	if (!nl)
 		HYP_ABORT();
-
 	levels = guest->table_levels;
-	lock_kernel_page((uint64_t)nl, levels);
+	/*
+	 * Don't go changing anything that's not there.
+	 */
+	ipa = pt_walk(nl, vaddr, 0, levels);
+	if (ipa == ~0UL) {
+		ERROR("Host kernel %p does not appear to be mapped\n", vaddr);
+		return -EINVAL;
+	}
+	if (depth & 0x1)
+		lock_kernel_page((uint64_t)nl, levels, 0);
+
+	vaddr = ROUND_UP(vaddr, SZ_1M * 2);
+	size -= ovaddr - vaddr;
+	size = ROUND_DOWN(size, SZ_1M * 2);
+	LOG("Rounding the requested lock area: %p/%p, size %lu bytes\n", vaddr,
+	     ipa, size);
 
 	end = vaddr + size;
 	while (vaddr < end) {
 		if (levels >= 4) {
-			/* Level 0 */
 			noff = (vaddr & TABLE_0_MASK) >> L0_SHIFT;
 			if (!bit_raised(nl->entries[noff], VALID_TABLE_BIT))
 				goto cont;
 			nl = (struct ptable *)table_oaddr(nl->entries[noff]);
 			if (!nl)
 				goto cont;
-			lock_kernel_page((uint64_t)nl, levels);
+			if (depth & 0x2)
+				lock_kernel_page((uint64_t)nl, levels, 1);
 		}
 
 		if (levels >= 3) {
-			/* Level 1 */
 			noff = (vaddr & TABLE_1_MASK) >> L1_SHIFT;
 			if (!bit_raised(nl->entries[noff], VALID_TABLE_BIT))
 				goto cont;
@@ -393,10 +409,10 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size)
 			nl = (struct ptable *)table_oaddr(nl->entries[noff]);
 			if (!nl)
 				goto cont;
-			lock_kernel_page((uint64_t)nl, levels);
+			if (depth & 0x4)
+				lock_kernel_page((uint64_t)nl, levels, 2);
 		}
 
-		/* Level 2 */
 		noff = (vaddr & TABLE_2_MASK) >> L2_SHIFT;
 		if (!bit_raised(nl->entries[noff], VALID_TABLE_BIT))
 			goto cont;
@@ -405,7 +421,8 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size)
 		nl = (struct ptable *)table_oaddr(nl->entries[noff]);
 		if (!nl)
 			goto cont;
-		lock_kernel_page((uint64_t)nl, levels);
+		if (depth & 0x8)
+			lock_kernel_page((uint64_t)nl, levels, 3);
 
 cont:
 		vaddr += 0x1000;

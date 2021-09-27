@@ -41,7 +41,7 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 			LOG("VMID %lu running core: %lu\n", vmid, cpuid);
 			update_guest_state(guest_running);
 		}
-		set_lockflags(HOST_KVM_TRAMPOLINE_LOCK, 0, 0);
+		set_lockflags(HOST_KVM_TRAMPOLINE_LOCK, 0, 0, 0);
 		break;
 	case PSCI_CPU_SUSPEND_SMC64:
 		if (vmid == HOST_VMID) {

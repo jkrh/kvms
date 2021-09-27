@@ -23,8 +23,9 @@ void dump_state(uint64_t level, void *sp);
  * @param flags, the lock flags. See the definitions above.
  * @param vaddr, if applicable for the given lock
  * @param sz, if applicable for the given lock
+ * @param depth, if applicable for the given lock
  * @return zero on success or negative error code on failure
  */
-int set_lockflags(uint64_t flags, uint64_t vaddr, size_t sz);
+int set_lockflags(uint64_t flags, uint64_t vaddr, size_t sz, uint64_t depth);
 
 #endif

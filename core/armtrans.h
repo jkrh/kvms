@@ -175,13 +175,32 @@ uint64_t pt_walk(struct ptable *table, uint64_t vaddr, uint64_t **ptep,
 
 /**
  * Prevents the calling kernel from ever changing its internal memory
- * area EL1 mappings.
+ * area EL1 mappings for a given area. Primary use case is to make sure
+ * the rodata stays rodata.
  *
- * @param vaddr virtual address base
+ * BIG FAT WARNING: THIS FUNCTION IS VERY DIFFICULT TO USE AND PROBABLY
+ * REQUIRES RE-ARRANGING THE KERNEL IMAGE CONTENTS. UNLESS YOU REALLY
+ * KNOW WHAT YOU ARE DOING IT PROBABLY LOCKS SOMETHING UNEXPECTED.
+ * In minimum this will lock 512 * 4k section described by a single
+ * page table that might clash with something RW. One level up and we
+ * are already locking 1GB blocks (512 * 2MB).
+ *
+ * That being said, note that the kernel is lifted above page offset
+ * and scattered all over the place over a pretty large area. For
+ * any successful use the locked regions have to align on the block
+ * boundary (2M - 1GB - 512GB) and be separated in the kernel such that
+ * RW/RO data do not mix. You probably want to move the kernel rodata
+ * into a block whose entire table chain can be locked.
+ *
+ * Note the requirement of 4k granule size and the fact that the code is
+ * not entirely complete.
+ *
+ * @param vaddr kernel virtual address base
  * @param size size of the range
+ * @param depth table depth to lock as bitmask (set bits 0..3)
  * @return zero on success or negative error code on failure
  */
-int lock_host_kernel_area(uint64_t addr, size_t size);
+int lock_host_kernel_area(uint64_t addr, size_t size, uint64_t depth);
 
 /**
  * Print memory mappings for given guest to console/log

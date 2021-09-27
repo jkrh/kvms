@@ -38,7 +38,7 @@ extern uint64_t core_lock;
 uint64_t crash_lock;
 uint64_t hostflags;
 
-int set_lockflags(uint64_t flags, uint64_t addr, size_t sz)
+int set_lockflags(uint64_t flags, uint64_t addr, size_t sz, uint64_t depth)
 {
 	if (flags & HOST_STAGE2_LOCK)
 		hostflags |= HOST_STAGE2_LOCK;
@@ -47,7 +47,7 @@ int set_lockflags(uint64_t flags, uint64_t addr, size_t sz)
 	if (flags & HOST_KVM_CALL_LOCK)
 		hostflags |= HOST_KVM_CALL_LOCK;
 	if (flags & HOST_PT_LOCK)
-		return lock_host_kernel_area(addr, sz);
+		return lock_host_kernel_area(addr, sz, depth);
 
 	return 0;
 }
@@ -186,7 +186,7 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		guest_set_vmid((void *)a1, res);
 		break;
 	case HYP_HOST_SET_LOCKFLAGS:
-		res = set_lockflags(a1, a2, a3);
+		res = set_lockflags(a1, a2, a3, a4);
 		break;
 	/*
 	 * Control functions

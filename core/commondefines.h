@@ -26,6 +26,10 @@ typedef uint64_t u_register_t;
 #define ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))
 #endif
 
+#ifndef ROUND_DOWN
+#define ROUND_DOWN(N,M) ((N) & ~((M) - 1))
+#endif
+
 #define string(x) #x
 
 #endif
