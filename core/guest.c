@@ -761,7 +761,7 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 	}
 	return 0;
 out_error:
-	ERROR("vmid %d access to area 0x%lx - 0x%lx denied. err %d\n",
-	       guest->vmid, paddr, paddr + len, ret);
+	ERROR("guest %lx access to area 0x%lx - 0x%lx denied. err %d\n",
+	       guest, paddr, paddr + len, ret);
 	return ret;
 }
