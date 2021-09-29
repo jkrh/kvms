@@ -1059,21 +1059,6 @@ out_done:
 	return res;
 }
 
-static struct ptable *host_pgd(uint64_t stage)
-{
-	kvm_guest_t *guest;
-
-	guest = get_guest(HOST_VMID);
-	switch (stage) {
-	case STAGE2:
-		return guest->s2_pgd;
-	case STAGE1:
-		return guest->s1_pgd;
-	default:
-		return NULL;
-	}
-}
-
 int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type)
 {
@@ -1153,8 +1138,9 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		}
 		prot &= PROT_MASK_STAGE1;
 
-		if ((block.guest == host) &&
-			(hostflags & HOST_STAGE1_LOCK))
+		if (block.guest != host)
+			return -EINVAL;
+		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
 		break;
 	default:
@@ -1179,45 +1165,28 @@ int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	if (!host)
 		HYP_ABORT();
 
-	if ((vaddr > MAX_VADDR) || (length > SZ_1G * 4))
+	if (!pgd || (vaddr > MAX_VADDR) || (length > SZ_1G * 4))
 		return -EINVAL;
 
-	if (!pgd) {
-		block.guest = get_guest(HOST_VMID);
-		block.pgd = host_pgd(stage);
-
-		switch (stage) {
-		case STAGE2:
-			if (hostflags & HOST_STAGE2_LOCK)
-				return -EPERM;
-			break;
-		case STAGE1:
-			if (hostflags & HOST_STAGE1_LOCK)
-				return -EPERM;
-			break;
-		default:
+	switch (stage) {
+	case STAGE2:
+		block.guest = get_guest_by_s2pgd(pgd);
+		block.pgd = pgd;
+		if (hostflags & HOST_STAGE2_LOCK)
+			return -EPERM;
+		break;
+	case STAGE1:
+		block.guest = get_guest_by_s1pgd(pgd);
+		block.pgd = pgd;
+		if (block.guest != host)
 			return -EINVAL;
-		}
-	} else {
-		switch (stage) {
-		case STAGE2:
-			block.guest = get_guest_by_s2pgd(pgd);
-			block.pgd = pgd;
-			if ((block.guest == host) &&
-			    (hostflags & HOST_STAGE2_LOCK))
-				return -EPERM;
-			break;
-		case STAGE1:
-			block.guest = get_guest_by_s1pgd(pgd);
-			block.pgd = pgd;
-			if ((block.guest == host) &&
-			    (hostflags & HOST_STAGE2_LOCK))
-				return -EPERM;
-			break;
-		default:
-			return -EINVAL;
-		}
+		if (hostflags & HOST_STAGE1_LOCK)
+			return -EPERM;
+		break;
+	default:
+		return -EINVAL;
 	}
+
 	if (!block.pgd || !block.guest || (length % PAGE_SIZE))
 		return -EINVAL;
 

@@ -103,9 +103,7 @@ SHORT TERM TODO
 3) Protection of the critical shared memory blobs (vcpu, kvm and few others),
    don't allow active VM kvm/vcpu remaps
 4) Proper 5.10 LTS kernel patch
-5) Only allow kernel addresses (PHYS_OFFSET - (PHYS_OFFSET + RAM)) addresses
-   to be stage2 mapped
-6) Fuzz the guest input devices in order to prevent the easiest attacks for
+5) Fuzz the guest input devices in order to prevent the easiest attacks for
    the malicious host.
-7) Android hardware support
-8) QEMU migration support bugfix (savevm causes a segfault)
+6) Android hardware support
+7) QEMU migration support bugfix (savevm causes a segfault)

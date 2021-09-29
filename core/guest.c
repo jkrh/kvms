@@ -13,6 +13,7 @@
 #include "mm.h"
 #include "bits.h"
 
+#include "platform_api.h"
 #include "host_platform.h"
 #include "hyp_config.h"
 
@@ -287,16 +288,6 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	int res;
 
 	if (!guest || !vaddr || !paddr || (len % PAGE_SIZE)) {
-		res = -EINVAL;
-		goto out_error;
-	}
-	/*
-	 * Verify that the range is within the guest boundary.
-	 */
-	res = is_range_valid(vaddr, len, guest->slots);
-	if (!res) {
-		ERROR("vmid %d attempting to map invalid range 0x%lx - 0x%lx\n",
-		      guest->vmid, vaddr, vaddr + len);
 		res = -EINVAL;
 		goto out_error;
 	}
@@ -741,4 +732,36 @@ int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
 
 out_no_entry:
 	return res;
+}
+
+int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
+			 size_t len)
+{
+	int ret;
+
+	/*
+	 * Get clearance for the range from the platform implementation.
+	 */
+	if (!platform_range_permitted(paddr, len)) {
+		ret = -EPERM;
+		goto out_error;
+	}
+
+	if (!guest) {
+		ret = -ENOENT;
+		goto out_error;
+	}
+	/*
+	 * Verify that the range is within the guest boundary.
+	 */
+	ret = is_range_valid(addr, len, guest->slots);
+	if (!ret) {
+		ret = -EPERM;
+		goto out_error;
+	}
+	return 0;
+out_error:
+	ERROR("vmid %d access to area 0x%lx - 0x%lx denied. err %d\n",
+	       guest->vmid, paddr, paddr + len, ret);
+	return ret;
 }

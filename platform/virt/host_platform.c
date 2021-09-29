@@ -57,6 +57,27 @@ static const memmap base_memmap[] = {
 	{ 0, 0 },
 };
 
+typedef struct {
+	uint64_t start;
+	uint64_t end;
+} memrange;
+
+/* Physical areas for which hyp will deny mapping requests */
+static const memrange noaccess[] = {
+	{  0x00000000,  0x3FFFFFFF },
+	{ 0x100000000, 0x13FFFFFFF },
+	{ 0, 0 }
+};
+
+void platform_init_slots(kvm_guest_t *host)
+{
+	/*
+	 * Placeholder.
+	 */
+	host->slots[0].slot.base_gfn = 0;
+	host->slots[0].slot.npages = (KERNEL_BASE + KERN_VA_MASK) >> PAGE_SHIFT;
+}
+
 int machine_virt(kvm_guest_t *host)
 {
 	int stage = STAGE1, res = 0, i;
@@ -98,6 +119,9 @@ nextmap:
 			 SZ_1G * 3, perms, S2_NORMAL_MEMORY);
 	if (res)
 		goto error;
+
+	/* Initial slots for host */
+	platform_init_slots(host);
 
 	/* Virt is a debug target, dump. */
 	print_mappings(HOST_VMID, STAGE1, 0, SZ_1G * 5);
@@ -235,4 +259,28 @@ void platform_console_init(void)
 uint8_t *platfrom_get_stack_ptr(uint64_t init_index)
 {
 	return &__stack[(STACK_SIZE * init_index) + STACK_SIZE];
+}
+
+int platform_range_permitted(uint64_t pstart, size_t len)
+{
+	int entry = 0, res = 0;
+	uint64_t pend = (pstart + len) - 1;
+
+	while (noaccess[entry].end) {
+		if ((noaccess[entry].start <= pstart) &&
+		    (pstart <= noaccess[entry].end))
+			break;
+		if ((noaccess[entry].start <= pend) &&
+		    (pend <= noaccess[entry].end))
+			break;
+		if ((pstart < noaccess[entry].start) &&
+		    (noaccess[entry].end < pend))
+			break;
+		entry++;
+	}
+
+	if (!noaccess[entry].end)
+		res = 1;
+
+	return res;
 }

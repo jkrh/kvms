@@ -222,4 +222,16 @@ int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count);
 int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
 			     uint64_t size);
 
+/**
+ * Determine if the given guest is allowed to map the requested range
+ *
+ * @param guest the guest
+ * @param addr the virtual or the intermediate physical start address
+ * @param paddr the physical start address
+ * @param len length of the range
+ * @return 0 if valid, negative error code otherwise
+ */
+int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
+			 size_t len);
+
 #endif // __KVM_GUEST_H__

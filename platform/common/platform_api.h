@@ -105,4 +105,17 @@ void platform_console_init(void);
  */
 uint8_t *platfrom_get_stack_ptr(uint64_t init_index);
 
+/**
+ * platform_range_permitted - get permission to alter mapping for a range
+ *
+ * Deny physical ranges that you don't want anyone (running at EL1) to
+ * be able to alter. This API gets called by HVC mapping APIs for checking
+ * permission for the area.
+ *
+ * @param pstart the start address of the range
+ * @param len length of the range
+ * @return 1 if permitted, 0 otherwise
+ */
+int platform_range_permitted(uint64_t pstart, size_t len);
+
 #endif /* __PLATFORM_API_H__ */

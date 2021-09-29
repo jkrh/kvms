@@ -165,6 +165,7 @@ int user_copy(uint64_t dest, uint64_t src, uint64_t count,
 
 int remove_host_range(uint64_t paddr, size_t len)
 {
+	kvm_guest_t *guest = NULL;
 #ifdef HOSTBLINDING_DEV
 	/*
 	 * Leave in hyp regions mapped by KVM
@@ -173,8 +174,9 @@ int remove_host_range(uint64_t paddr, size_t len)
 	if (is_in_kvm_hyp_region(paddr))
 		return 0;
 #endif // HOSTBLINDING_DEV
+	guest = get_guest(HOST_VMID);
 
-	return unmap_range(NULL, STAGE2, paddr, len);
+	return unmap_range(guest->s2_pgd, STAGE2, paddr, len);
 }
 
 int restore_host_range(uint64_t gpa, uint64_t len)

@@ -111,11 +111,9 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 */
 	case HYP_HOST_MAP_STAGE1:
 		guest = get_guest(HOST_VMID);
-		if (!guest) {
-			res = -ENOENT;
-			break;
-		}
-		res = mmap_range(guest->s1_pgd, STAGE1, a1, a2, a3, a4,
+		res = guest_validate_range(guest, a1, a2, a3);
+		if (!res)
+			res = mmap_range(guest->s1_pgd, STAGE1, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		/*
 		 * kern_hyp_va: MSB WATCH
@@ -136,7 +134,10 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 #endif // HOSTBLINDING_DEV
 		break;
 	case HYP_HOST_UNMAP_STAGE1:
-		res = unmap_range(NULL, STAGE1, a1, a2);
+		guest = get_guest(HOST_VMID);
+		res = guest_validate_range(guest, a1, a1, a2);
+		if (!res)
+			res = unmap_range(guest->s1_pgd, STAGE1, a1, a2);
 
 #ifdef HOSTBLINDING_DEV
 		if (remove_kvm_hyp_region(a1))
@@ -161,20 +162,16 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 */
 	case HYP_HOST_PREPARE_STAGE2:
 		guest = get_guest(HOST_VMID);
-		if (!guest) {
-			res = -ENOENT;
-			break;
-		}
-		res = mmap_range(guest->s2_pgd, STAGE2, a1, a2, a3, a4,
+		res = guest_validate_range(guest, a1, a2, a3);
+		if (!res)
+			res = mmap_range(guest->s2_pgd, STAGE2, a1, a2, a3, a4,
 				 KEEP_MATTR);
 		break;
 	case HYP_HOST_MAP_STAGE2:
 		guest = get_guest(HOST_VMID);
-		if (!guest) {
-			res = -ENOENT;
-			break;
-		}
-		res = mmap_range(guest->s2_pgd, STAGE2, a1, a2, a3, a4,
+		res = guest_validate_range(guest, a1, a2, a3);
+		if (!res)
+			res = mmap_range(guest->s2_pgd, STAGE2, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		break;
 	case HYP_HOST_BOOTSTEP:
@@ -233,11 +230,9 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 */
 	case HYP_GUEST_MAP_STAGE2:
 		guest = get_guest(a1);
-		if (!guest) {
-			res = -ENOENT;
-			break;
-		}
-		res = guest_map_range(guest, a2, a3, a4, a5);
+		res = guest_validate_range(guest, a2, a3, a4);
+		if (!res)
+			res = guest_map_range(guest, a2, a3, a4, a5);
 		break;
 	case HYP_GUEST_UNMAP_STAGE2:
 		guest = get_guest(a1);
