@@ -6,12 +6,10 @@ KERNEL_DIR := $(PWD)/../oss/linux
 
 obj-m += hyp-drv.o
 
-all: kaddr.h
+all:
+	$(PWD)/gen_kaddr.sh $(KERNEL_DIR)
 	make ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_DIR) M=$(PWD) \
 	"KCFLAGS=$(OPTS)" modules
-
-kaddr.h:
-	$(PWD)/gen_kaddr.sh $(KERNEL_DIR)
 
 clean:
 	rm -f kaddr.h

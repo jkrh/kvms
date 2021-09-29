@@ -70,8 +70,8 @@ el1_sync:
 	beq	el1_trap
 	cmp	x1, #0x07		// SVE, SIMD, FP
 	beq	fpsimd_trap
-	cmp	x1, #0x18		// Debug trap
-	beq	el1_trap
+	cmp	x1, #0x18		// System instruction trap
+	beq	memctrl_trap
 	cmp	x1, #0x32		// Software step
 	beq	el1_trap
 	cmp	x1, #0x31		// Breakpoint
@@ -120,6 +120,27 @@ el2_sync:
 	mov	x0, #2
 	mov	x1, sp
 	b	dump_state
+
+memctrl_trap:
+	#
+	# Guest or host?
+	#
+	mrs	x0, VTTBR_EL2
+	asr	x0, x0, #48
+	cmp	x0, #GUEST_VMID_START
+	bge	el1_trap
+	#
+	# Host.
+	#
+	mov	x0, sp
+	bl	memctrl_exec
+	mrs	x0, ELR_EL2
+	add	x0, x0, #4
+	msr	ELR_EL2, x0
+	load_all_regs
+	ldp	x0, x1, [sp, #(8 * 0)]
+	add	sp, sp, #(PT_REGS_SIZE)
+	eret
 
 host_fastpath:
 	cmp	x1, #0x24

@@ -34,6 +34,7 @@
 #define HCR_TWE_BIT 14
 #define HCR_TSC_BIT 19
 #define HCR_TVM_BIT 26
+#define HCR_TRVM_BIT 30
 #define HCR_RW_BIT 31
 #define HCR_NV_BIT 40
 #define HCR_NV1_BIT 43

@@ -15,6 +15,15 @@ do { \
 	printf("[!!!!!!!!!!!!] " __VA_ARGS__); (void)putchar('\r'); \
 } while(0);
 
+#ifdef SYSREG_PRINT
+#define PRINTREG(...) \
+do { \
+	printf("[------------] " __VA_ARGS__); (void)putchar('\r'); \
+} while(0);
+#else
+#define PRINTREG(...)
+#endif
+
 #ifdef DEBUG
 void spinner(void);
 #else

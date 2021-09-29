@@ -21,6 +21,10 @@
 #include "kjump.h"
 #include "platform_api.h"
 
+#define ISS_MASK		0x1FFFFFFUL
+#define ISS_RT_MASK		0x3E0UL
+#define ISS_RT_SHIFT		5
+
 #define CALL_TYPE_UNKNOWN	0
 #define CALL_TYPE_HOSTCALL	1
 #define CALL_TYPE_GUESTCALL	2
@@ -391,4 +395,94 @@ void dump_state(uint64_t level, void *sp)
 	spin_unlock(&crash_lock);
 	while (1)
 		wfi()
+}
+
+void memctrl_exec(uint64_t *sp)
+{
+	uint64_t esr_el2, iss, rt, ipa, elr, ttbr;
+	kvm_guest_t *guest;
+	uint32_t vmid, cid, inst;
+
+	esr_el2 = read_reg(ESR_EL2);
+	iss = esr_el2 & ISS_MASK;
+	rt = (iss & ISS_RT_MASK) >> ISS_RT_SHIFT;
+	cid = smp_processor_id();
+	vmid = get_current_vmid();
+
+#ifdef SYSREG_PRINT
+	spin_lock(&crash_lock);
+#endif
+	/*
+	 * ISS encoding:
+	 * 24  |     |     |     |   5|    1|          0|
+	 * Op0 | Op2 | Op1 | CRn | Rt | CRm | Direction |
+	 *
+	 * TVM trap registers:
+	 * SCTLR_EL1, TTBR0_EL1, TTBR1_EL1, TCR_EL1, ESR_EL1, FAR_EL1,
+	 * AFSR0_EL1, AFSR1_EL1, MAIR_EL1, AMAIR_EL1, CONTEXTIDR_EL1.
+	 */
+	iss &= ~(0x1F << 5);
+	switch (iss) {
+	case 0x300400:
+		PRINTREG("vmid %u core %u sctlr_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(SCTLR_EL1, sp[rt]);
+		break;
+	case 0x300800:
+		PRINTREG("vmid %u core %u ttbr0_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(TTBR0_EL1, sp[rt]);
+		break;
+	case 0x320800:
+		PRINTREG("vmid %u core %u ttbr1_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(TTBR1_EL1, sp[rt]);
+		break;
+	case 0x340800:
+		PRINTREG("vmid %u core %u tcr_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(TCR_EL1, sp[rt]);
+		break;
+	case 0x302804:
+		PRINTREG("vmid %u core %u mair_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(MAIR_EL1, sp[rt]);
+		break;
+	case 0x301800:
+		PRINTREG("vmid %u core %u far_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(FAR_EL1, sp[rt]);
+		break;
+	case 0x323400:
+		PRINTREG("vmid %u core %u contextidr_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(CONTEXTIDR_EL1, sp[rt]);
+		break;
+	case 0x301404:
+		PRINTREG("vmid %u core %u esr_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(ESR_EL1, sp[rt]);
+		break;
+	/* Unused by Linux below */
+	case 0x301402:
+		PRINTREG("vmid %u core %u afsr0_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(AFSR0_EL1, sp[rt]);
+		break;
+	case 0x321402:
+		PRINTREG("vmid %u core %u afsr1_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(AFSR1_EL1, sp[rt]);
+		break;
+	case 0x302806:
+		PRINTREG("vmid %u core %u amair_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(AMAIR_EL1, sp[rt]);
+	default:
+		guest = get_guest(vmid);
+		elr = read_reg(ELR_EL2);
+		ttbr = read_reg(TTBR1_EL1);
+		ipa = pt_walk(ttbr, elr, 0, guest->table_levels);
+		ERROR("UNHANDLED TRAP AT %p, ipa %p\n", elr, ipa);
+		ERROR("VMID %u CORE %u ESR 0x%012lx ISS 0x%08X\n", vmid, cid,
+		      esr_el2, iss);
+		inst = (uint32_t)*(uint64_t *)ipa;
+		ERROR("Failing instruction was 0x%x\t'n", inst);
+		ERROR("https://armconverter.com/?disasm&code=%x\n", inst);
+		HYP_ABORT();
+		break;
+        }
+
+#ifdef SYSREG_PRINT
+	spin_unlock(&crash_lock);
+#endif
 }
