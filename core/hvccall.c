@@ -470,8 +470,9 @@ void memctrl_exec(uint64_t *sp)
 	default:
 		guest = get_guest(vmid);
 		elr = read_reg(ELR_EL2);
-		ttbr = read_reg(TTBR1_EL1);
-		ipa = pt_walk(ttbr, elr, 0, guest->table_levels);
+		ttbr = read_reg(TTBR1_EL1) & TTBR_BADDR_MASK;
+		ipa = pt_walk((struct ptable *)ttbr, elr, 0, guest->table_levels);
+
 		ERROR("UNHANDLED TRAP AT %p, ipa %p\n", elr, ipa);
 		ERROR("VMID %u CORE %u ESR 0x%012lx ISS 0x%08X\n", vmid, cid,
 		      esr_el2, iss);
