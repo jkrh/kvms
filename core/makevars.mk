@@ -5,10 +5,17 @@
 # builds will default to ram log readable via the hypervisor
 # driver.
 #
-ifeq ($(DEBUG),1)
-BUILDOPTS := -g -Os -DDEBUG -DCRASHDUMP
+ifdef DEBUG
+BUILDOPTS := -g -Os -DCRASHDUMP
 else
 BUILDOPTS := -g -O2 -D_FORTIFY_SOURCE -DCRASHDUMP
+endif
+# Debug levels
+ifeq ($(DEBUG),1)
+BUILDOPTS += -DDEBUG
+endif
+ifeq ($(DEBUG),2)
+BUILDOPTS += -DDEBUG=2
 endif
 #
 # Default build will include headers from linux kernel and
