@@ -234,4 +234,19 @@ int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
 int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 			 size_t len);
 
+/**
+ * Load host stage2 context
+ *
+ * @return 0 if ok, negative error code otherwise
+ */
+int load_host_s2(void);
+
+/**
+ * Load guest stage2 context
+ *
+ * @param vmid the guest virtual machine identifier
+ * @return 0 if ok, negative error code otherwise
+ */
+int load_guest_s2(uint64_t vmid);
+
 #endif // __KVM_GUEST_H__

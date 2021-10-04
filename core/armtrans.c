@@ -779,36 +779,29 @@ out:
 	return block_sz;
 }
 
-static int get_mapping_type(struct ptable *pgd)
-{
-	if (pgd == (struct ptable *)(read_reg(TTBR0_EL2) & TTBR_BADDR_MASK))
-		return MAPPING_ACTIVE;
-	if (pgd == (struct ptable *)(read_reg(VTTBR_EL2) & TTBR_BADDR_MASK))
-		return MAPPING_ACTIVE;
-	return MAPPING_INACTIVE;
-}
-
-static void invalidate_va(struct ptable *pgd, uint64_t vaddr)
+static void invalidate_va(uint64_t stage, uint64_t vaddr)
 {
 	if (!invalidate)
 		return;
 
 	dsb();
-	if (pgd == (struct ptable *)(read_reg(TTBR0_EL2) & TTBR_BADDR_MASK))
+	if (stage == STAGE1)
 		tlbi_el2_va(vaddr);
-	if (pgd == (struct ptable *)(read_reg(VTTBR_EL2) & TTBR_BADDR_MASK))
+	if (stage == STAGE2)
 		tlbi_el1_ipa(vaddr);
 	dsb();
 	isb();
 }
 
-int __mmap_range(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
+int __mmap_range(mblockinfo_t *block, uint64_t vaddr, uint64_t paddr,
 		 size_t length, uint64_t prot, uint64_t type,
 		 uint64_t levels, uint32_t vmid)
 {
+	struct ptable *pgd;
 	uint64_t blk_sz, new_blk_sz, tlength;
-	mmap_change_type ctype;
 	int res;
+
+	pgd = block->pgd;
 
 	/* Return zero size mappings explicitly here.*/
 	if (length <= 0)
@@ -817,7 +810,6 @@ int __mmap_range(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 	if (type > INVALID_MEMORY)
 		return -EINVAL;
 
-	ctype = get_mapping_type(pgd);
 	vaddr = vaddr & VADDR_MASK;
 	tlength = ROUND_UP(length, 0x1000);
 
@@ -830,15 +822,15 @@ int __mmap_range(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 			blk_sz = new_blk_sz;
 
 		/*
-		 * If this a currently active hyp mode stage-1 OR active
-		 * stage-2 mapping change, do full break-before-make cycle.
+		 * If this changes a currently existing hyp mode stage-1 OR active
+		 * stage-2 mapping, do full break-before-make cycle.
 		 */
-		if (invalidate && paddr && (ctype == MAPPING_ACTIVE)) {
+		if (invalidate && paddr && (block->type != INVALID_MEMORY)) {
 			res = mmap_addr(pgd, vaddr, 0x0, blk_sz, prot,
 					INVALID_MEMORY, levels, vmid);
 			if (res)
 				return res;
-			invalidate_va(pgd, vaddr);
+			invalidate_va(block->stage, vaddr);
 		}
 
 		res = mmap_addr(pgd, vaddr, paddr, blk_sz, prot, type, levels,
@@ -846,8 +838,8 @@ int __mmap_range(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 		if (res)
 			return res;
 
-		if (invalidate && (ctype == MAPPING_ACTIVE))
-			invalidate_va(pgd, vaddr);
+		if (invalidate && (block->type != INVALID_MEMORY))
+			invalidate_va(block->stage, vaddr);
 
 		vaddr += blk_sz;
 		if (paddr)
@@ -855,7 +847,7 @@ int __mmap_range(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 		tlength -= blk_sz;
 	}
 
-	if (invalidate)
+	if (invalidate && (block->type != INVALID_MEMORY))
 		tlbivmalle1is();
 	dsb();
 	isb();
@@ -896,6 +888,11 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 	uint32_t vmid = block->guest->vmid;
 	bool hit;
 
+	if (vmid != HOST_VMID) {
+		load_guest_s2(vmid);
+		isb();
+	}
+
 	if (len <= 0)
 		goto out_done;
 
@@ -908,7 +905,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 	if (!machine_init_ready()) {
 		if (type == KEEP_MATTR)
 			HYP_ABORT();
-		res = __mmap_range(block->pgd, vaddr, paddr, len,
+		res = __mmap_range(block, vaddr, paddr, len,
 				   prot, type, pgd_levels, vmid);
 		goto out_done;
 	}
@@ -968,7 +965,10 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			 */
 			*block->ptep = 0;
 			dsbish();
-			tlbialle1is();
+			invalidate_va(block->stage, block->vaddr);
+			tlbivmalle1is();
+			dsb();
+			isb();
 			/*
 			 * Replace the block entry.
 			 */
@@ -983,7 +983,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			 * the original block range before the vaddr.
 			 */
 			tlen = tvaddr - block->vaddr;
-			res = __mmap_range(block->pgd, block->vaddr, block->paddr,
+			res = __mmap_range(block, block->vaddr, block->paddr,
 					   tlen, block->prot, block->type,
 					   pgd_levels, vmid);
 			if (res)
@@ -1008,12 +1008,12 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 
 			/* New range mapping */
 			if (type == KEEP_MATTR)
-				res = __mmap_range(block->pgd, tvaddr, tpaddr,
+				res = __mmap_range(block, tvaddr, tpaddr,
 						   mlen, block->prot,
 						   block->type, pgd_levels,
 						   vmid);
 			else
-				res = __mmap_range(block->pgd, tvaddr, tpaddr,
+				res = __mmap_range(block, tvaddr, tpaddr,
 						   mlen, prot, type,
 						   pgd_levels, vmid);
 			if (res)
@@ -1028,7 +1028,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			 * Create mapping for the address range covering the
 			 * original block range after the vaddr + rlen.
 			 */
-			res = __mmap_range(block->pgd, block->vaddr, block->paddr,
+			res = __mmap_range(block, block->vaddr, block->paddr,
 					   tlen, block->prot, block->type,
 					   pgd_levels, vmid);
 			if (res)
@@ -1042,7 +1042,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			if (mlen > rlen)
 				mlen = rlen;
 			if (type != KEEP_MATTR) {
-				res = __mmap_range(block->pgd, tvaddr, tpaddr, mlen,
+				res = __mmap_range(block, tvaddr, tpaddr, mlen,
 						   prot, type, pgd_levels, vmid);
 			}
 			if (res)
@@ -1056,6 +1056,10 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 	}
 
 out_done:
+	if (vmid != HOST_VMID) {
+		load_host_s2();
+		isb();
+	}
 	return res;
 }
 
