@@ -20,6 +20,8 @@
 struct hyp_extension_ops {
 	int (*load_host_stage2)(void);
 	int (*load_guest_stage2)(uint64_t vmid);
+	void (*save_host_traps)(void);
+	void (*restore_host_traps)(void);
 };
 
 /*
@@ -58,14 +60,21 @@ void init_guest_array(void)
 
 int load_host_s2(void)
 {
-	write_reg(VTCR_EL2, guests[guest_index[HOST_VMID]].ctxt.vtcr_el2);
-	write_reg(VTTBR_EL2, guests[guest_index[HOST_VMID]].ctxt.vttbr_el2);
+	sys_context_t *host_ctxt;
+
+	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
+
+	write_reg(VTCR_EL2, host_ctxt->vtcr_el2);
+	write_reg(VTTBR_EL2, host_ctxt->vttbr_el2);
 	return 0;
 }
 
 int load_guest_s2(uint64_t vmid)
 {
 	kvm_guest_t *guest;
+	sys_context_t *host_ctxt;
+
+	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
 
 	guest = &guests[guest_index[vmid]];
 	if (guest == NULL) {
@@ -73,11 +82,36 @@ int load_guest_s2(uint64_t vmid)
 		return -ENOENT;
 	}
 
-	guests[guest_index[HOST_VMID]].ctxt.vtcr_el2 = read_reg(VTCR_EL2);
-	guests[guest_index[HOST_VMID]].ctxt.vttbr_el2 = read_reg(VTTBR_EL2);
-	write_reg(VTTBR_EL2, guest->ctxt.vttbr_el2);
+	host_ctxt->vtcr_el2 = read_reg(VTCR_EL2);
+	host_ctxt->vttbr_el2 = read_reg(VTTBR_EL2);
+	write_reg(VTTBR_EL2, guest->ctxt[0].vttbr_el2);
 
 	return 0;
+}
+
+void save_host_traps(void)
+{
+	sys_context_t *host_ctxt;
+
+	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
+
+	host_ctxt->hcr_el2 = read_reg(HCR_EL2);
+	host_ctxt->cptr_el2 = read_reg(CPTR_EL2);
+	host_ctxt->mdcr_el2 = read_reg(MDCR_EL2);
+	host_ctxt->hstr_el2 = read_reg(HSTR_EL2);
+}
+
+void restore_host_traps(void)
+{
+	sys_context_t *host_ctxt;
+
+	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
+
+	write_reg(HCR_EL2, host_ctxt->hcr_el2);
+	write_reg(CPTR_EL2, host_ctxt->cptr_el2);
+	write_reg(MDCR_EL2, host_ctxt->mdcr_el2);
+	write_reg(HSTR_EL2, host_ctxt->hstr_el2);
+	write_reg(PMUSERENR_EL0, 0);
 }
 
 kvm_guest_t *get_free_guest(uint64_t vmid)
@@ -182,10 +216,12 @@ int init_guest(void *kvm)
 	guest->kvm = kvm;
 	guest->table_levels = TABLE_LEVELS;
 
-	guest->ctxt.vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
+	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
 	eops = KVM_GET_EXT_OPS_PTR(kvm);
 	eops->load_host_stage2 = load_host_s2;
 	eops->load_guest_stage2 = load_guest_s2;
+	eops->save_host_traps = save_host_traps;
+	eops->restore_host_traps = restore_host_traps;
 
 	/* Save the current VM process stage1 PGD */
 	guest->s1_pgd = (struct ptable *)read_reg(TTBR0_EL1);
@@ -269,11 +305,10 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	}
 
 	if (guest != NULL) {
-		i = guest_index[guest->vmid];
 		guest_index[guest->vmid] = INVALID_GUEST;
 		guest->vmid = vmid;
 		guest_index[vmid] = i;
-		guest->ctxt.vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
+		guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
 		res = 0;
 	}
 

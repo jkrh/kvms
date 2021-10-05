@@ -7,6 +7,7 @@
 
 #include "hvccall-defines.h"
 #include "mm.h"
+#include "host_defs.h"
 
 #ifndef NUM_VCPUS
 #define NUM_VCPUS 8
@@ -30,6 +31,10 @@ typedef int kernel_func_t(uint64_t, ...);
 typedef struct {
 	uint64_t vttbr_el2;
 	uint64_t vtcr_el2;
+	uint64_t hcr_el2;
+	uint64_t cptr_el2;
+	uint64_t mdcr_el2;
+	uint64_t hstr_el2;
 } sys_context_t;
 
 typedef enum {
@@ -51,7 +56,7 @@ typedef struct {
 	uint64_t pd_index;
 	uint32_t sn;
 	uint32_t table_levels;
-	sys_context_t ctxt;
+	sys_context_t ctxt[PLATFORM_CORE_COUNT];
 } kvm_guest_t;
 
 /**
