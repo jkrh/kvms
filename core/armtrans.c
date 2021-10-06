@@ -430,6 +430,39 @@ cont:
 	return 0;
 }
 
+int count_shared(uint32_t vmid)
+{
+	uint64_t paddr1, paddr2, vaddr1;
+	kvm_guest_t *host;
+	kvm_guest_t *guest;
+	int shared = 0;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
+
+	guest = get_guest(vmid);
+	if (!guest)
+		return -EINVAL;
+
+	vaddr1 = 0;
+	while (vaddr1 <= (SZ_1G *8)) {
+		paddr1 = pt_walk(guest->s2_pgd, vaddr1, NULL, TABLE_LEVELS);
+		if (paddr1 == ~0UL)
+			goto cont;
+		paddr2 = pt_walk(host->s2_pgd, paddr1, NULL, TABLE_LEVELS);
+		if (paddr2 == ~0UL)
+			goto cont;
+#ifdef DEBUG
+		LOG("Page %p is mapped in both the guest and the host\n", paddr2);
+#endif
+		shared += 1;
+cont:
+		vaddr1 += PAGE_SIZE;
+	}
+	return shared;
+}
+
 void print_mappings(uint32_t vmid, uint64_t stage, uint64_t vaddr, size_t sz)
 {
 	uint64_t start_vaddr = 0, end_vaddr = 0, start_addr = 0, perms = 0;
