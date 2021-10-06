@@ -467,7 +467,7 @@ void print_mappings(uint32_t vmid, uint64_t stage, uint64_t vaddr, size_t sz)
 		/*
 		 * See if the block is mapped
 		 */
-		if (!pte || (vaddr && !addr)) {
+		if (!pte || (vaddr && (addr == ~0UL))) {
 			operms = ~0UL;
 			vaddr += PAGE_SIZE;
 			continue;
@@ -475,7 +475,11 @@ void print_mappings(uint32_t vmid, uint64_t stage, uint64_t vaddr, size_t sz)
 		/*
 		 * Reset to new mapping
 		 */
-		perms = *pte & PROT_MASK_STAGE2;
+		if (stage == STAGE1)
+			perms = *pte & PROT_MASK_STAGE1;
+		else
+			perms = *pte & PROT_MASK_STAGE2;
+
 		if (operms == ~0UL)
 			operms = perms;
 		/*
