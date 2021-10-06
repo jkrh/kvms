@@ -41,7 +41,9 @@
 
 /* Discontinue quicksort algorithm when partition gets below this size.
    This particular magic number was chosen to work best on a Sun 4/260. */
+#ifndef MAX_THRESH
 #define MAX_THRESH 4
+#endif
 
 /* Stack node declarations used to store unfulfilled partition obligations. */
 typedef struct

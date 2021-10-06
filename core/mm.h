@@ -54,7 +54,7 @@ typedef struct {
 
 typedef struct {
 	uint64_t phys_addr;
-	uint64_t len;
+	uint32_t len;
 	uint32_t vmid;
 	uint8_t sha256[32];
 } kvm_page_data;
@@ -119,15 +119,59 @@ int add_kvm_hyp_region(uint64_t vaddr, uint64_t paddr, uint64_t size);
 
 int remove_kvm_hyp_region(uint64_t vaddr);
 
+/**
+ * Fetch a page integrity structure for guest
+ *
+ * @param guest, the guest
+ * @param ipa, the guest ipa base address
+ * @return pointer to the page integrity structure,
+ *         NULL on error.
+ */
+kvm_page_data *get_range_info(void *guest, uint64_t ipa);
+
+/**
+ * Add page integrity structure for address
+ *
+ * @param guest, the guest
+ * @param ipa, the base ipa to add integrity information for
+ * @param addr, the host physical address the new data is on
+ * @param len, length of the section
+ * @return zero on success, negative errno on error
+ */
+int add_range_info(void *guest, uint64_t ipa, uint64_t addr, uint64_t len);
+
+/**
+ * Free a page integrity structure
+ *
+ * @param guest, the guest
+ * @param ipa, the ipa address to clear
+ * @return void
+ */
+void free_range_info(void *guest, uint64_t ipa);
+
+/**
+ * Verify memory integrity for address
+ *
+ * @param ipa, the guest ipa this is supposed to be
+ * @param addr, the host physical address the new data is on
+ * @param len, length of the blob
+ * @return zero on integrity OK,
+ *         -ENOENT on unknown page,
+ *         -EINVAL on integrity failure
+ *         -errno on generic error
+ */
+int verify_range(void *guest, uint64_t ipa, uint64_t addr, uint64_t len);
+
 #ifdef HOSTBLINDING
 /**
  * Remove mappings from the host
  *
+ * @param uint64_t guest, target guest this page migrated to
  * @param uint64_t ipa, ipa/phys address to remove
  * @param uint64_t len, length of the section
  * @return zero on success or negative error code on failure
  */
-int remove_host_range(uint64_t ipa, size_t len);
+int remove_host_range(void *guest, uint64_t ipa, size_t len);
 
 /**
  * Restore given range back to the host from current vmid
@@ -147,7 +191,7 @@ int restore_host_range(uint64_t gpa, uint64_t len);
 int restore_host_mappings(void *guest);
 
 #else
-static inline int remove_host_range(uint64_t paddr, size_t len)
+static inline int remove_host_range(void *guest, uint64_t paddr, size_t len)
 {
 	return 0;
 }

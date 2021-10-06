@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <stdbool.h>
+#include <stdlib.h>
+#include <errno.h>
 
+#include "mtree.h"
 #include "mm.h"
 #include "helpers.h"
 #include "host_platform.h"
 #include "armtrans.h"
 #include "guest.h"
+
 #include "hvccall-defines.h"
 #include "hyp_config.h"
 #include "hvccall.h"
@@ -161,11 +165,122 @@ int user_copy(uint64_t dest, uint64_t src, uint64_t count,
 	return 0;
 }
 
+static int compfunc(const void *v1, const void *v2)
+{
+	const kvm_page_data *val1 = v1;
+	const kvm_page_data *val2 = v2;
+
+	if (val1->phys_addr < val2->phys_addr)
+		return -1;
+	if (val1->phys_addr > val2->phys_addr)
+		return 1;
+	return 0;
+}
+
+kvm_page_data *get_range_info(void *g, uint64_t addr)
+{
+	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_page_data key, *res;
+
+	if (!guest)
+		return NULL;
+
+	key.phys_addr = addr;
+	res = bsearch(&key, guest->hyp_page_data, guest->pd_index,
+		      sizeof(key), compfunc);
+
+	return res;
+}
+
+int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len)
+{
+	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_page_data *res;
+	bool s = false;
+	int ret = 0;
+
+	if (!guest || !ipa || !len || len % PAGE_SIZE)
+		return -EINVAL;
+
+	res = get_range_info(guest, ipa);
+	if (res)
+		goto use_old;
+
+	if (guest->pd_index == MAX_PAGING_BLOCKS - 1)
+		return -ENOSPC;
+
+	s = true;
+	res = &guest->hyp_page_data[guest->pd_index];
+	res->phys_addr = addr;
+	guest->pd_index += 1;
+
+use_old:
+	res->vmid = guest->vmid;
+	res->len = len;
+	if (guest->vmid != HOST_VMID) {
+		ret = calc_hash(res->sha256, (void *)addr, len);
+		if (ret) {
+			memset(res->sha256, 0, 32);
+			res->vmid = 0;
+		}
+	} else
+		memset(res->sha256, 0, 32);
+
+	if (s)
+		qsort(guest->hyp_page_data, guest->pd_index, sizeof(kvm_page_data),
+		      compfunc);
+	dsb();
+	isb();
+
+	return ret;
+}
+
+void free_range_info(void *g, uint64_t ipa)
+{
+	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_page_data *res;
+
+	res = get_range_info(guest, ipa);
+	if (!res)
+		return;
+
+	res->vmid = 0;
+	memset(res->sha256, 0, 32);
+	dsb();
+	isb();
+}
+
+int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len)
+{
+	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_page_data *res;
+	uint8_t sha256[32];
+	int ret;
+
+	res = get_range_info(guest, ipa);
+	if (!res)
+		return -ENOENT;
+
+	if (res->vmid != guest->vmid)
+		return -EFAULT;
+
+	ret = calc_hash(sha256, (void *)addr, len);
+	if (ret)
+		return -EFAULT;
+
+	ret = memcmp(sha256, res->sha256, 32);
+	if (ret != 0)
+		return -EINVAL;
+
+	return 0;
+}
+
 #ifdef HOSTBLINDING
 
-int remove_host_range(uint64_t paddr, size_t len)
+int remove_host_range(void *g, uint64_t paddr, size_t len)
 {
-	kvm_guest_t *guest = NULL;
+	kvm_guest_t *host;
+
 #ifdef HOSTBLINDING_DEV
 	/*
 	 * Leave in hyp regions mapped by KVM
@@ -174,9 +289,9 @@ int remove_host_range(uint64_t paddr, size_t len)
 	if (is_in_kvm_hyp_region(paddr))
 		return 0;
 #endif // HOSTBLINDING_DEV
-	guest = get_guest(HOST_VMID);
+	host = get_guest(HOST_VMID);
 
-	return unmap_range(guest->s2_pgd, STAGE2, paddr, len);
+	return unmap_range(host->s2_pgd, STAGE2, paddr, len);
 }
 
 int restore_host_range(uint64_t gpa, uint64_t len)

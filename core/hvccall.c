@@ -76,12 +76,17 @@ int guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		  register_t a4, register_t a5, register_t a6, register_t a7,
 		  register_t a8, register_t a9)
 {
+	kvm_guest_t *guest = NULL;
 	int res = -EINVAL;
+
+	guest = get_guest(get_current_vmid());
+	if (!guest)
+		return -EINVAL;
 
 	spin_lock(&core_lock);
 	switch(cn) {
 	case HYP_SET_GUEST_MEMORY_BLINDED:
-		res = remove_host_range(a1, a2);
+		res = remove_host_range(guest, a1, a2);
 		break;
 	case HYP_SET_GUEST_MEMORY_OPEN:
 		res = restore_host_range(a1, a2);

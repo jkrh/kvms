@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 PVAR := $(shell echo $(PLATFORM) | tr a-z A-Z)
-export DEFINES := -D$(PVAR) -D_GNU_SOURCE -D__OPTIMIZE__ -include "config.h"
+export DEFINES := -D$(PVAR) -D_GNU_SOURCE -D__OPTIMIZE__ -DMAX_THRESH=1000000 -include "config.h"
 export WARNINGS := -Wall -Werror -Wno-pointer-arith -Wno-variadic-macros
 export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(BASE_DIR)/stdlib \
 		-I$(BASE_DIR)/tinycrypt/lib/include/tinycrypt \

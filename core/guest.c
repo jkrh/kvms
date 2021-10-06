@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <stdint.h>
 #include <string.h>
-#include <stdlib.h>
 #include <errno.h>
 
 #include "helpers.h"
-#include "mtree.h"
 #include "guest.h"
 #include "armtrans.h"
 #include "hvccall.h"
@@ -326,9 +324,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		res = -EINVAL;
 		goto out_error;
 	}
-
 	newtype = (prot & TYPE_MASK_STAGE2);
-
 	/*
 	 * Do we know about this area?
 	 */
@@ -390,7 +386,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
 	if (!res)
-		res = remove_host_range(paddr, len);
+		res = remove_host_range(guest, paddr, len);
 
 out_error:
 	return res;
@@ -431,13 +427,13 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 				 * measurement to make sure it does not change
 				 * while out.
 				 */
-				res = add_range_info(guest, vaddr, paddr,
+				res = add_range_info(guest, map_addr, paddr,
 						     PAGE_SIZE);
 				if (res)
 					ERROR("add_range_info(%d): %d %p:%d\n",
-					      guest->vmid, vaddr, res);
+					      guest->vmid, map_addr, res);
 			} else
-				free_range_info(guest, paddr);
+				free_range_info(guest, map_addr);
 		}
 		/*
 		 * Do not leak guest data
@@ -448,9 +444,9 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 		/*
 		 * Detach the page from the guest
 		 */
-		res = unmap_range(guest->s2_pgd, STAGE2, vaddr, PAGE_SIZE);
+		res = unmap_range(guest->s2_pgd, STAGE2, map_addr, PAGE_SIZE);
 		if (res)
-			ERROR("unmap_range(): %lld:%d\n", vaddr, res);
+			ERROR("unmap_range(): %lld:%d\n", map_addr, res);
 		/*
 		 * Give it back to the host
 		 */
@@ -574,6 +570,9 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 	memcpy(&guest->slots[guest->sn].region, reg, sizeof(*reg));
 	memcpy(&guest->slots[guest->sn].slot, slot, sizeof(*slot));
 
+	guest->ramend = fn_to_addr(guest->slots[guest->sn].slot.base_gfn);
+	guest->ramend += guest->slots[guest->sn].slot.npages * PAGE_SIZE;
+
 	LOG("guest 0x%lx slot 0x%lx - 0x%lx\n", kvm, addr, addr + size);
 	guest->sn++;
 
@@ -618,109 +617,6 @@ int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count)
 		return -EINVAL;
 
 	return user_copy(dest, src, count, dest_pgd, src_pgd);
-}
-
-static int compfunc(const void *v1, const void *v2)
-{
-	const kvm_page_data *val1 = v1;
-	const kvm_page_data *val2 = v2;
-
-	if (val1->phys_addr < val2->phys_addr)
-		return -1;
-	if (val1->phys_addr > val2->phys_addr)
-		return 1;
-	return 0;
-}
-
-kvm_page_data *get_range_info(kvm_guest_t *guest, uint64_t ipa)
-{
-	kvm_page_data key, *res;
-
-	if (!guest)
-		return NULL;
-
-	key.phys_addr = ipa;
-	res = bsearch(&key, guest->hyp_page_data, guest->pd_index,
-		      sizeof(key), compfunc);
-
-	return res;
-}
-
-int add_range_info(kvm_guest_t *guest, uint64_t ipa, uint64_t addr,
-		   uint64_t len)
-{
-	kvm_page_data *res;
-	int ret;
-	bool s = false;
-
-	if (!guest || !ipa || !addr || !len || len % PAGE_SIZE)
-		return -EINVAL;
-
-	res = get_range_info(guest, ipa);
-	if (res)
-		goto use_old;
-
-	if (guest->pd_index == MAX_PAGING_BLOCKS - 1)
-		return -ENOSPC;
-
-	s = true;
-	res = &guest->hyp_page_data[guest->pd_index];
-	res->phys_addr = addr;
-	guest->pd_index += 1;
-
-use_old:
-	res->vmid = guest->vmid;
-	res->len = len;
-	ret = calc_hash(res->sha256, (void *)addr, len);
-	if (ret) {
-		memset(res->sha256, 0, 32);
-		res->vmid = 0;
-	}
-	if (s)
-		qsort(guest->hyp_page_data, guest->pd_index, sizeof(kvm_page_data),
-		      compfunc);
-	dsb();
-	isb();
-
-	return ret;
-}
-
-void free_range_info(kvm_guest_t *guest, uint64_t ipa)
-{
-	kvm_page_data *res;
-
-	res = get_range_info(guest, ipa);
-	if (!res)
-		return;
-
-	res->vmid = 0;
-	memset(res->sha256, 0, 32);
-	dsb();
-	isb();
-}
-
-int verify_range(kvm_guest_t *guest, uint64_t ipa, uint64_t addr, uint64_t len)
-{
-	kvm_page_data *res;
-	uint8_t sha256[32];
-	int ret;
-
-	res = get_range_info(guest, ipa);
-	if (!res)
-		return -ENOENT;
-
-	if (res->vmid != guest->vmid)
-		return -EFAULT;
-
-	ret = calc_hash(sha256, (void *)addr, len);
-	if (ret)
-		return -EFAULT;
-
-	ret = memcmp(sha256, res->sha256, 32);
-	if (ret != 0)
-		return -EINVAL;
-
-	return 0;
 }
 
 int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,

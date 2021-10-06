@@ -1,4 +1,4 @@
-From 8dd112134bfafd7d0674c668adb606b4770bd7dd Mon Sep 17 00:00:00 2001
+From d936abcb14e68610f1054157b0c1912082b546b4 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -8,7 +8,7 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 ---
  arch/arm64/configs/defconfig      |  10 +
  arch/arm64/include/asm/kvm_asm.h  |  24 ++
- arch/arm64/include/asm/kvm_host.h |  25 +-
+ arch/arm64/include/asm/kvm_host.h |  27 +-
  arch/arm64/include/asm/kvm_hyp.h  |  13 +
  arch/arm64/include/asm/kvm_mmu.h  |  59 ++--
  arch/arm64/kernel/asm-offsets.c   |   9 +
@@ -29,7 +29,7 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kvm/reset.c            |   7 +-
  arch/arm64/lib/copy_template.S    |   9 +
  virt/kvm/kvm_main.c               |   2 +-
- 23 files changed, 832 insertions(+), 118 deletions(-)
+ 23 files changed, 834 insertions(+), 118 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -106,22 +106,24 @@ index 044bb9e2cd74..db5eec9c4ebc 100644
  extern char __smccc_workaround_1_smc[__SMCCC_WORKAROUND_1_SMC_SZ];
  
 diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
-index 912b83e784bb..42c328a8d94b 100644
+index 912b83e784bb..1b2baa99f8eb 100644
 --- a/arch/arm64/include/asm/kvm_host.h
 +++ b/arch/arm64/include/asm/kvm_host.h
-@@ -67,6 +67,11 @@ struct kvm_vmid {
+@@ -67,6 +67,13 @@ struct kvm_vmid {
  	u32    vmid;
  };
  
 +struct hyp_extension_ops {
 +	int (*load_host_stage2)(void);
 +	int (*load_guest_stage2)(u64 vmid);
++	void (*save_host_traps)(void);
++	void (*restore_host_traps)(void);
 +};
 +
  struct kvm_s2_mmu {
  	struct kvm_vmid vmid;
  
-@@ -87,6 +92,9 @@ struct kvm_s2_mmu {
+@@ -87,6 +94,9 @@ struct kvm_s2_mmu {
  	int __percpu *last_vcpu_ran;
  
  	struct kvm *kvm;
@@ -131,7 +133,7 @@ index 912b83e784bb..42c328a8d94b 100644
  };
  
  struct kvm_arch {
-@@ -262,6 +270,7 @@ struct kvm_cpu_context {
+@@ -262,6 +272,7 @@ struct kvm_cpu_context {
  	};
  
  	struct kvm_vcpu *__hyp_running_vcpu;
@@ -139,7 +141,7 @@ index 912b83e784bb..42c328a8d94b 100644
  };
  
  struct kvm_pmu_events {
-@@ -489,8 +498,10 @@ int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
+@@ -489,8 +500,10 @@ int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
  
  void kvm_arm_halt_guest(struct kvm *kvm);
  void kvm_arm_resume_guest(struct kvm *kvm);
@@ -151,7 +153,7 @@ index 912b83e784bb..42c328a8d94b 100644
  	({								\
  		struct arm_smccc_res res;				\
  									\
-@@ -500,7 +511,17 @@ void kvm_arm_resume_guest(struct kvm *kvm);
+@@ -500,7 +513,17 @@ void kvm_arm_resume_guest(struct kvm *kvm);
  									\
  		res.a1;							\
  	})
@@ -1705,5 +1707,5 @@ index 0e4310c415a8..9c358507b587 100644
  					   offsetof(struct kvm_vcpu, arch),
  					   sizeof_field(struct kvm_vcpu, arch),
 -- 
-2.17.1
+2.25.1
 
