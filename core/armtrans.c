@@ -446,7 +446,7 @@ int count_shared(uint32_t vmid)
 		return -EINVAL;
 
 	vaddr1 = 0;
-	while (vaddr1 <= (SZ_1G *8)) {
+	while (vaddr1 <= GUEST_MEM_MAX) {
 		paddr1 = pt_walk(guest->s2_pgd, vaddr1, NULL, TABLE_LEVELS);
 		if (paddr1 == ~0UL)
 			goto cont;

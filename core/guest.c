@@ -223,9 +223,6 @@ int init_guest(void *kvm)
 
 	/* Save the current VM process stage1 PGD */
 	guest->s1_pgd = (struct ptable *)read_reg(TTBR0_EL1);
-#if DEBUGDUMP
-	print_mappings(0, STAGE2, SZ_1G, SZ_1G*5);
-#endif
 
 	dsb();
 	isb();
@@ -479,12 +476,12 @@ int free_guest(void *kvm)
 	kvm_guest_t *host = NULL;
 	int i, res;
 
-	host = get_guest(HOST_VMID);
-	if (!host)
-		return -EINVAL;
-
 	if (!kvm)
 		return -EINVAL;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
 
 	kvm = kern_hyp_va(kvm);
 	for (i = 0; i < MAX_GUESTS; i++) {
@@ -528,9 +525,6 @@ int free_guest(void *kvm)
 	memset(guest, 0, sizeof(*guest));
 	guest->vmid = INVALID_VMID;
 
-#if DEBUGDUMP
-	print_mappings(0, STAGE2, SZ_1G, SZ_1G*5);
-#endif
 	dsb();
 	isb();
 

@@ -355,28 +355,20 @@ int restore_host_mappings(void *gp)
 		slot_end = slot_start;
 		while (slot_end <= (slot_start + size)) {
 			slot_addr = pt_walk(guest->s2_pgd, slot_end, &pte, 4);
-			if (slot_addr == ~0UL) {
-				slot_end += PAGE_SIZE;
-				continue;
-			}
-			if (pte && bit_raised(*pte, PTE_SHARED)) {
-				slot_end += PAGE_SIZE;
-				continue;
-			}
+			if (slot_addr == ~0UL)
+				goto cont;
 			/*
 			 * Now we know that the slot_end points to a page
 			 * at addr that was stolen from the host. Restore
 			 * it and make sure there is no information leak
 			 * on it.
-			 * Note: devices better not have s2 maps. Only
-			 * virtio or regular pagefaulting will work.
 			 */
 			memset((void *)slot_addr, 0, PAGE_SIZE);
 			res = mmap_range(host->s2_pgd, STAGE2, slot_addr, slot_addr,
 					 PAGE_SIZE, PAGE_HYP_RWX, S2_NORMAL_MEMORY);
 			if (res)
 				HYP_ABORT();
-
+cont:
 			slot_end += PAGE_SIZE;
 		}
 	}

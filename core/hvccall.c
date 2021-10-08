@@ -44,8 +44,8 @@ uint64_t hostflags;
 
 int set_lockflags(uint64_t flags, uint64_t addr, size_t sz, uint64_t depth)
 {
-
-	LOG("%s flags: 0x%lx addr: 0x%lx sz: 0x%lx depth: 0x%lx\n", __func__, flags);
+	LOG("%s flags: 0x%lx addr: 0x%lx sz: 0x%lx depth: 0x%lx\n", __func__,
+	     flags, addr, sz, depth);
 #if (DEBUG == 2)
 	return 0;
 #endif
