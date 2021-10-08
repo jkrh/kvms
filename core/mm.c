@@ -281,6 +281,9 @@ int remove_host_range(void *g, uint64_t paddr, size_t len)
 {
 	kvm_guest_t *host;
 
+	if (!paddr || (paddr % PAGE_SIZE) || (len % PAGE_SIZE))
+		return -EINVAL;
+
 #ifdef HOSTBLINDING_DEV
 	/*
 	 * Leave in hyp regions mapped by KVM
@@ -301,6 +304,9 @@ int restore_host_range(uint64_t gpa, uint64_t len)
 	uint64_t phys, gpap = gpa;
 	uint32_t vmid;
 
+	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
+		return -EINVAL;
+
 	vmid = get_current_vmid();
 	if (vmid == HOST_VMID)
 		return 0;
@@ -312,6 +318,9 @@ int restore_host_range(uint64_t gpa, uint64_t len)
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
+
+	if ((gpa + len) > guest->ramend)
+		return -EINVAL;
 
 	while (gpap < (gpa + (len * PAGE_SIZE))) {
 		phys = pt_walk(guest->s2_pgd, gpa, NULL, TABLE_LEVELS);

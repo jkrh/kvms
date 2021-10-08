@@ -1,19 +1,19 @@
-From 45bc4e1225826d6ced4c52f62b3707215c5ddc75 Mon Sep 17 00:00:00 2001
+From 7f7372bb1ea6eabc0b66d5a99626b3e34273faa6 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 10 May 2021 14:02:47 +0300
 Subject: [PATCH] kvm: 'encrypted memory' draft for arm64
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- arch/arm/include/asm/set_memory.h    |  4 +++
- arch/arm64/Kconfig                   |  2 ++
- arch/arm64/configs/defconfig         |  8 ++++-
- arch/arm64/include/asm/mem_encrypt.h | 13 +++++++
- arch/arm64/kvm/hvccall-defines.h     | 52 ++++++++++++++++++++++++++++
+ arch/arm/include/asm/set_memory.h    |  4 ++
+ arch/arm64/Kconfig                   |  2 +
+ arch/arm64/configs/defconfig         |  8 +++-
+ arch/arm64/include/asm/mem_encrypt.h | 13 ++++++
+ arch/arm64/kvm/hvccall-defines.h     | 52 +++++++++++++++++++++
  arch/arm64/mm/Makefile               |  3 +-
- arch/arm64/mm/set_memory.c           | 45 ++++++++++++++++++++++++
- drivers/virtio/virtio_ring.c         |  7 ++--
- 8 files changed, 128 insertions(+), 6 deletions(-)
+ arch/arm64/mm/set_memory.c           | 68 ++++++++++++++++++++++++++++
+ drivers/virtio/virtio_ring.c         |  7 ++-
+ 8 files changed, 151 insertions(+), 6 deletions(-)
  create mode 100644 arch/arm64/include/asm/mem_encrypt.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
  create mode 100644 arch/arm64/mm/set_memory.c
@@ -167,10 +167,10 @@ index 5ead3c3de3b6..ab8419f715c2 100644
  obj-$(CONFIG_PTDUMP_DEBUGFS)	+= ptdump_debugfs.o
 diff --git a/arch/arm64/mm/set_memory.c b/arch/arm64/mm/set_memory.c
 new file mode 100644
-index 000000000000..844a17aa6c76
+index 000000000000..0e9f55f5904b
 --- /dev/null
 +++ b/arch/arm64/mm/set_memory.c
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,68 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +
 +#include <linux/kernel.h>
@@ -179,10 +179,32 @@ index 000000000000..844a17aa6c76
 +
 +#include "../kvm/hvccall-defines.h"
 +
++static int __set_memory_encrypted(unsigned long addr, int numpages)
++{
++	register int ret asm ("x0");
++
++	__asm__ __volatile__ (
++		"mov	x0, " XSTR(HYP_SET_GUEST_MEMORY_BLINDED) "\n"
++		"mov	x1, %[addr]\n"
++		"mov	x2, %[numpages]\n"
++		"hvc	#0\n"
++		:
++		: [addr]"r"(addr), [numpages]"r"(numpages)
++		: "memory", "x0", "x1", "x2");
++
++	return ret;
++}
++
 +int set_memory_encrypted(unsigned long addr, int numpages)
 +{
-+	pr_err("set_memory_encrypted() %lx len %d\n", addr, numpages);
-+	return 0;
++	unsigned long gpa;
++
++	gpa = virt_to_phys((void *)addr);
++	numpages *= PAGE_SIZE;
++
++	pr_err("set_memory_encrypted() %lx/%lx len %d\n", addr, gpa, numpages);
++
++	return __set_memory_encrypted(gpa, numpages);
 +}
 +
 +static int __set_memory_decrypted(unsigned long addr, int numpages)
@@ -206,6 +228,7 @@ index 000000000000..844a17aa6c76
 +	unsigned long gpa;
 +
 +	gpa = virt_to_phys((void *)addr);
++	numpages *= PAGE_SIZE;
 +
 +	pr_err("set_memory_decrypted() %lx/%lx len %d\n", addr, gpa, numpages);
 +
