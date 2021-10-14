@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include <errno.h>
 #include <sys/time.h>
-#include <stdbool.h>
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -430,11 +429,12 @@ cont:
 	return 0;
 }
 
-int count_shared(uint32_t vmid)
+int count_shared(uint32_t vmid, bool lock)
 {
 	uint64_t paddr1, paddr2, vaddr1;
 	kvm_guest_t *host;
 	kvm_guest_t *guest;
+	uint64_t *pte1, *pte2;
 	int shared = 0;
 
 	host = get_guest(HOST_VMID);
@@ -447,15 +447,25 @@ int count_shared(uint32_t vmid)
 
 	vaddr1 = 0;
 	while (vaddr1 <= GUEST_MEM_MAX) {
-		paddr1 = pt_walk(guest->s2_pgd, vaddr1, NULL, TABLE_LEVELS);
+		paddr1 = pt_walk(guest->s2_pgd, vaddr1, &pte1, TABLE_LEVELS);
 		if (paddr1 == ~0UL)
 			goto cont;
-		paddr2 = pt_walk(host->s2_pgd, paddr1, NULL, TABLE_LEVELS);
+		paddr2 = pt_walk(host->s2_pgd, paddr1, &pte2, TABLE_LEVELS);
 		if (paddr2 == ~0UL)
 			goto cont;
 #ifdef DEBUG
 		LOG("Page %p is mapped in both the guest and the host\n", paddr2);
 #endif
+		if (lock) {
+			*pte1 &= ~0x600000000000C0;
+			*pte1 |= PAGE_HYP_RO;
+
+			dsbish();
+			isb();
+			tlbi_el1_ipa(paddr1);
+			dsbish();
+			isb();
+		}
 		shared += 1;
 cont:
 		vaddr1 += PAGE_SIZE;
