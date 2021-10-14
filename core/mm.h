@@ -166,12 +166,12 @@ int verify_range(void *guest, uint64_t ipa, uint64_t addr, uint64_t len);
 /**
  * Remove mappings from the host
  *
- * @param uint64_t guest, target guest this page migrated to
- * @param uint64_t ipa, ipa/phys address to remove
+ * @param uint64_t guest, target guest this page migrated to; NULL for the host
+ * @param uint64_t gpa, guest ipa to remove
  * @param uint64_t len, length of the section
  * @return zero on success or negative error code on failure
  */
-int remove_host_range(void *guest, uint64_t ipa, size_t len);
+int remove_host_range(void *guest, uint64_t gpa, size_t len);
 
 /**
  * Restore given range back to the host from current vmid
@@ -191,7 +191,7 @@ int restore_host_range(uint64_t gpa, uint64_t len);
 int restore_host_mappings(void *guest);
 
 #else
-static inline int remove_host_range(void *guest, uint64_t paddr, size_t len)
+static inline int remove_host_range(void *guest, uint64_t gpa, size_t len)
 {
 	return 0;
 }

@@ -296,21 +296,26 @@ int remove_host_range(void *g, uint64_t gpa, size_t len)
 #endif // HOSTBLINDING_DEV
 	host = get_guest(HOST_VMID);
 
-	if (guest) {
-		while (gpap < (gpa + (len * PAGE_SIZE))) {
-			phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
-			if (phys == ~0UL)
-				goto cont;
+	if (!guest) {
+		if (unmap_range(host->s2_pgd, STAGE2, gpa, len))
+			HYP_ABORT();
 
-			phys &= PAGE_MASK;
-			if (unmap_range(host->s2_pgd, STAGE2, phys, PAGE_SIZE))
-				HYP_ABORT();
-cont:
-			gpap += PAGE_SIZE;
-		}
 		return 0;
 	}
-	return unmap_range(host->s2_pgd, STAGE2, gpa, len);
+
+	while (gpap < (gpa + (len * PAGE_SIZE))) {
+		phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
+		if (phys == ~0UL)
+			goto cont;
+
+		phys &= PAGE_MASK;
+		if (unmap_range(host->s2_pgd, STAGE2, phys, PAGE_SIZE))
+			HYP_ABORT();
+cont:
+		gpap += PAGE_SIZE;
+	}
+
+	return 0;
 }
 
 int restore_host_range(uint64_t gpa, uint64_t len)
