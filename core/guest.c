@@ -383,7 +383,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
 	if (!res)
-		res = remove_host_range(guest, paddr, len);
+		res = remove_host_range(NULL, paddr, len);
 
 out_error:
 	return res;

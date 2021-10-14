@@ -277,11 +277,13 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len)
 
 #ifdef HOSTBLINDING
 
-int remove_host_range(void *g, uint64_t paddr, size_t len)
+int remove_host_range(void *g, uint64_t gpa, size_t len)
 {
+	kvm_guest_t *guest = (kvm_guest_t *)g;
 	kvm_guest_t *host;
+	uint64_t phys, gpap = gpa;
 
-	if (!paddr || (paddr % PAGE_SIZE) || (len % PAGE_SIZE))
+	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
 		return -EINVAL;
 
 #ifdef HOSTBLINDING_DEV
@@ -294,7 +296,21 @@ int remove_host_range(void *g, uint64_t paddr, size_t len)
 #endif // HOSTBLINDING_DEV
 	host = get_guest(HOST_VMID);
 
-	return unmap_range(host->s2_pgd, STAGE2, paddr, len);
+	if (guest) {
+		while (gpap < (gpa + (len * PAGE_SIZE))) {
+			phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
+			if (phys == ~0UL)
+				goto cont;
+
+			phys &= PAGE_MASK;
+			if (unmap_range(host->s2_pgd, STAGE2, phys, PAGE_SIZE))
+				HYP_ABORT();
+cont:
+			gpap += PAGE_SIZE;
+		}
+		return 0;
+	}
+	return unmap_range(host->s2_pgd, STAGE2, gpa, len);
 }
 
 int restore_host_range(uint64_t gpa, uint64_t len)
@@ -323,7 +339,7 @@ int restore_host_range(uint64_t gpa, uint64_t len)
 		return -EINVAL;
 
 	while (gpap < (gpa + (len * PAGE_SIZE))) {
-		phys = pt_walk(guest->s2_pgd, gpa, NULL, TABLE_LEVELS);
+		phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
 		if (phys == ~0UL)
 			goto cont;
 
@@ -332,6 +348,7 @@ int restore_host_range(uint64_t gpa, uint64_t len)
 			       PAGE_SIZE, ((SH_NO<<8)|PAGE_HYP_RWX),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
+
 cont:
 		gpap += PAGE_SIZE;
 	}
