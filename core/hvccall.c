@@ -272,7 +272,11 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 				     (kvm_userspace_memory_region *)a3);
 		break;
 	case HYP_USER_COPY:
+		/*
+		 * Unfinished, unsafe at the moment
 		res = guest_user_copy(a6, a1, a2);
+		 */
+		res = -ENOTSUP;
 		break;
 	/*
 	 * Unlocked misc calls
