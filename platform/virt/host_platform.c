@@ -20,7 +20,7 @@
 #define UART01x_DR 0x00 /* Data read or written from the interface. */
 #define UART01x_RSR 0x04 /* Receive status register (Read). */
 
-uint8_t __stack[STACK_SIZE * PLATFORM_CORE_COUNT] ALIGN(PAGE_SIZE) DATA;
+uint8_t __stack[STACK_SIZE * PLATFORM_CORE_COUNT] ALIGN(16) DATA;
 
 int _IO_putc (int c, FILE *fp);
 
@@ -64,8 +64,8 @@ typedef struct {
 
 /* Physical areas for which hyp will deny mapping requests */
 static const memrange noaccess[] = {
-	{  0x00000000,  0x3FFFFFFF },
-	{ 0x100000000, 0x13FFFFFFF },
+	{  0x00000000UL,  0x3FFFFFFFUL },
+	{ 0x100000000UL, 0x13FFFFFFFUL },
 	{ 0, 0 }
 };
 
@@ -120,12 +120,15 @@ nextmap:
 	if (res)
 		goto error;
 
+	host->table_levels = TABLE_LEVELS;
+	host->ramend = 0x200000000UL;
+
 	/* Initial slots for host */
 	platform_init_slots(host);
 
 	/* Virt is a debug target, dump. */
-	print_mappings(HOST_VMID, STAGE1, 0, SZ_1G * 5);
-	print_mappings(HOST_VMID, STAGE2, 0, SZ_1G * 5);
+	print_mappings(HOST_VMID, STAGE1);
+	print_mappings(HOST_VMID, STAGE2);
 
 error:
 	LOG("virt initialization return: %x\n\n", res);
@@ -227,7 +230,6 @@ void platform_mmu_prepare(void)
 	write_reg(TTBR0_EL2, (uint64_t)host->s1_pgd);
 	write_reg(VTTBR_EL2, (uint64_t)host->s2_pgd);
 	set_current_vmid(HOST_VMID);
-	host->table_levels = TABLE_LEVELS;
 
 	dsb();
 	isb();

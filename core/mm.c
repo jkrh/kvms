@@ -294,6 +294,10 @@ int remove_host_range(void *g, uint64_t gpa, size_t len)
 	if (is_in_kvm_hyp_region(paddr))
 		return 0;
 #endif // HOSTBLINDING_DEV
+
+	/*
+	 * Host calling context
+	 */
 	host = get_guest(HOST_VMID);
 
 	if (!guest) {
@@ -302,7 +306,9 @@ int remove_host_range(void *g, uint64_t gpa, size_t len)
 
 		return 0;
 	}
-
+	/*
+	 * Call was issued by the guest 'g'
+	 */
 	while (gpap < (gpa + (len * PAGE_SIZE))) {
 		phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
 		if (phys == ~0UL)

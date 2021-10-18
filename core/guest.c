@@ -321,6 +321,15 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		res = -EINVAL;
 		goto out_error;
 	}
+	/*
+	 * Is the guest allowed to map this block?
+	 */
+	if (!platform_range_permitted(paddr, len)) {
+		ERROR("Invalid guest range %p len %u\n", paddr, len);
+		res = -EPERM;
+		return res;
+	}
+
 	newtype = (prot & TYPE_MASK_STAGE2);
 	/*
 	 * Do we know about this area?

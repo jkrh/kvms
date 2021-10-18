@@ -5,10 +5,11 @@
 extern int __getchar(void);
 
 #ifdef DEBUG
+const char bars[] = { '/', '-', '\\', '|' };
+const int nb = sizeof(bars) / sizeof(char);
+
 void spinner(void)
 {
-	static char bars[] = { '/', '-', '\\', '|' };
-	static int nb = sizeof(bars) / sizeof(char);
 	static int pos;
 
 	printf("%c\r", bars[pos]);

@@ -217,11 +217,9 @@ int count_shared(uint32_t vmid, bool lock);
  *
  * @param vmid vmid of the guest to dump
  * @param stage STAGE1 or STAGE2 of the address translation
- * @param vaddr start virtual address
- * @param sz length of the dump
  * @return void
  */
-void print_mappings(uint32_t vmid, uint64_t stage, uint64_t vaddr, size_t sz);
+void print_mappings(uint32_t vmid, uint64_t stage);
 
 /**
  * Print page tables for given vmid to console/log

@@ -112,8 +112,8 @@ struct entryinfo
 };
 
 static uint8_t invalidate;
-
 static struct tdinfo_t tdinfo;
+static mblockinfo_t block ALIGN(16);
 
 static void setup_hyp_stage1(void)
 {
@@ -435,7 +435,7 @@ int count_shared(uint32_t vmid, bool lock)
 	kvm_guest_t *host;
 	kvm_guest_t *guest;
 	uint64_t *pte1, *pte2;
-	int shared = 0;
+	int shared = 0, total = 0;
 
 	host = get_guest(HOST_VMID);
 	if (!host)
@@ -450,9 +450,12 @@ int count_shared(uint32_t vmid, bool lock)
 		paddr1 = pt_walk(guest->s2_pgd, vaddr1, &pte1, TABLE_LEVELS);
 		if (paddr1 == ~0UL)
 			goto cont;
+		total += 1;
+
 		paddr2 = pt_walk(host->s2_pgd, paddr1, &pte2, TABLE_LEVELS);
 		if (paddr2 == ~0UL)
 			goto cont;
+		shared += 1;
 #ifdef DEBUG
 		LOG("Page %p is mapped in both the guest and the host\n", paddr2);
 #endif
@@ -466,19 +469,21 @@ int count_shared(uint32_t vmid, bool lock)
 			dsbish();
 			isb();
 		}
-		shared += 1;
 cont:
 		vaddr1 += PAGE_SIZE;
 	}
+	LOG("%d pages in the guest %u, total of %d shared with the host\n",
+	    total, guest->vmid, shared);
+
 	return shared;
 }
 
-void print_mappings(uint32_t vmid, uint64_t stage, uint64_t vaddr, size_t sz)
+void print_mappings(uint32_t vmid, uint64_t stage)
 {
-	uint64_t start_vaddr = 0, end_vaddr = 0, start_addr = 0, perms = 0;
-	uint64_t addr = 0, size = 0;
-	uint64_t operms = ~0UL;
-	uint64_t oaddr = ~0UL;
+	uint64_t start_vaddr = 0, end_vaddr = 0;
+	uint64_t start_addr = 0, perms = ~0UL;
+	uint64_t vaddr = 0, addr = 0, size = 0;
+	uint64_t operms = ~0UL, oaddr = 0;
 	kvm_guest_t *guest;
 	struct ptable *pgd;
 	uint64_t *pte;
@@ -501,50 +506,51 @@ void print_mappings(uint32_t vmid, uint64_t stage, uint64_t vaddr, size_t sz)
 	LOG("VMID %u pgd %p mappings %p - %p\n", vmid,
 						(void *)pgd,
 						(void *)vaddr,
-						(void *)(vaddr + sz));
+						(void *)guest->ramend);
 	LOG("vaddr\t\tpaddr\t\tsize\t\tprot\n");
 
-	while (vaddr <= sz) {
+	while (vaddr < guest->ramend) {
 		pte = NULL;
-		addr = pt_walk(pgd, vaddr, &pte, 4);
+		if (stage == STAGE1)
+			addr = pt_walk(pgd, vaddr, &pte, guest->table_levels);
+		else
+			addr = pt_walk(pgd, vaddr, &pte, TABLE_LEVELS);
 		/*
-		 * See if the block is mapped
+		 * Find the beginning
 		 */
-		if (!pte || (vaddr && (addr == ~0UL))) {
-			operms = ~0UL;
+		if (addr == ~0UL) {
 			vaddr += PAGE_SIZE;
 			continue;
 		}
 		/*
-		 * Reset to new mapping
+		 * Grab the perms
 		 */
 		if (stage == STAGE1)
 			perms = *pte & PROT_MASK_STAGE1;
 		else
 			perms = *pte & PROT_MASK_STAGE2;
-
 		if (operms == ~0UL)
 			operms = perms;
 		/*
 		 * Seek to the end of the new mapping
 		 */
 		if ((addr == (oaddr + PAGE_SIZE)) && (perms == operms)) {
-			operms = perms;
 			oaddr = addr;
 			vaddr += PAGE_SIZE;
 			end_vaddr = vaddr;
 			continue;
 		}
 		/*
-		 * Print it
+		 * Print it if there was something.
 		 */
-		if (!end_vaddr)
-			end_vaddr = vaddr;
-		size = end_vaddr - start_vaddr;
-
-		LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
-		     start_vaddr, start_addr, size, perms);
-
+		if (end_vaddr) {
+			size = end_vaddr - start_vaddr;
+			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
+			    start_vaddr, start_addr, size, operms);
+		}
+		/*
+		 * Move along
+		 */
 		start_vaddr = vaddr;
 		start_addr = addr;
 
@@ -780,7 +786,7 @@ static int mmap_addr(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 		bit_set(tp->entries[noff], TABLE_TYPE_BIT);
 
 out_finalize:
-	if (!tp->entries[noff] || (type == INVALID_MEMORY)) {
+	if (type == INVALID_MEMORY) {
 		tp->entries[noff] = 0x0;
 		res = 0;
 		goto out_error;
@@ -889,8 +895,7 @@ int __mmap_range(mblockinfo_t *block, uint64_t vaddr, uint64_t paddr,
 			invalidate_va(block->stage, vaddr);
 
 		vaddr += blk_sz;
-		if (paddr)
-			paddr += blk_sz;
+		paddr += blk_sz;
 		tlength -= blk_sz;
 	}
 
@@ -906,22 +911,22 @@ static void __clear_contiguous_range(mblockinfo_t *block)
 {
 	uint64_t i, tmp;
 
-	if (block->contiguous[0] != NULL) {
-		for (i = 0; i < MAX_CONTIGUOUS; i++) {
-			if (!block->contiguous[i])
-				break;
-			tmp = *block->contiguous[i];
-			bit_drop(tmp, CONTIGUOUS_BIT);
-			*block->contiguous[i] = 0;
-			dsbish();
-			tlbialle1is();
-			*block->contiguous[i] = tmp;
-			dsbish();
-			block->contiguous[i] = NULL;
-		}
-		if (i % MAX_CONTIGUOUS_4KGRANULE)
-			HYP_ABORT();
+	for (i = 0; i < MAX_CONTIGUOUS; i++) {
+		if (!block->contiguous[i])
+			break;
+
+		tmp = *block->contiguous[i];
+		bit_drop(tmp, CONTIGUOUS_BIT);
+		*block->contiguous[i] = 0;
+		dsbish();
+		tlbialle1is();
+		*block->contiguous[i] = tmp;
+		dsbish();
+		block->contiguous[i] = NULL;
+		dsbish();
 	}
+	if (i % MAX_CONTIGUOUS_4KGRANULE)
+			HYP_ABORT();
 }
 
 int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
@@ -1113,15 +1118,16 @@ out_done:
 int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type)
 {
-	kvm_guest_t *host = get_guest(HOST_VMID);
-	mblockinfo_t block ALIGN(16);
 	uint64_t attr, nattr, val, *pte;
+	kvm_guest_t *host;
 
-	if (!host || !pgd)
-		HYP_ABORT();
-
-	if ((vaddr > MAX_VADDR) || (paddr > MAX_PADDR) || (length > SZ_1G * 4))
+	if (!pgd || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR) ||
+	   (length > SZ_1G * 4))
 		return -EINVAL;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
 
 	_zeromem16(&block, sizeof(block));
 
@@ -1210,14 +1216,14 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		size_t length)
 {
-	kvm_guest_t *host = get_guest(HOST_VMID);
-	mblockinfo_t block;
-
-	if (!host)
-		HYP_ABORT();
+	kvm_guest_t *host;
 
 	if (!pgd || (vaddr > MAX_VADDR) || (length > SZ_1G * 4))
 		return -EINVAL;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
 
 	switch (stage) {
 	case STAGE2:
