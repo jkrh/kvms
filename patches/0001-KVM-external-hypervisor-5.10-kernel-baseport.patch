@@ -1,4 +1,4 @@
-From d936abcb14e68610f1054157b0c1912082b546b4 Mon Sep 17 00:00:00 2001
+From fde549bf016204c49257e70833604a4fb3ed4d29 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -25,11 +25,11 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kvm/hyp/nvhe/tlb.c     |  17 +-
  arch/arm64/kvm/hyp/pgtable.c      |  24 +-
  arch/arm64/kvm/hyp/vgic-v3-sr.c   |   6 +
- arch/arm64/kvm/mmu.c              | 120 +++++---
+ arch/arm64/kvm/mmu.c              | 117 +++++---
  arch/arm64/kvm/reset.c            |   7 +-
  arch/arm64/lib/copy_template.S    |   9 +
  virt/kvm/kvm_main.c               |   2 +-
- 23 files changed, 834 insertions(+), 118 deletions(-)
+ 23 files changed, 831 insertions(+), 118 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -203,7 +203,7 @@ index 123e67cb8505..fa057c50ee6f 100644
  #ifdef __KVM_NVHE_HYPERVISOR__
  void __timer_enable_traps(struct kvm_vcpu *vcpu);
 diff --git a/arch/arm64/include/asm/kvm_mmu.h b/arch/arm64/include/asm/kvm_mmu.h
-index 331394306cce..5b480a52db0a 100644
+index 331394306cce..559e1fd369d5 100644
 --- a/arch/arm64/include/asm/kvm_mmu.h
 +++ b/arch/arm64/include/asm/kvm_mmu.h
 @@ -49,6 +49,8 @@
@@ -246,8 +246,8 @@ index 331394306cce..5b480a52db0a 100644
 -				    "ror %0, %0, #63\n",
 -				    kvm_update_va_mask)
 -		     : "+r" (v));
-+	v = (v & ~KERNEL_MAP);
-+	v = KERNEL_BASE | v;
++	v &= CALL_MASK;
++	v |= KERNEL_BASE;
 +
  	return v;
  }
@@ -1354,7 +1354,7 @@ index 452f4cacd674..7afa96f528c3 100644
  	case 7:
  		__vgic_v3_write_ap0rn(cpu_if->vgic_ap0r[3], 3);
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 26068456ec0f..7f886234c283 100644
+index 26068456ec0f..458470f9f246 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
 @@ -31,6 +31,10 @@ static phys_addr_t hyp_idmap_vector;
@@ -1432,7 +1432,7 @@ index 26068456ec0f..7f886234c283 100644
  
  	size += offset_in_page(guest_ipa);
  	guest_ipa &= PAGE_MASK;
-@@ -516,10 +530,11 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
+@@ -516,10 +530,8 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
  		if (ret)
  			break;
  
@@ -1442,13 +1442,10 @@ index 26068456ec0f..7f886234c283 100644
 -		spin_unlock(&kvm->mmu_lock);
 +		ret = create_guest_mapping(_vmid, guest_ipa, pa, 0x1000,
 +					  (map_data.attr & 0x600000000003FC));
-+		if (ret)
-+			break;
-+
  		if (ret)
  			break;
  
-@@ -632,6 +647,9 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
+@@ -632,6 +644,9 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
  	hva_t uaddr_start, uaddr_end;
  	size_t size;
  
@@ -1458,7 +1455,7 @@ index 26068456ec0f..7f886234c283 100644
  	/* The memslot and the VMA are guaranteed to be aligned to PAGE_SIZE */
  	if (map_size == PAGE_SIZE)
  		return true;
-@@ -743,7 +761,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -743,7 +758,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  			  unsigned long fault_status)
  {
  	int ret = 0;
@@ -1467,7 +1464,7 @@ index 26068456ec0f..7f886234c283 100644
  	bool exec_fault;
  	bool device = false;
  	unsigned long mmu_seq;
-@@ -757,7 +775,12 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -757,7 +772,12 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	unsigned long fault_level = kvm_vcpu_trap_get_fault_level(vcpu);
  	unsigned long vma_pagesize, fault_granule;
  	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
@@ -1481,7 +1478,7 @@ index 26068456ec0f..7f886234c283 100644
  
  	fault_granule = 1UL << ARM64_HW_PGTABLE_LEVEL_SHIFT(fault_level);
  	write_fault = kvm_is_write_fault(vcpu);
-@@ -868,7 +891,6 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -868,7 +888,6 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  		return -ENOEXEC;
  
  	spin_lock(&kvm->mmu_lock);
@@ -1489,7 +1486,7 @@ index 26068456ec0f..7f886234c283 100644
  	if (mmu_notifier_retry(kvm, mmu_seq))
  		goto out_unlock;
  
-@@ -898,18 +920,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -898,18 +917,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	else if (cpus_have_const_cap(ARM64_HAS_CACHE_DIC))
  		prot |= KVM_PGTABLE_PROT_X;
  
@@ -1516,7 +1513,7 @@ index 26068456ec0f..7f886234c283 100644
  
  out_unlock:
  	spin_unlock(&kvm->mmu_lock);
-@@ -919,7 +937,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -919,7 +934,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  }
  
  /* Resolve the access fault by making the page young again. */
@@ -1526,7 +1523,7 @@ index 26068456ec0f..7f886234c283 100644
  {
  	pte_t pte;
  	kvm_pte_t kpte;
-@@ -1061,13 +1080,13 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
+@@ -1061,13 +1077,13 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
  	return ret;
  }
  
@@ -1547,7 +1544,7 @@ index 26068456ec0f..7f886234c283 100644
  {
  	struct kvm_memslots *slots;
  	struct kvm_memory_slot *memslot;
-@@ -1095,17 +1114,14 @@ static int handle_hva_to_gpa(struct kvm *kvm,
+@@ -1095,17 +1111,14 @@ static int handle_hva_to_gpa(struct kvm *kvm,
  
  static int kvm_unmap_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
  {
@@ -1567,7 +1564,7 @@ index 26068456ec0f..7f886234c283 100644
  		return 0;
  
  	trace_kvm_unmap_hva_range(start, end);
-@@ -1130,6 +1146,7 @@ static int kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data
+@@ -1130,6 +1143,7 @@ static int kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data
  	return 0;
  }
  
@@ -1575,7 +1572,7 @@ index 26068456ec0f..7f886234c283 100644
  int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
  {
  	unsigned long end = hva + PAGE_SIZE;
-@@ -1149,7 +1166,8 @@ int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
+@@ -1149,7 +1163,8 @@ int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
  	return 0;
  }
  
@@ -1585,7 +1582,7 @@ index 26068456ec0f..7f886234c283 100644
  {
  	pte_t pte;
  	kvm_pte_t kpte;
-@@ -1160,12 +1178,14 @@ static int kvm_age_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
+@@ -1160,12 +1175,14 @@ static int kvm_age_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
  	return pte_valid(pte) && pte_young(pte);
  }
  
@@ -1601,7 +1598,7 @@ index 26068456ec0f..7f886234c283 100644
  int kvm_age_hva(struct kvm *kvm, unsigned long start, unsigned long end)
  {
  	if (!kvm->arch.mmu.pgt)
-@@ -1174,6 +1194,7 @@ int kvm_age_hva(struct kvm *kvm, unsigned long start, unsigned long end)
+@@ -1174,6 +1191,7 @@ int kvm_age_hva(struct kvm *kvm, unsigned long start, unsigned long end)
  	return handle_hva_to_gpa(kvm, start, end, kvm_age_hva_handler, NULL);
  }
  
@@ -1609,7 +1606,7 @@ index 26068456ec0f..7f886234c283 100644
  int kvm_test_age_hva(struct kvm *kvm, unsigned long hva)
  {
  	if (!kvm->arch.mmu.pgt)
-@@ -1301,9 +1322,16 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -1301,9 +1319,16 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	bool writable = !(mem->flags & KVM_MEM_READONLY);
  	int ret = 0;
  
@@ -1626,7 +1623,7 @@ index 26068456ec0f..7f886234c283 100644
  
  	/*
  	 * Prevent userspace from creating a memory region outside of the IPA
-@@ -1370,6 +1398,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -1370,6 +1395,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	else if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
  		stage2_flush_memslot(kvm, memslot);
  	spin_unlock(&kvm->mmu_lock);
@@ -1646,7 +1643,7 @@ index 26068456ec0f..7f886234c283 100644
  out:
  	mmap_read_unlock(current->mm);
  	return ret;
-@@ -1385,7 +1426,6 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
+@@ -1385,7 +1423,6 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
  
  void kvm_arch_flush_shadow_all(struct kvm *kvm)
  {
