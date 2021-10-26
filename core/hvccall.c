@@ -72,12 +72,12 @@ int is_apicall(uint64_t cn)
 	return CALL_TYPE_UNKNOWN;
 }
 
-int guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
-		  register_t a4, register_t a5, register_t a6, register_t a7,
-		  register_t a8, register_t a9)
+int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
+		      register_t a4, register_t a5, register_t a6, register_t a7,
+		      register_t a8, register_t a9)
 {
 	kvm_guest_t *guest = NULL;
-	int res = -EINVAL;
+	int64_t res;
 
 	guest = get_guest(get_current_vmid());
 	if (!guest)
@@ -91,15 +91,23 @@ int guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_SET_GUEST_MEMORY_OPEN:
 		res = restore_host_range(a1, a2);
 		break;
+#ifdef DEBUG
+	case HYP_TRANSLATE:
+		res = pt_walk(guest->s2_pgd, a1, 0, guest->table_levels);
+		break;
+#endif
+	default:
+		res = -EINVAL;
+		break;
 	}
 	spin_unlock(&core_lock);
 
 	return res;
 }
 
-int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
-	    register_t a4, register_t a5, register_t a6, register_t a7,
-	    register_t a8, register_t a9)
+int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
+		register_t a4, register_t a5, register_t a6, register_t a7,
+		register_t a8, register_t a9)
 {
 	kvm_guest_t *guest = NULL;
 	int64_t res = -EINVAL;
@@ -278,8 +286,11 @@ int hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		 */
 		res = -ENOTSUP;
 		break;
+	case HYP_TRANSLATE:
+		res = -ENOTSUP;
+		break;
 	/*
-	 * Unlocked misc calls
+	 * Misc calls, grab lock if you need it
 	 */
 	case HYP_READ_LOG:
 		res = read_log();
