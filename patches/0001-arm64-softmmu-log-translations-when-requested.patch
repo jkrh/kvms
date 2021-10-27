@@ -1,28 +1,38 @@
-From c14df4a03b95b12400942b39acec3864f7361358 Mon Sep 17 00:00:00 2001
+From 56287b663d189b18e1fcd24e3c04f8c8c013954a Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 26 Oct 2021 11:19:12 +0300
 Subject: [PATCH] arm64 softmmu: log translations when requested
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- target/arm/tlb_helper.c | 8 ++++++++
- 1 file changed, 8 insertions(+)
+ target/arm/tlb_helper.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
 
 diff --git a/target/arm/tlb_helper.c b/target/arm/tlb_helper.c
-index 3107f9823e..1d8fe94793 100644
+index 3107f9823e..d548b70496 100644
 --- a/target/arm/tlb_helper.c
 +++ b/target/arm/tlb_helper.c
-@@ -185,6 +185,14 @@ bool arm_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+@@ -155,6 +155,8 @@ bool arm_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
+ {
+     ARMCPU *cpu = ARM_CPU(cs);
+     ARMMMUFaultInfo fi = {};
++    uint64_t ttbr;
++    int el;
+ 
+ #ifdef CONFIG_USER_ONLY
+     int flags = page_get_flags(useronly_clean_ptr(address));
+@@ -185,6 +187,15 @@ bool arm_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
                          core_to_arm_mmu_idx(&cpu->env, mmu_idx),
                          &phys_addr, &attrs, &prot, &page_size,
                          &fi, &cacheattrs);
-+    if (arm_mmu_idx_to_el(mmu_idx | ARM_MMU_IDX_A) == 0) {
-+        qemu_log_mask(CPU_LOG_MMU, "%u %lx %lx %c%c%c\n",
-+                      mmu_idx, address, phys_addr,
-+                      prot & PAGE_READ ? 'r' : '-',
-+                      prot & PAGE_WRITE ? 'w' : '-',
-+                      prot & PAGE_EXEC ? 'x' : '-');
-+    }
++
++    el = arm_mmu_idx_to_el(mmu_idx | ARM_MMU_IDX_A);
++    ttbr = cpu->env.cp15.vttbr_el2;
++    qemu_log_mask(CPU_LOG_MMU, "%u %lx %lx %lx %c%c%c\n",
++                  el, ttbr, address, phys_addr,
++                  prot & PAGE_READ ? 'r' : '-',
++                  prot & PAGE_WRITE ? 'w' : '-',
++                  prot & PAGE_EXEC ? 'x' : '-');
 +
      if (likely(!ret)) {
          /*
