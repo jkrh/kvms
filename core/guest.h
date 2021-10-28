@@ -15,6 +15,7 @@
 #ifndef MAX_GUESTS
 #define MAX_GUESTS 8
 #endif
+#define MAX_SHARES 128
 
 #define KVM_USER_MEM_SLOTS 512
 #define KVM_PRIVATE_MEM_SLOTS 0
@@ -41,6 +42,11 @@ typedef enum {
 } guest_state_t;
 
 typedef struct {
+	uint64_t gpa;
+	size_t len;
+} share_t;
+
+typedef struct {
 	uint32_t vmid;
 	guest_state_t state;
 	kernel_func_t *cpu_map[NUM_VCPUS];
@@ -54,7 +60,40 @@ typedef struct {
 	uint32_t sn;
 	uint32_t table_levels;
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
+	share_t shares[MAX_SHARES];
 } kvm_guest_t;
+
+/**
+ * Set a guest memory area as shared. If we ever trap on this
+ * area while the guest is executing, we will not remove the
+ * corresponding host mapping and the host can keep writing
+ * on these pages. If the gpa falls anywhere in the previously
+ * shared region, the entire region is reset.
+ *
+ * @param gpa the guest physical address
+ * @param len length of the section in bytes
+ * @return zero on success or error code on failure
+ */
+int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
+
+/*
+ * Clear a guest share, see above. If the gpa falls anywhere
+ * in the shared region, the entire region is void.
+ *
+ * @param gpa the guest physical address
+ * @param len length of the section in bytes
+ * @return zero on success or error code on failure.
+ */
+int clear_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
+
+/*
+ * Query if given area is a share, see above.
+ *
+ * @param gpa the guest physical address
+ * @param len length of the section in bytes
+ * @return negative error code in failure, 1 if it is, 0 otherwise
+ */
+int is_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
 
 /**
  * Initialize the guests and guest lookup array.

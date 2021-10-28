@@ -268,6 +268,65 @@ kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd)
 	return guest;
 }
 
+int is_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
+{
+	int i = 0;
+
+	if (!guest || !len)
+		return -EINVAL;
+
+	while(i < MAX_SHARES) {
+		if ((gpa >= guest->shares[i].gpa) &&
+		    (gpa < (guest->shares[i].gpa + guest->shares[i].len))) {
+			return 1;
+		}
+		i++;
+	}
+	return 0;
+}
+
+int clear_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
+{
+	int i = 0;
+
+	if (!guest || !len)
+		return -EINVAL;
+
+	while(i < MAX_SHARES) {
+		if ((gpa >= guest->shares[i].gpa) &&
+		    (gpa < (guest->shares[i].gpa + guest->shares[i].len))) {
+			guest->shares[i].gpa = 0;
+			guest->shares[i].len = 0;
+			dsb();
+			return 0;
+		}
+		i++;
+	}
+	return 1;
+}
+
+int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
+{
+	int i = 0;
+
+	if (!len || !guest || (gpa > guest->ramend))
+		return -EINVAL;
+
+	clear_share(guest, gpa, len);
+
+	while((guest->shares[i].len != 0) && (i < MAX_SHARES))
+		i++;
+
+	if (guest->shares[i].len != 0)
+		return -ENOSPC;
+
+	guest->shares[i].gpa = gpa;
+	guest->shares[i].len = len;
+	dsb();
+
+	return 0;
+}
+
 kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 {
 	kvm_guest_t *guest = NULL;
@@ -391,7 +450,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 
 	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
-	if (!res)
+	if (!res && !is_share(guest, vaddr, len))
 		res = remove_host_range(NULL, paddr, len);
 
 out_error:

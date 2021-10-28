@@ -87,9 +87,16 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	switch(cn) {
 	case HYP_SET_GUEST_MEMORY_BLINDED:
 		res = remove_host_range(guest, a1, a2);
+		if (!res)
+			clear_share(guest, a1, a2);
 		break;
 	case HYP_SET_GUEST_MEMORY_OPEN:
 		res = restore_host_range(a1, a2);
+		if (res)
+			HYP_ABORT();
+		res = set_share(guest, a1, a2);
+		if (res)
+			HYP_ABORT();
 		break;
 #ifdef DEBUG
 	case HYP_TRANSLATE:
