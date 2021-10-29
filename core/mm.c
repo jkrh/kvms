@@ -275,12 +275,9 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len)
 	return 0;
 }
 
-#ifdef HOSTBLINDING
-
-int remove_host_range(void *g, uint64_t gpa, size_t len)
+int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 {
-	kvm_guest_t *guest = (kvm_guest_t *)g;
-	kvm_guest_t *host;
+	kvm_guest_t *host, *guest;
 	uint64_t phys, gpap = gpa;
 
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
@@ -295,21 +292,32 @@ int remove_host_range(void *g, uint64_t gpa, size_t len)
 		return 0;
 #endif // HOSTBLINDING_DEV
 
-	/*
-	 * Host calling context
-	 */
+	guest = (kvm_guest_t *)g;
 	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
 
-	if (!guest) {
+	if (guest == host) {
+		/*
+		 * Range must be checked to be physically contiguous.
+		 * gpa equals to phy.
+		 */
+		if (!contiguous)
+			return -EINVAL;
 		if (unmap_range(host->s2_pgd, STAGE2, gpa, len))
 			HYP_ABORT();
-
 		return 0;
 	}
-	/*
-	 * Call was issued by the guest 'g'
-	 */
-	while (gpap < (gpa + (len * PAGE_SIZE))) {
+
+#ifndef HOSTBLINDING
+	return 0;
+#endif // HOSTBLINDING
+
+	while (gpap < (gpa + len)) {
+		/*
+		 * Unmap scattered ranges from host page by page. Guest stage 2 mapping
+		 * must be validated and created before entering this functionality.
+		 */
 		phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
 		if (phys == ~0UL)
 			goto cont;
@@ -324,39 +332,52 @@ cont:
 	return 0;
 }
 
-int restore_host_range(uint64_t gpa, uint64_t len)
+int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 {
-	kvm_guest_t *guest = NULL;
-	kvm_guest_t *host = NULL;
+	kvm_guest_t *host, *guest;
 	uint64_t phys, gpap = gpa;
-	uint32_t vmid;
 
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
 		return -EINVAL;
 
-	vmid = get_current_vmid();
-	if (vmid == HOST_VMID)
-		return 0;
-
-	guest = get_guest(vmid);
-	if (!guest)
-		return -EINVAL;
-
+	guest = (kvm_guest_t *)g;
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
 
+	if (guest == host) {
+		/*
+		 * Range must be checked to be physically contiguous.
+		 * gpa equals to phy.
+		 */
+		if (!contiguous)
+			return -EINVAL;
+		if (mmap_range(host->s2_pgd, STAGE2, gpa, gpa,
+			       PAGE_SIZE, ((SH_INN<<8)|PAGE_HYP_RW),
+			       S2_NORMAL_MEMORY))
+			HYP_ABORT();
+		return 0;
+	}
+
+#ifndef HOSTBLINDING
+	return 0;
+#endif // HOSTBLINDING
+
 	if ((gpa + len) > guest->ramend)
 		return -EINVAL;
 
-	while (gpap < (gpa + (len * PAGE_SIZE))) {
+	while (gpap < (gpa + len)) {
+		/*
+		 * Restore scattered ranges page by page. Guest stage 2 mapping must be
+		 * maintained until this call has been completed.
+		 */
 		phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
 		if (phys == ~0UL)
 			goto cont;
 
 		phys &= PAGE_MASK;
 		if (mmap_range(host->s2_pgd, STAGE2, phys, phys,
-			       PAGE_SIZE, ((SH_NO<<8)|PAGE_HYP_RWX),
+			       PAGE_SIZE, ((SH_INN<<8)|PAGE_HYP_RW),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
 
@@ -365,6 +386,8 @@ cont:
 	}
 	return 0;
 }
+
+#ifdef HOSTBLINDING
 
 int restore_host_mappings(void *gp)
 {

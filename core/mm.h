@@ -162,26 +162,37 @@ void free_range_info(void *guest, uint64_t ipa);
  */
 int verify_range(void *guest, uint64_t ipa, uint64_t addr, uint64_t len);
 
+/**
+ * Remove given range mapping from the host
+ *
+ * @param guest, the target guest this range is migrated to.
+ *               If the guest argument equals to the host the given range must
+ *               be physically contiguous.
+ * @param gpa, the guest ipa to remove.
+ *               If the guest equals to the host the given gpa must be equal
+ *               to the physical address.
+ * @param len, length of the range
+ * @param contiguous, set to true if the range is physically contiguous
+ * @return zero on success or negative error code on failure
+ */
+int remove_host_range(void *guest, uint64_t gpa, size_t len, bool contiguous);
+
+/**
+ * Restore given range mapping back to the host
+ *
+ * @param guest, the target guest this range is currently mapped.
+ *               If the guest equals to the host the given range must be
+ *               physically contiguous.
+ * @param gpa, ipa of the physical address to restore.
+ *               If guest equals to the host the given gpa must be equal
+ *               to the physical address.
+ * @param len, length of the range
+ * @param contiguous, set to true if the range is physically contiguous
+ * @return zero on success or negative error code on failure
+ */
+int restore_host_range(void *guest, uint64_t gpa, uint64_t len, bool contiguous);
+
 #ifdef HOSTBLINDING
-/**
- * Remove mappings from the host
- *
- * @param uint64_t guest, target guest this page migrated to; NULL for the host
- * @param uint64_t gpa, guest ipa to remove
- * @param uint64_t len, length of the section
- * @return zero on success or negative error code on failure
- */
-int remove_host_range(void *guest, uint64_t gpa, size_t len);
-
-/**
- * Restore given range back to the host from current vmid
- *
- * @param uint64_t gpa, the guest physical address
- * @param uint64_t len, length of the section
- * @return zero on success or negative error code on failure
- */
-int restore_host_range(uint64_t gpa, uint64_t len);
-
 /**
  * Restore host mappings after blinded guest exit
  *
@@ -191,15 +202,6 @@ int restore_host_range(uint64_t gpa, uint64_t len);
 int restore_host_mappings(void *guest);
 
 #else
-static inline int remove_host_range(void *guest, uint64_t gpa, size_t len)
-{
-	return 0;
-}
-
-static inline int restore_host_range(uint64_t gpa, uint64_t len)
-{
-	return 0;
-}
 
 static inline int restore_host_mappings(void *guest)
 {

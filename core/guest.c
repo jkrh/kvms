@@ -386,20 +386,17 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 {
 	uint64_t page_vaddr, page_paddr, taddr, *pte;
 	uint64_t newtype, maptype, mapprot, mc = 0;
+	kvm_guest_t *host;
 	int res;
 
 	if (!guest || !vaddr || !paddr || (len % PAGE_SIZE)) {
 		res = -EINVAL;
 		goto out_error;
 	}
-	/*
-	 * Is the guest allowed to map this block?
-	 */
-	if (!platform_range_permitted(paddr, len)) {
-		ERROR("Invalid guest range %p len %u\n", paddr, len);
-		res = -EPERM;
-		return res;
-	}
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
 
 	newtype = (prot & TYPE_MASK_STAGE2);
 	/*
@@ -463,7 +460,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
 	if (!res && !is_share(guest, vaddr, len))
-		res = remove_host_range(NULL, paddr, len);
+		res = remove_host_range(guest, vaddr, len, false);
 
 out_error:
 	return res;
@@ -472,9 +469,14 @@ out_error:
 int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 		      bool measure)
 {
+	kvm_guest_t *host;
 	uint64_t paddr, map_addr;
 	uint64_t *pte;
 	int res = -EINVAL, pc = 0;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
 
 	if (!guest || !vaddr || (len % PAGE_SIZE)) {
 		res = 0xF0F0;
@@ -519,17 +521,18 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 		dsb(); isb();
 
 		/*
+		 * Give it back to the host
+		 */
+		res = restore_host_range(guest, map_addr, PAGE_SIZE, false);
+		if (res)
+			HYP_ABORT();
+
+		/*
 		 * Detach the page from the guest
 		 */
 		res = unmap_range(guest->s2_pgd, STAGE2, map_addr, PAGE_SIZE);
 		if (res)
 			ERROR("unmap_range(): %lld:%d\n", map_addr, res);
-		/*
-		 * Give it back to the host
-		 */
-		res = restore_host_range(paddr, PAGE_SIZE);
-		if (res)
-			HYP_ABORT();
 
 		pc += 1;
 do_loop:
