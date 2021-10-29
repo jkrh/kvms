@@ -174,23 +174,48 @@ guest_state_t get_guest_state(uint64_t vmid)
 	return guest->state;
 }
 
-int init_guest(void *kvm)
+/**
+ * Resolve the guest from the kvm pointer. Side effects:
+ * 1. The provided kvm pointer is adjusted to the el2 address.
+ * 2. The provided index is adjusted to point to the guest found in
+ *    guests table.
+ *
+ * @param kvm the EL1 kvm structure pointer
+ * @param guest_index (optional). If provided, this will be set to
+ *        the index in the guests table.
+ * @return pointer to guest on success or NULL on failure.
+ */
+static kvm_guest_t *__get_guest_by_kvm(void **kvm, int *guest_index)
 {
-	kvm_guest_t *guest = NULL;
-	uint64_t *pgd;
-	uint64_t i, vmid = 0;
-	struct hyp_extension_ops *eops;
+	int i;
+	kvm_guest_t *guest;
 
-	if (!kvm)
-		return -EINVAL;
-
-	kvm = kern_hyp_va(kvm);
+	guest = NULL;
+	*kvm = kern_hyp_va(*kvm);
 	for (i = 0; i < MAX_GUESTS; i++) {
-		if (guests[i].kvm == kvm) {
+		if (guests[i].kvm == *kvm) {
 			guest = &guests[i];
 			break;
 		}
 	}
+
+	if (guest_index != NULL)
+		*guest_index = i;
+
+	return guest;
+}
+
+int init_guest(void *kvm)
+{
+	kvm_guest_t *guest = NULL;
+	struct hyp_extension_ops *eops;
+	uint64_t vmid = 0;
+	uint64_t *pgd;
+
+	if (!kvm)
+		return -EINVAL;
+
+	guest = __get_guest_by_kvm(&kvm, NULL);
 
 	if (!guest) {
 		vmid = (uint64_t)KVM_GET_VMID(kvm);
@@ -237,12 +262,7 @@ kvm_guest_t *get_guest_by_kvm(void *kvm)
 	int i, rc = 0;
 
 retry:
-	for (i = 0; i < MAX_GUESTS; i++) {
-		if (guests[i].kvm == kvm) {
-			guest = &guests[i];
-			break;
-		}
-	}
+	guest = __get_guest_by_kvm(&kvm, NULL);
 	if (!guest) {
 		i = init_guest(kvm);
 		if (i)
@@ -349,15 +369,7 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	if (vmid < GUEST_VMID_START)
 		return res;
 
-	kvm = kern_hyp_va(kvm);
-
-	for (i = 0; i < MAX_GUESTS; i++) {
-		if (guests[i].kvm == kvm) {
-			guest = &guests[i];
-			break;
-		}
-	}
-
+	guest = __get_guest_by_kvm(&kvm, &i);
 	if (guest != NULL) {
 		guest_index[guest->vmid] = INVALID_GUEST;
 		guest->vmid = vmid;
@@ -551,13 +563,7 @@ int free_guest(void *kvm)
 	if (!host)
 		HYP_ABORT();
 
-	kvm = kern_hyp_va(kvm);
-	for (i = 0; i < MAX_GUESTS; i++) {
-		if (guests[i].kvm == kvm) {
-			guest = &guests[i];
-			break;
-		}
-	}
+	guest = __get_guest_by_kvm(&kvm, NULL);
 	if (!guest)
 		return 0;
 
