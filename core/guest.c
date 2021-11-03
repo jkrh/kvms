@@ -205,6 +205,210 @@ static kvm_guest_t *__get_guest_by_kvm(void **kvm, int *guest_index)
 	return guest;
 }
 
+uint64_t s1_to_phy(kvm_guest_t *guest, struct ptable *s1_pgd, uint64_t vaddr)
+{
+	uint64_t ipa, phy;
+
+	ipa = pt_walk(s1_pgd, vaddr, NULL, TABLE_LEVELS);
+
+	phy = ~0UL;
+	if ((ipa != ~0UL))
+		phy = pt_walk(guest->s2_pgd, ipa, NULL, TABLE_LEVELS);
+
+	return phy;
+}
+
+/**
+ * Walk through the provided s1 range to verify it is physically contiguous
+ * and mapped in the provided s1 page global directory.
+ *
+ * @param guest the guest this range is checked against.
+ * @param s1_pgd page global directory.
+ * @param s1addr stage 1 start address of the range.
+ * @param paddr optional physical start address of the range.
+ *		If paddr is not provided the physical address mapped by the
+ *		first stage 1 address is used instead.
+ * @param len length of the range.
+ * @return zero on success or negative error code on failure.
+ */
+bool s1_range_physically_contiguous(kvm_guest_t *guest, struct ptable *s1_pgd,
+				    uint64_t s1addr, uint64_t *paddr, uint64_t len)
+{
+	uint64_t tvaddr, tpaddr, tlen, ttlen;
+
+	if (paddr != NULL)
+		tpaddr = *paddr;
+	else
+		tpaddr = s1_to_phy(guest, s1_pgd, s1addr);
+
+	if (tpaddr == ~0UL || !len)
+		return false;
+
+	tvaddr = s1addr;
+	tlen = len;
+	ttlen = PAGE_SIZE;
+	while (tlen > 0) {
+		if (tpaddr != s1_to_phy(guest, s1_pgd, tvaddr))
+			return false;
+
+		if (tlen >= PAGE_SIZE)
+			ttlen = PAGE_SIZE;
+		else
+			ttlen = tlen;
+
+		tvaddr += ttlen;
+		tpaddr += ttlen;
+		tlen -= ttlen;
+	}
+	return true;
+}
+
+int __guest_memchunk_get(kvm_guest_t *guest, guest_memchunk_t *chunk)
+{
+	int c;
+
+	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
+		if ((guest->mempool[c].start == chunk->start) &&
+		    (guest->mempool[c].size == chunk->size))
+			break;
+	}
+
+	if (guest->mempool[c].type != chunk->type)
+		ERROR("%s, wrong type!", __func__);
+
+	if (c >= GUEST_MEMCHUNKS_MAX)
+		c = -ENOENT;
+
+	return c;
+}
+
+int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk)
+{
+	int c;
+
+	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
+		if (guest->mempool[c].type ==
+			GUEST_MEMCHUNK_UNDEFINED) {
+			guest->mempool[c].start = chunk->start;
+			guest->mempool[c].size = chunk->size;
+			guest->mempool[c].type = chunk->type;
+			break;
+		}
+	}
+
+	if (c >= GUEST_MEMCHUNKS_MAX)
+		c = -ENOSPC;
+
+	if (_zeromem16((void *)guest->mempool[c].start, guest->mempool[c].size))
+		ERROR("%s, check alignment!", __func__);
+
+	return c;
+}
+
+int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk)
+{
+	int c;
+
+	c = __guest_memchunk_get(guest, chunk);
+	if (c < 0)
+		return c;
+
+	if ((guest->state == guest_running) &&
+	    (guest->mempool[c].type != GUEST_MEMCHUNK_FREE))
+		return -EBUSY;
+
+	if (_zeromem16((void *)guest->mempool[c].start, guest->mempool[c].size))
+		ERROR("%s, check alignment!", __func__);
+
+	guest->mempool[c].start = 0;
+	guest->mempool[c].size = 0;
+	guest->mempool[c].type = GUEST_MEMCHUNK_UNDEFINED;
+	guest->mempool[c].next = GUEST_MEMCHUNKS_MAX;
+
+	return 0;
+}
+
+int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
+{
+	kvm_guest_t *host, *guest;
+	struct ptable *s1_pgd;
+	uint64_t vmid, tpaddr;
+	guest_memchunk_t chunk;
+	int res;
+
+	if ((len < PAGE_SIZE) || (len & (PAGE_SIZE - 1)) ||
+	    (paddr & (PAGE_SIZE - 1)))
+		return -EINVAL;
+
+	guest = __get_guest_by_kvm(&kvm, NULL);
+
+	if (guest == NULL) {
+		vmid = (uint64_t)KVM_GET_VMID(kvm);
+		guest = get_free_guest(vmid);
+		if (!guest)
+			return -ENOSPC;
+		guest->kvm = kvm;
+	}
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		return -EINVAL;
+	/*
+	 * Walk through the provided range to verify it is contiguous
+	 * and physically mapped by the calling host context. This will also
+	 * ensure that the result of previous guest_validate_range call is
+	 * valid since we are dealing with stage1 addresses in this function.
+	 */
+	s1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	tpaddr = paddr;
+	if (!s1_range_physically_contiguous(host, s1_pgd, s1addr, &tpaddr, len))
+		return -EINVAL;
+
+	res = remove_host_range(host, paddr, len, true);
+	if (!res) {
+		chunk.start = paddr;
+		chunk.size = len;
+		chunk.type = GUEST_MEMCHUNK_FREE;
+		res = __guest_memchunk_add(guest, &chunk);
+		if (res < 0)
+			return -ENOSPC;
+	} else {
+		ERROR("remove_host_range returned: %d\n", res);
+		restore_host_range(host, paddr, len, true);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len)
+{
+	kvm_guest_t *host, *guest;
+	guest_memchunk_t chunk;
+	int res;
+
+	guest = __get_guest_by_kvm(&kvm, NULL);
+	if (guest == NULL)
+		return -ENOENT;
+
+	host = get_guest(HOST_VMID);
+	if (host == NULL)
+		return -EINVAL;
+
+	res = guest_validate_range(host, paddr, paddr, len);
+	if (res)
+		return res;
+
+	chunk.start = paddr;
+	chunk.size = len;
+	chunk.type = GUEST_MEMCHUNK_FREE;
+	res = __guest_memchunk_remove(guest, &chunk);
+	if (res)
+		return res;
+
+	return restore_host_range(host, paddr, len, true);
+}
+
 int init_guest(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
@@ -222,7 +426,9 @@ int init_guest(void *kvm)
 		guest = get_free_guest(vmid);
 		if (!guest)
 			return -ENOSPC;
+	}
 
+	if (!guest->s2_pgd) {
 		guest->s2_pgd = alloc_table(vmid);
 		if (!guest->s2_pgd) {
 			free_guest(kvm);

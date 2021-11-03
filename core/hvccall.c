@@ -239,9 +239,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 
 		res = 0;
 		break;
-	case HYP_SET_WORKMEM:
-		res = set_heap(kern_hyp_va((void *)a1), (size_t)a2);
-		break;
 	case HYP_SET_TPIDR:
 		if ((a2 < 0) || (a2 >= PLATFORM_CORE_COUNT)) {
 			ERROR("invalid cpu id %lu\n", a2);
@@ -295,6 +292,15 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		break;
 	case HYP_TRANSLATE:
 		res = -ENOTSUP;
+		break;
+	case HYP_SET_MEMCHUNK:
+		guest = get_guest(HOST_VMID);
+		res = guest_validate_range(guest, a3, a3, a4);
+		if (!res)
+			res = guest_memchunk_add((void *)a1, a2, a3, a4);
+		break;
+	case HYP_RELEASE_MEMCHUNK:
+		res = guest_memchunk_remove((void *)a1, a2, a3);
 		break;
 	/*
 	 * Misc calls, grab lock if you need it

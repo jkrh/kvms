@@ -17,6 +17,10 @@
 #endif
 #define MAX_SHARES 128
 
+#ifndef GUEST_MEMCHUNKS_MAX
+#define GUEST_MEMCHUNKS_MAX 256
+#endif
+
 #define KVM_USER_MEM_SLOTS 512
 #define KVM_PRIVATE_MEM_SLOTS 0
 #ifndef KVM_MEM_SLOTS_NUM
@@ -46,6 +50,19 @@ typedef struct {
 	size_t len;
 } share_t;
 
+typedef enum {
+	GUEST_MEMCHUNK_FREE = 0,
+	GUEST_MEMCHUNK_TTBL,
+	GUEST_MEMCHUNK_UNDEFINED,
+} guest_memchunk_user_t;
+
+typedef struct {
+	uint64_t start;
+	size_t size;
+	guest_memchunk_user_t type;
+	uint16_t next;
+} guest_memchunk_t;
+
 typedef struct {
 	uint32_t vmid;
 	guest_state_t state;
@@ -61,6 +78,7 @@ typedef struct {
 	uint32_t table_levels;
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
 	share_t shares[MAX_SHARES];
+	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
 } kvm_guest_t;
 
 /**
@@ -245,5 +263,34 @@ int load_host_s2(void);
  * @return 0 if ok, negative error code otherwise
  */
 int load_guest_s2(uint64_t vmid);
+
+/**
+ * Add a chunk of memory to guest memory pool
+ *
+ * The arguments are checked for containing information of a valid physically
+ * contiguous memory chunk which is currently mapped to host through a 2 stage
+ * translation. Chunk will be removed from host mapping and added to guests
+ * memory pool. Chunk, once removed from host, is owned by the guest it is
+ * assigned to. Chunk is controlled by the hypervisor.
+ *
+ * @param kvm the kvm instance this chunk is assigned to
+ * @param vaddr stage 1 start address of the provided chunk
+ * @param paddr physical start address of the provided chunk
+ * @param len chunk size
+ * @return 0 if valid, negative error code otherwise
+ */
+int guest_memchunk_add(void *kvm, uint64_t vaddr, uint64_t paddr, uint64_t len);
+
+/**
+ * Remove a chunk of memory from guest memory pool
+ *
+ * Physical address and size must match an entry in the memory pool.
+ *
+ * @param kvm the kvm instance this chunk is removed from
+ * @param paddr physical start address of the chunk to be removed
+ * @param len size of the chunk to be removed
+ * @return 0 if valid, negative error code otherwise
+ */
+int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len);
 
 #endif // __KVM_GUEST_H__
