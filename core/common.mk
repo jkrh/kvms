@@ -4,9 +4,9 @@ C_OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(C_SOURCES)))
 OBJS := $(C_OBJ) $(AS_OBJ)
 
 ifeq ($(PLATFORM),virt)
-LDLIBS := -l$(PLATFORM) -lcore -ltinycrypt -lstdlib
+LDLIBS := -l$(PLATFORM) -lcore -lmbedcrypto -lmbedx509 -lmbedtls -lstdlib
 else
-LDLIBS := -l$(PLATFORM) -l$(PRODUCT) -lcore -ltinycrypt -lstdlib
+LDLIBS := -l$(PLATFORM) -l$(PRODUCT) -lcore -lmbedcrypto -lmbedx509 -lmbedtls -lstdlib
 endif
 
 .PHONY: clean run gdb

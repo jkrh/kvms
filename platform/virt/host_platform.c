@@ -169,6 +169,11 @@ bool machine_init_ready(void)
 	return init_ready;
 }
 
+int platform_entropy(uint8_t *entropy, size_t len)
+{
+	return 0;
+}
+
 int platform_init_host_pgd(kvm_guest_t *host)
 {
 

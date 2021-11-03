@@ -13,3 +13,4 @@ export TOOLDIR := $(BASE_DIR)/buildtools
 export PATH=$(TOOLDIR)/bin:$(TOOLDIR)/usr/bin:/bin:/usr/bin:/usr/local/bin
 export TOOLS_GCC := $(TOOLDIR)/usr/bin/$(CC)
 export FETCH_SOURCES := oss/gcc/configure
+export SED := sed

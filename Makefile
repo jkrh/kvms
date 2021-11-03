@@ -3,10 +3,10 @@ export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
 
 ifeq ($(PLATFORM),virt)
-SUBDIRS := stdlib core tinycrypt platform/$(PLATFORM)
+SUBDIRS := stdlib core platform/$(PLATFORM)
 KERNEL_DIR := $(BASE_DIR)/oss/linux
 else
-SUBDIRS := platform/$(PLATFORM) stdlib core tinycrypt platform/$(PLATFORM)/common
+SUBDIRS := platform/$(PLATFORM) stdlib core platform/$(PLATFORM)/common
 endif
 include core/tools.mk
 include core/makevars.mk
@@ -31,13 +31,15 @@ check:
 	@[ "${PLATFORM}" = "virt" ] || [ "${CHIPSET}" ] && echo -n "" || ( echo "CHIPSET is not set"; exit 1 )
 
 dirs: $(SUBDIRS) | $(OBJDIR)
+	$(MAKE) $(SUBMAKEFLAGS) -Cmbedtls/library static
 	@for DIR in $(SUBDIRS); do \
-		$(MAKE) $(SUBMAKEFLAGS) ENABLE_TESTS=false -C$${DIR}; \
+		$(MAKE) $(SUBMAKEFLAGS) -C$${DIR}; \
 	done
 
 clean:
+	$(MAKE) $(SUBMAKEFLAGS) -Cmbedtls/library clean
 	@for DIR in $(SUBDIRS); do \
-		$(MAKE) $(SUBUMAKEFLAGS) -C$${DIR} clean; \
+		$(MAKE) $(SUBMAKEFLAGS) -C$${DIR} clean; \
 	done
 	@rm -rf $(OBJDIR)
 

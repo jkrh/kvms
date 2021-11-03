@@ -16,7 +16,9 @@
 #include "guest.h"
 #include "hvccall.h"
 #include "kentry.h"
+#include "mbedtls/memory_buffer_alloc.h"
 
+uint8_t crypto_buf[PAGE_SIZE*2];
 struct timeval tv1 ALIGN(16);
 struct timeval tv2 ALIGN(16);
 uint8_t init_index;
@@ -33,13 +35,26 @@ static uint8_t *__my_sp;
 
 int early_setup(void)
 {
-
 	platform_early_setup();
 
 	/* Exception vector */
 	__asm__ __volatile__("adr	x0, __hyp_vectors\n"
 			     "msr	VBAR_EL2, x0\n"
 			     : : : "x0");
+
+	return 0;
+}
+
+int crypto_init(void)
+{
+	uint8_t	entropy[16];
+	int res;
+
+	mbedtls_memory_buffer_alloc_init(crypto_buf, sizeof(crypto_buf));
+
+	res = platform_entropy(entropy, 16);
+	if (res)
+		return res;
 
 	return 0;
 }

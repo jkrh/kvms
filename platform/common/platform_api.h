@@ -118,4 +118,13 @@ uint8_t *platfrom_get_stack_ptr(uint64_t init_index);
  */
 int platform_range_permitted(uint64_t pstart, size_t len);
 
+/**
+ * platform_entropy - fetch entropy from the platform source
+ *
+ * @param entropy, empty buffer to fill with entropy
+ * @param len, desired entropy length
+ * @return 0 on success, nonzero otherwise
+ */
+int platform_entropy(uint8_t *entropy, size_t len);
+
 #endif /* __PLATFORM_API_H__ */
