@@ -353,7 +353,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		if (!contiguous)
 			return -EINVAL;
 		if (mmap_range(host->s2_pgd, STAGE2, gpa, gpa,
-			       PAGE_SIZE, ((SH_INN<<8)|PAGE_HYP_RW),
+			       len, ((SH_INN<<8)|PAGE_HYP_RW),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
 		return 0;
