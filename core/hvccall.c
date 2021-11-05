@@ -266,7 +266,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -ENOENT;
 			break;
 		}
-		res = guest_unmap_range(guest, a2, a3, a4);
+		res = guest_unmap_range(guest, a2, a3);
 		break;
 	case HYP_MKYOUNG:
 	case HYP_MKOLD:

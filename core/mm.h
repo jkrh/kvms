@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "commondefines.h"
 
@@ -56,6 +57,7 @@ typedef struct {
 	uint64_t phys_addr;
 	uint32_t len;
 	uint32_t vmid;
+	uint32_t nonce;
 	uint8_t sha256[32];
 } kvm_page_data;
 
@@ -130,15 +132,40 @@ int remove_kvm_hyp_region(uint64_t vaddr);
 kvm_page_data *get_range_info(void *guest, uint64_t ipa);
 
 /**
+ * Encrypt a given guest page and record the activity
+ *
+ * @param guest, the guest
+ * @param ipa, the base ipa to add integrity information for
+ * @param addr, the host physical address the data is on
+ * @param prot, permission bits of the page
+ * @return zero on success, negative errno on error
+ */
+int encrypt_guest_page(void *guest, uint64_t ipa, uint64_t addr, uint64_t prot);
+
+/**
+ * Decrypt a given guest page and record the activity
+ *
+ * @param guest, the guest
+ * @param ipa, the base ipa to add integrity information for
+ * @param addr, the host physical address the data is on
+ * @param prot, permission bits of the page
+ * @return zero on success, negative errno on error
+ */
+int decrypt_guest_page(void *guest, uint64_t ipa, uint64_t addr, uint64_t prot);
+
+/**
  * Add page integrity structure for address
  *
  * @param guest, the guest
  * @param ipa, the base ipa to add integrity information for
  * @param addr, the host physical address the new data is on
  * @param len, length of the section
+ * @param nonce, zero if the page is encrypted; nonzero otherwise
+ * @param prot, permission bits of the page
  * @return zero on success, negative errno on error
  */
-int add_range_info(void *guest, uint64_t ipa, uint64_t addr, uint64_t len);
+int add_range_info(void *guest, uint64_t ipa, uint64_t addr, uint64_t len,
+		   uint32_t nonce, uint64_t prot);
 
 /**
  * Free a page integrity structure
@@ -155,12 +182,14 @@ void free_range_info(void *guest, uint64_t ipa);
  * @param ipa, the guest ipa this is supposed to be
  * @param addr, the host physical address the new data is on
  * @param len, length of the blob
+ * @param prot, permission bits of the page
  * @return zero on integrity OK,
  *         -ENOENT on unknown page,
  *         -EINVAL on integrity failure
  *         -errno on generic error
  */
-int verify_range(void *guest, uint64_t ipa, uint64_t addr, uint64_t len);
+int verify_range(void *guest, uint64_t ipa, uint64_t addr, uint64_t len,
+		 uint64_t prot);
 
 /**
  * Remove given range mapping from the host

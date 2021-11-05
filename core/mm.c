@@ -15,6 +15,12 @@
 #include "hvccall.h"
 #include "bits.h"
 
+#include "mbedtls/platform.h"
+#include "mbedtls/sha256.h"
+#include "mbedtls/aes.h"
+
+#define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
+
 uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 uint64_t hyp_text_start;
 uint64_t hyp_text_end;
@@ -192,9 +198,11 @@ kvm_page_data *get_range_info(void *g, uint64_t addr)
 	return res;
 }
 
-int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len)
+int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
+		   uint32_t nonce, uint64_t prot)
 {
 	kvm_guest_t *guest = (kvm_guest_t *)g;
+	mbedtls_sha256_context c;
 	kvm_page_data *res;
 	bool s = false;
 	int ret = 0;
@@ -215,10 +223,22 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len)
 	guest->pd_index += 1;
 
 use_old:
+	res->nonce = nonce;
 	res->vmid = guest->vmid;
 	res->len = len;
 	if (guest->vmid != HOST_VMID) {
-		ret = calc_hash(res->sha256, (void *)addr, len);
+		mbedtls_sha256_init(&c);
+		ret = mbedtls_sha256_starts_ret(&c, 0);
+		if (ret)
+			goto error;
+		ret = mbedtls_sha256_update_ret(&c, (void *)addr, len);
+		if (ret)
+			goto error;
+		ret = mbedtls_sha256_update_ret(&c, (void *)&prot, sizeof(uint64_t));
+		if (ret)
+			goto error;
+		ret = mbedtls_sha256_finish_ret(&c, res->sha256);
+error:
 		if (ret) {
 			memset(res->sha256, 0, 32);
 			res->vmid = 0;
@@ -250,9 +270,11 @@ void free_range_info(void *g, uint64_t ipa)
 	isb();
 }
 
-int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len)
+int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
+		 uint64_t prot)
 {
 	kvm_guest_t *guest = (kvm_guest_t *)g;
+	mbedtls_sha256_context c;
 	kvm_page_data *res;
 	uint8_t sha256[32];
 	int ret;
@@ -264,14 +286,107 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len)
 	if (res->vmid != guest->vmid)
 		return -EFAULT;
 
-	ret = calc_hash(sha256, (void *)addr, len);
-	if (ret)
-		return -EFAULT;
+	mbedtls_sha256_init(&c);
+	ret = mbedtls_sha256_starts_ret(&c, 0);
+	CHECKRES(ret);
+
+	ret = mbedtls_sha256_update_ret(&c, (void *)addr, len);
+	CHECKRES(ret);
+
+	ret = mbedtls_sha256_update_ret(&c, (void *)&prot, sizeof(uint64_t));
+	CHECKRES(ret);
+
+	ret = mbedtls_sha256_finish_ret(&c, sha256);
+	CHECKRES(ret);
 
 	ret = memcmp(sha256, res->sha256, 32);
 	if (ret != 0)
 		return -EINVAL;
 
+	return 0;
+}
+
+int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
+{
+	kvm_guest_t *guest = (kvm_guest_t *)g;
+	uint8_t ciphertext[PAGE_SIZE];
+	uint8_t stream_block[16];
+	uint8_t nonce_counter[16];
+	uint32_t nonce;
+	size_t ns = 0;
+	int res;
+
+	/*
+	 * FIXME: we need to re-key every 2^32 swaps.
+	 */
+	res = platform_entropy((uint8_t *)&nonce, 4);
+	if (res)
+		return -EFAULT;
+	memset(&nonce_counter, 0, 16);
+	memcpy(&nonce_counter[0], &nonce, 4);
+	memcpy(&nonce_counter[4], &ipa, 8);
+
+	/*
+	 * We attempt to verify the integrity and the confideality of the
+	 * data. We first encrypt the blob with AES CTR and then compute the
+	 * hash over the ciphertext. This way the attacker does not get a
+	 * chance to play with our ciphertext.
+	 */
+	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx, PAGE_SIZE, &ns, nonce_counter,
+				    stream_block, (void *)addr, ciphertext);
+	if (res != MBEDTLS_EXIT_SUCCESS) {
+		mbedtls_strerror(res, ciphertext, 256);
+		ERROR("fault encrypting data: %d / %s\n", res, ciphertext);
+		return -EFAULT;
+	}
+	res = add_range_info(guest, ipa, addr, PAGE_SIZE, nonce, prot);
+	if (res)
+		return res;
+
+	memcpy((void *)addr, ciphertext, PAGE_SIZE);
+	return 0;
+}
+
+int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
+{
+	kvm_guest_t *guest = (kvm_guest_t *)g;
+	uint8_t stream_block[16];
+	uint8_t nonce_counter[16];
+	uint8_t cleartext[PAGE_SIZE];
+	kvm_page_data *pd;
+	size_t ns = 0;
+	int res;
+
+	/* Verify the block integrity */
+	res = verify_range(g, ipa, addr, PAGE_SIZE, prot);
+	if (res == -ENOENT)
+		return 0;
+	if (res)
+		return res;
+
+	/* Check if it was ciphertext we verified */
+	pd = get_range_info(guest, ipa);
+	if (!pd->nonce)
+		return 0;
+
+	memset(&nonce_counter, 0, 16);
+	memcpy(&nonce_counter[0], &pd->nonce, 4);
+	memcpy(&nonce_counter[4], &ipa, 8);
+
+	/* Decrypt it */
+	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx, PAGE_SIZE, &ns, nonce_counter,
+				    stream_block, (void *)addr, cleartext);
+	if (res != MBEDTLS_EXIT_SUCCESS) {
+		mbedtls_strerror(res, cleartext, 256);
+		ERROR("fault decrypting data: %d / %s\n", res, cleartext);
+		return -EFAULT;
+	}
+
+	/* Add the integrity of the cleartext. */
+	res = add_range_info(guest, ipa, addr, PAGE_SIZE, 0, prot);
+	CHECKRES(res);
+
+	memcpy((void *)addr, cleartext, PAGE_SIZE);
 	return 0;
 }
 

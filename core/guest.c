@@ -15,6 +15,17 @@
 #include "host_platform.h"
 #include "hyp_config.h"
 
+#include "mbedtls/entropy.h"
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/aes.h"
+#include "mbedtls/platform.h"
+
+extern struct mbedtls_entropy_context mbedtls_entropy_ctx;
+
+#define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
+
+extern struct mbedtls_ctr_drbg_context ctr_drbg;
+
 struct hyp_extension_ops {
 	int (*load_host_stage2)(void);
 	int (*load_guest_stage2)(uint64_t vmid);
@@ -415,6 +426,8 @@ int init_guest(void *kvm)
 	struct hyp_extension_ops *eops;
 	uint64_t vmid = 0;
 	uint64_t *pgd;
+	uint8_t key[32];
+	int res;
 
 	if (!kvm)
 		return -EINVAL;
@@ -435,6 +448,16 @@ int init_guest(void *kvm)
 			return -ENOMEM;
 		}
 	}
+	mbedtls_aes_init(&guest->aes_ctx);
+	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
+				    &mbedtls_entropy_ctx, 0, 0);
+	CHECKRES(res);
+	res = mbedtls_ctr_drbg_random(&ctr_drbg, key, 32);
+	CHECKRES(res);
+	res = mbedtls_aes_setkey_enc(&guest->aes_ctx, key, 256);
+	CHECKRES(res);
+	res = mbedtls_aes_setkey_dec(&guest->aes_ctx, key, 256);
+	CHECKRES(res);
 
 	/*
 	 * The address field (pgd ptr) set below is merely an indication to EL1
@@ -639,11 +662,13 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 			}
 		}
 		/*
-		 * If it wasn't mapped and we are mapping it back,
-		 * verify that the content is still the same.
+		 * If it wasn't mapped and we are mapping it back, verify
+		 * that the content is still the same. If the page was
+		 * encrypted, decrypt it.
 		 */
-		res = verify_range(guest, page_vaddr, page_paddr, PAGE_SIZE);
-		if (res == -EINVAL)
+		res = decrypt_guest_page(guest, page_vaddr, page_paddr,
+					 prot & PROT_MASK_STAGE2);
+		if (res)
 			goto out_error;
 
 		page_vaddr += PAGE_SIZE;
@@ -672,8 +697,7 @@ out_error:
 	return res;
 }
 
-int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
-		      bool measure)
+int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len)
 {
 	kvm_guest_t *host;
 	uint64_t paddr, map_addr;
@@ -695,50 +719,46 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len,
 				TABLE_LEVELS);
 		if (paddr == ~0UL)
 			goto do_loop;
-		/*
-		 * If the vm dirty data is never allowed to leak, don't set
-		 * up a swap. Normal clean / file backed page reclaim will
-		 * work and the dirty data can't leak to the swapfile.
-		 *
-		 * If you have a swap, things will still work to the extent
-		 * that we verify that the data comes back from the swap
-		 * intact.
-		 */
-		if (measure) {
-			if (guest->state == guest_running) {
-				/*
-				 * This is a mmu notifier chain call and the
-				 * blob may get swapped out or freed. Take a
-				 * measurement to make sure it does not change
-				 * while out.
-				 */
-				res = add_range_info(guest, map_addr, paddr,
-						     PAGE_SIZE);
+
+		if (guest->state == guest_running) {
+			/*
+			 * This is a mmu notifier chain call and the
+			 * blob may get swapped out and freed. Take
+			 * a measurement or encrypt it, depending on
+			 * where it's headed.
+			 */
+			if (*pte & S2AP_WRITE) {
+				/* The page is writable or dirty */
+				res = encrypt_guest_page(guest,
+							 map_addr,
+							 paddr,
+							 *pte & PROT_MASK_STAGE2);
+				if (res)
+					HYP_ABORT();
+			} else {
+				/* The page is read-only or clean */
+				res = add_range_info(guest, map_addr,
+						     paddr, PAGE_SIZE, 0,
+						     *pte & PROT_MASK_STAGE2);
 				if (res)
 					ERROR("add_range_info(%d): %d %p:%d\n",
 					      guest->vmid, map_addr, res);
-			} else
-				free_range_info(guest, map_addr);
-		}
-		/*
-		 * Do not leak guest data
-		 */
-		memset((void *)paddr, 0, PAGE_SIZE);
-		dsb(); isb();
-
-		/*
-		 * Give it back to the host
-		 */
-		res = restore_host_range(guest, map_addr, PAGE_SIZE, false);
-		if (res)
-			HYP_ABORT();
+			}
+		} else
+			free_range_info(guest, map_addr);
 
 		/*
 		 * Detach the page from the guest
 		 */
 		res = unmap_range(guest->s2_pgd, STAGE2, map_addr, PAGE_SIZE);
 		if (res)
-			ERROR("unmap_range(): %lld:%d\n", map_addr, res);
+			HYP_ABORT();
+		/*
+		 * Give it back to the host
+		 */
+		res = restore_host_range(host, paddr, PAGE_SIZE, true);
+		if (res)
+			HYP_ABORT();
 
 		pc += 1;
 do_loop:

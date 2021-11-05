@@ -16,7 +16,13 @@
 #include "guest.h"
 #include "hvccall.h"
 #include "kentry.h"
+
+#include "mbedtls/entropy.h"
+#include "mbedtls/ctr_drbg.h"
 #include "mbedtls/memory_buffer_alloc.h"
+
+struct mbedtls_entropy_context mbedtls_entropy_ctx;
+struct mbedtls_ctr_drbg_context ctr_drbg;
 
 uint8_t crypto_buf[PAGE_SIZE*2];
 struct timeval tv1 ALIGN(16);
@@ -33,6 +39,26 @@ uint64_t __stack_chk_guard;
 
 static uint8_t *__my_sp;
 
+int mbed_entropy(void *data, unsigned char *entropy, size_t len,
+                 size_t *olen)
+{
+	int res;
+
+	res = platform_entropy(entropy, len);
+	if (!res)
+		*olen = len;
+	else
+		*olen = 0;
+
+	return 0;
+}
+
+int mbedtls_hardware_poll(void *data, unsigned char *entropy, size_t len,
+			  size_t *olen)
+{
+	return mbed_entropy(data, entropy, len, olen);
+}
+
 int early_setup(void)
 {
 	platform_early_setup();
@@ -47,14 +73,17 @@ int early_setup(void)
 
 int crypto_init(void)
 {
-	uint8_t	entropy[16];
 	int res;
 
 	mbedtls_memory_buffer_alloc_init(crypto_buf, sizeof(crypto_buf));
-
-	res = platform_entropy(entropy, 16);
+	mbedtls_entropy_init(&mbedtls_entropy_ctx);
+	mbedtls_entropy_add_source(&mbedtls_entropy_ctx, mbed_entropy, NULL, 8,
+				    MBEDTLS_ENTROPY_SOURCE_STRONG);
+	mbedtls_ctr_drbg_init(&ctr_drbg);
+	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
+				    &mbedtls_entropy_ctx, 0, 0);
 	if (res)
-		return res;
+		HYP_ABORT();
 
 	return 0;
 }
@@ -159,7 +188,14 @@ int main(int argc UNUSED, char **argv UNUSED)
 	 */
 	early_setup();
 	enable_mmu();
-
+	/*
+	 * Things that need to initialize that require unaligned accesses
+	 * go here.
+	 */
+	if (init_index == 0) {
+		if (crypto_init() != 0)
+			HYP_ABORT();
+	}
 	gettimeofday(&tv2, NULL);
 	LOG("HYP: core %ld initialization latency was %ldms\n",
 	     init_index, (tv2.tv_usec - tv1.tv_usec) / 1000);

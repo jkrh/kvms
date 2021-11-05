@@ -169,8 +169,32 @@ bool machine_init_ready(void)
 	return init_ready;
 }
 
+static inline uint8_t reverse(uint8_t b)
+{
+	return (uint8_t)((b * 0x0202020202UL & 0x010884422010UL) % 1023UL);
+}
+
 int platform_entropy(uint8_t *entropy, size_t len)
 {
+	uint64_t v1, v2;
+	uint8_t b1, b2;
+
+	/*
+	 * Our 'very secure' development entropy.
+	 */
+	while(len-- > 0) {
+		wfe();
+		v1 = read_reg(CNTPCT_EL0);
+		b1 = v1 & 0xFF;
+
+		wfe();
+		v2 = read_reg(CNTPCT_EL0);
+		b2 = v2 & 0xFF;
+
+		b2 = reverse(b2);
+		b1 ^= b2;
+		entropy[len] = b1;
+	}
 	return 0;
 }
 

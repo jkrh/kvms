@@ -9,6 +9,8 @@
 #include "mm.h"
 #include "host_defs.h"
 
+#include "mbedtls/aes.h"
+
 #ifndef NUM_VCPUS
 #define NUM_VCPUS 8
 #endif
@@ -79,6 +81,7 @@ typedef struct {
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
 	share_t shares[MAX_SHARES];
 	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
+	mbedtls_aes_context aes_ctx;
 } kvm_guest_t;
 
 /**
@@ -170,11 +173,9 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
  *  @param guest the guest to unmap from
  *  @param addr virtual address (ipa) to unmap
  *  @param len length of the blob
- *  @param notify set to false if the unmap is final; true otherwise
  *  @return zero on success or error bitfield [0:16 0xF0F0 16:32 PC]
  */
-int guest_unmap_range(kvm_guest_t *guest, uint64_t addr, uint64_t len,
-		      bool notify);
+int guest_unmap_range(kvm_guest_t *guest, uint64_t addr, uint64_t len);
 
 /**
  * Fetch given guest running state.
