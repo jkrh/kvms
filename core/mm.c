@@ -17,6 +17,7 @@
 
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
+#include "mbedtls/error.h"
 #include "mbedtls/aes.h"
 
 #define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
@@ -335,7 +336,7 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx, PAGE_SIZE, &ns, nonce_counter,
 				    stream_block, (void *)addr, ciphertext);
 	if (res != MBEDTLS_EXIT_SUCCESS) {
-		mbedtls_strerror(res, ciphertext, 256);
+		mbedtls_strerror(res, (char *)ciphertext, 256);
 		ERROR("fault encrypting data: %d / %s\n", res, ciphertext);
 		return -EFAULT;
 	}
@@ -377,7 +378,7 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx, PAGE_SIZE, &ns, nonce_counter,
 				    stream_block, (void *)addr, cleartext);
 	if (res != MBEDTLS_EXIT_SUCCESS) {
-		mbedtls_strerror(res, cleartext, 256);
+		mbedtls_strerror(res, (char *)cleartext, 256);
 		ERROR("fault decrypting data: %d / %s\n", res, cleartext);
 		return -EFAULT;
 	}

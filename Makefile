@@ -31,13 +31,13 @@ check:
 	@[ "${PLATFORM}" = "virt" ] || [ "${CHIPSET}" ] && echo -n "" || ( echo "CHIPSET is not set"; exit 1 )
 
 dirs: $(SUBDIRS) | $(OBJDIR)
-	$(MAKE) $(SUBMAKEFLAGS) -Cmbedtls/library static
+	$(MAKE) $(MBEDFLAGS) -Cmbedtls/library static
 	@for DIR in $(SUBDIRS); do \
 		$(MAKE) $(SUBMAKEFLAGS) -C$${DIR}; \
 	done
 
 clean:
-	$(MAKE) $(SUBMAKEFLAGS) -Cmbedtls/library clean
+	$(MAKE) $(MBEDFLAGS) -Cmbedtls/library clean
 	@for DIR in $(SUBDIRS); do \
 		$(MAKE) $(SUBMAKEFLAGS) -C$${DIR} clean; \
 	done
