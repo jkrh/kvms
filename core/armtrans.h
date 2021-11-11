@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 #include "include/generated/uapi/linux/version.h"
+#include "guest.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
 #define TABLE_LEVELS    4
@@ -138,28 +139,47 @@ void table_init(void);
 void enable_mmu(void);
 
 /**
+ * Allocate translation table area
+ *
+ * @param tpool tablepool structure to populate with information on the
+ * 		allocated area.
+ * @return pointer to the start of table area or NULL if out of memory
+ */
+struct ptable *alloc_tablepool(struct tablepool *tpool);
+
+/**
  * Allocate a page table structure
  *
- * @param vmid to allocate for
+ * @param tpool to allocate from
  * @return page table pointer or NULL if out of memory
  */
-struct ptable *alloc_table(uint32_t vmid);
+struct ptable *alloc_table(struct tablepool *tpool);
+
+/**
+ * Alloc a page global directory
+ *
+ * @param guest for which the pgd is allocated for
+ * @param tpool table pool to be associated with the pgd 
+ * @return pgd address on success or NULL on failure
+ */
+struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool);
+
+/**
+ * Free a page global directory
+ *
+ * @param tpool table pool containing the pgd
+ * @return zero on success or negative error code on failure
+ */
+int free_pgd(struct tablepool *tpool);
 
 /**
  * Free a page table structure
  *
+ * @param tpool table pool to free from
  * @param page table pointer to free
  * @return zero on success or negative error code on failure
  */
-int free_table(struct ptable *table);
-
-/**
- * Free all given guest page tables
- *
- * @param vmid vmid to clear
- * @return zero on success or negative error code on failure
- */
-int free_guest_tables(uint64_t vmid);
+int free_table(struct tablepool *tpool, struct ptable *table);
 
 /**
  * Generic page table walk function. Resolve a physical address or IPA

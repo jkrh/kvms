@@ -29,6 +29,17 @@
 #define KVM_MEM_SLOTS_NUM (KVM_USER_MEM_SLOTS + KVM_PRIVATE_MEM_SLOTS)
 #endif
 
+#define DESCRIPTOR_SIZE		8
+#define TABLE_SIZE_4KGRANULE	(512 * DESCRIPTOR_SIZE)
+
+#define GUEST_MAX_PAGES		(GUEST_MEM_MAX / PAGE_SIZE)
+#define GUEST_MAX_TABLESIZE	(GUEST_MAX_PAGES * DESCRIPTOR_SIZE)
+#define GUEST_TABLES		(GUEST_MAX_TABLESIZE / TABLE_SIZE_4KGRANULE)
+
+#define GUEST_MAX_TABLES	GUEST_TABLES
+#define MAX_VM			(MAX_GUESTS + 1)
+#define PGD_PER_VM		2
+#define TTBL_POOLS	(MAX_VM * PGD_PER_VM)
 typedef int kernel_func_t(uint64_t, ...);
 
 typedef struct {
@@ -52,6 +63,19 @@ typedef struct {
 	size_t len;
 } share_t;
 
+typedef struct kvm_guest_t kvm_guest_t;
+struct tablepool
+{
+	kvm_guest_t *guest;
+	struct ptable *pool;
+	uint64_t num_tables;
+	uint16_t firstchunk;
+	uint16_t currentchunk;
+	uint16_t hint;
+	uint8_t *used;
+	uint8_t props[GUEST_MAX_TABLES];
+};
+
 typedef enum {
 	GUEST_MEMCHUNK_FREE = 0,
 	GUEST_MEMCHUNK_TTBL,
@@ -65,12 +89,14 @@ typedef struct {
 	uint16_t next;
 } guest_memchunk_t;
 
-typedef struct {
+struct kvm_guest_t {
 	uint32_t vmid;
 	guest_state_t state;
 	kernel_func_t *cpu_map[NUM_VCPUS];
 	struct ptable *s1_pgd;
 	struct ptable *s2_pgd;
+	struct tablepool s1_tablepool;
+	struct tablepool s2_tablepool;
 	void *kvm;	/* struct kvm */
 	kvm_memslots slots[KVM_MEM_SLOTS_NUM];
 	kvm_page_data hyp_page_data[MAX_PAGING_BLOCKS];
@@ -78,11 +104,12 @@ typedef struct {
 	uint64_t ramend;
 	uint32_t sn;
 	uint32_t table_levels;
+	uint16_t index;
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
 	share_t shares[MAX_SHARES];
 	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
 	mbedtls_aes_context aes_ctx;
-} kvm_guest_t;
+};
 
 /**
  * Set a guest memory area as shared. If we ever trap on this
@@ -294,4 +321,40 @@ int guest_memchunk_add(void *kvm, uint64_t vaddr, uint64_t paddr, uint64_t len);
  */
 int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len);
 
+/**
+ * Alloc a chunk of memory from guest memory pool
+ *
+ * @param guest the guest
+ * @param minsize minimum size requirement for the chunk
+ * @param type the type of allocation this chunk is used for
+ * @return index to guest mempool in case of success, negative error code
+ * 	   otherwise
+ */
+int guest_memchunk_alloc(kvm_guest_t *guest,
+			 size_t minsize,
+			 guest_memchunk_user_t type);
+
+/**
+ * Add a chunk of memory to guest memory pool
+ *
+ * Unlike guest_memchunk_add this function is for internal use
+ *
+ * @param guest the guest
+ * @param chunk the chunk to be added to mempool
+ * @return index to guest mempool in case of success, negative error code
+ * 	   otherwise
+ */
+int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk);
+
+/**
+ * Remove a chunk of memory from guest memory pool
+ *
+ * Unlike guest_memchunk_remove this function is for internal use
+ *
+ * @param guest the guest
+ * @param chunk the chunk to be removed from mempool
+ * @return zero in case of success, negative error code
+ * 	   otherwise
+ */
+int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk);
 #endif // __KVM_GUEST_H__

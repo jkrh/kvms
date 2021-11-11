@@ -14,6 +14,7 @@
 #include "hyp_config.h"
 #include "hvccall.h"
 #include "bits.h"
+#include "platform_api.h"
 
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"

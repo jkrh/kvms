@@ -49,11 +49,27 @@ struct hyp_extension_ops {
 #define KVM_GET_PGD_PTR(x) ((uint64_t *)(_KVM_GET_ARCH((char *)x) + KVM_ARCH_PGD))
 #define KVM_GET_EXT_OPS_PTR(x) ((struct hyp_extension_ops *)(_KVM_GET_ARCH((char *)x) + KVM_EXT_OPS))
 
-#define INVALID_VMID PRODUCT_VMID_MAX
-#define INVALID_GUEST MAX_GUESTS
+#define INVALID_VMID	PRODUCT_VMID_MAX
+#define INVALID_GUEST	MAX_VM
 
 static uint16_t guest_index[PRODUCT_VMID_MAX] ALIGN(16);
-static kvm_guest_t guests[MAX_GUESTS] ALIGN(16);
+static kvm_guest_t guests[MAX_VM] ALIGN(16);
+
+void format_guest(int i)
+{
+	int c;
+
+	guests[i].vmid = INVALID_VMID;
+	guests[i].s1_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
+	guests[i].s2_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
+	guests[i].s1_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
+	guests[i].s2_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
+	_zeromem16(guests[i].mempool, sizeof(guests[i].mempool));
+	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
+		guests[i].mempool[c].type = GUEST_MEMCHUNK_UNDEFINED;
+		guests[i].mempool[c].next = GUEST_MEMCHUNKS_MAX;
+	}
+}
 
 void init_guest_array(void)
 {
@@ -63,8 +79,8 @@ void init_guest_array(void)
 		guest_index[i] = INVALID_GUEST;
 
 	_zeromem16(guests, sizeof(guests));
-	for (i = 0; i < MAX_GUESTS; i++)
-		guests[i].vmid = INVALID_VMID;
+	for (i = 0; i < MAX_VM; i++)
+		format_guest(i);
 }
 
 int load_host_s2(void)
@@ -131,9 +147,10 @@ kvm_guest_t *get_free_guest(uint64_t vmid)
 	    (vmid != 0))
 		return NULL;
 
-	for (i = 0; i < MAX_GUESTS; i++) {
+	for (i = 0; i < MAX_VM; i++) {
 		if (guests[i].vmid == INVALID_VMID) {
 			guest_index[vmid] = i;
+			guests[i].index = i;
 			guests[i].vmid = vmid;
 			return &guests[i];
 		}
@@ -203,7 +220,7 @@ static kvm_guest_t *__get_guest_by_kvm(void **kvm, int *guest_index)
 
 	guest = NULL;
 	*kvm = kern_hyp_va(*kvm);
-	for (i = 0; i < MAX_GUESTS; i++) {
+	for (i = 0; i < MAX_VM; i++) {
 		if (guests[i].kvm == *kvm) {
 			guest = &guests[i];
 			break;
@@ -324,8 +341,8 @@ int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk)
 	if (c < 0)
 		return c;
 
-	if ((guest->state == guest_running) &&
-	    (guest->mempool[c].type != GUEST_MEMCHUNK_FREE))
+	if ((guest->mempool[c].type != GUEST_MEMCHUNK_FREE) ||
+	    (guest->mempool[c].next != GUEST_MEMCHUNKS_MAX))
 		return -EBUSY;
 
 	if (_zeromem16((void *)guest->mempool[c].start, guest->mempool[c].size))
@@ -334,9 +351,28 @@ int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk)
 	guest->mempool[c].start = 0;
 	guest->mempool[c].size = 0;
 	guest->mempool[c].type = GUEST_MEMCHUNK_UNDEFINED;
-	guest->mempool[c].next = GUEST_MEMCHUNKS_MAX;
 
 	return 0;
+}
+
+void guest_mempool_free(kvm_guest_t *guest)
+{
+	uint64_t paddr;
+	size_t len;
+	int c, err;
+
+	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
+		paddr = guest->mempool[c].start;
+		if (paddr) {
+			len = guest->mempool[c].size;
+			guest->mempool[c].next = GUEST_MEMCHUNKS_MAX;
+			guest->mempool[c].type = GUEST_MEMCHUNK_FREE;
+			err = guest_memchunk_remove(guest->kvm, paddr, len);
+			if (err)
+				ERROR("%s, unable to remove %lx, err %d\n",
+				      __func__, paddr, err);
+		}
+	}
 }
 
 int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
@@ -412,12 +448,32 @@ int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len)
 
 	chunk.start = paddr;
 	chunk.size = len;
-	chunk.type = GUEST_MEMCHUNK_FREE;
 	res = __guest_memchunk_remove(guest, &chunk);
 	if (res)
 		return res;
 
 	return restore_host_range(host, paddr, len, true);
+}
+
+int guest_memchunk_alloc(kvm_guest_t *guest,
+			 size_t minsize,
+			 guest_memchunk_user_t type)
+{
+	int c;
+
+	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
+		if ((guest->mempool[c].type == GUEST_MEMCHUNK_FREE) &&
+		    (guest->mempool[c].size >= minsize)) {
+			break;
+		}
+	}
+
+	if (c >= GUEST_MEMCHUNKS_MAX)
+		c = -ENOSPC;
+
+	guest->mempool[c].type = type;
+
+	return c;
 }
 
 int init_guest(void *kvm)
@@ -442,8 +498,10 @@ int init_guest(void *kvm)
 	}
 
 	if (!guest->s2_pgd) {
-		guest->s2_pgd = alloc_table(vmid);
-		if (!guest->s2_pgd) {
+		guest->s2_tablepool.guest = guest;
+		guest->s2_pgd = alloc_pgd(guest, &guest->s2_tablepool);
+
+		if (guest->s2_pgd == NULL) {
 			free_guest(kvm);
 			return -ENOMEM;
 		}
@@ -508,7 +566,7 @@ kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd)
 	kvm_guest_t *guest = NULL;
 	int i;
 
-	for (i = 0; i < MAX_GUESTS; i++) {
+	for (i = 0; i < MAX_VM; i++) {
 		if (guests[i].s1_pgd == pgd) {
 			guest = &guests[i];
 			break;
@@ -581,7 +639,7 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 	kvm_guest_t *guest = NULL;
 	int i;
 
-	for (i = 0; i < MAX_GUESTS; i++) {
+	for (i = 0; i < MAX_VM; i++) {
 		if (guests[i].s2_pgd == pgd) {
 			guest = &guests[i];
 			break;
@@ -783,7 +841,7 @@ int free_guest(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
 	kvm_guest_t *host = NULL;
-	int i, res;
+	int i, res, gi;
 
 	if (!kvm)
 		return -EINVAL;
@@ -806,8 +864,8 @@ int free_guest(void *kvm)
 	if (res)
 		return res;
 
-	free_guest_tables(guest->vmid);
-	free_table(guest->s2_pgd);
+	free_pgd(&guest->s2_tablepool);
+	free_pgd(&guest->s1_tablepool);
 	/*
 	 * Handle VMID zero as a special case since it is used
 	 * for early init purposes and there may exist another
@@ -817,15 +875,20 @@ int free_guest(void *kvm)
 	if (guest->vmid)
 		guest_index[guest->vmid] = INVALID_GUEST;
 	else {
-		for (i = 0; i < MAX_GUESTS; i++) {
-			if ((guests[i].kvm != 0) && guests[i].vmid == 0) {
+		for (i = 0; i < MAX_VM; i++) {
+			if ((guests[i].kvm != kvm) && guests[i].vmid == 0) {
 				guest_index[0] = i;
 				break;
 			}
 		}
 	}
 
+	guest->state = guest_invalid;
+	guest_mempool_free(guest);
+
+	gi = guest->index;
 	memset(guest, 0, sizeof(*guest));
+	format_guest(gi);
 	guest->vmid = INVALID_VMID;
 
 	dsb();

@@ -17,7 +17,6 @@
 #include "hvccall.h"
 #include "mhelpers.h"
 
-#define NUM_TABLES      8192
 #define PT_SIZE_WORDS   512
 
 /* Granule size constants as defined in VTCR_EL2.TG0 */
@@ -58,8 +57,6 @@ struct ptable
 	uint64_t entries[PT_SIZE_WORDS];
 };
 
-struct ptable tables[NUM_TABLES] ALIGN(PAGE_SIZE) SECTION("xlat_table");
-uint16_t table_props[NUM_TABLES] SECTION("xlat_table");
 
 static uint64_t kmaidx2pmaidx[8];
 static bool need_hyp_s1_init = true;
@@ -88,6 +85,7 @@ typedef struct
 {
 	kvm_guest_t *guest;
 	struct ptable *pgd;
+	struct tablepool *tpool;
 	uint64_t *contiguous[MAX_CONTIGUOUS];
 	uint64_t *ptep;
 	uint64_t vaddr;
@@ -110,6 +108,10 @@ struct entryinfo
 	struct ptable *ttbl;
 	uint64_t idx;
 };
+
+/* Static allocations for translation tables */
+struct ptable guest_tables[TTBL_POOLS][STATIC_TTBL_NUM] ALIGN(PAGE_SIZE) SECTION("xlat_table");
+kvm_guest_t *guest_table_user[TTBL_POOLS];
 
 static uint8_t invalidate;
 static struct tdinfo_t tdinfo;
@@ -191,51 +193,227 @@ static uint64_t table_oaddr(uint64_t tbl_entry)
 	return tbl_addr;
 }
 
-struct ptable *alloc_table(uint32_t vm)
+static int alloc_static_ttbl_chunk(kvm_guest_t *guest)
+{
+	int i, c;
+	guest_memchunk_t chunk;
+
+	for (i = 0; i < TTBL_POOLS; i++) {
+		if (!guest_table_user[i])
+			break;
+	}
+
+	if (i >= TTBL_POOLS)
+		return -ENOSPC;
+
+	chunk.start = (uint64_t)guest_tables[i];
+	chunk.size  = (STATIC_TTBL_NUM * sizeof(struct ptable));
+	chunk.type = GUEST_MEMCHUNK_TTBL;
+
+	c = __guest_memchunk_add(guest, &chunk);
+	if (c >= 0)
+		guest_table_user[i] = guest;
+
+	return c;
+}
+
+static int free_static_ttbl_chunk(struct tablepool *tpool)
+{
+	guest_memchunk_t chunk;
+	int i, err;
+
+	chunk.start = tpool->guest->mempool[tpool->currentchunk].start;
+
+	for (i = 0; i < TTBL_POOLS; i++) {
+		if ((uint64_t)guest_tables[i] == chunk.start)
+			break;
+	}
+
+	if (i >= TTBL_POOLS)
+		return -ENOENT;
+
+	chunk.size = tpool->guest->mempool[tpool->currentchunk].size;
+	chunk.type = tpool->guest->mempool[tpool->currentchunk].type;
+
+	if (guest_table_user[i] != tpool->guest) {
+		ERROR("%s guest mismatch!\n", __func__);
+		HYP_ABORT();
+	}
+
+	err = __guest_memchunk_remove(tpool->guest, &chunk);
+	if (err)
+		ERROR("%s, unable to remove %lx, err %d\n",
+		      __func__, chunk.start, err);
+
+	guest_table_user[i] = 0;
+
+	return 0;
+}
+
+static int get_tablepool(struct tablepool *tpool, uint64_t c)
+{
+	int i, poolsize, pool_start;
+
+	if (c >= GUEST_MEMCHUNKS_MAX)
+		return -EINVAL;
+
+	if (tpool->guest->mempool[c].type != GUEST_MEMCHUNK_TTBL)
+		return -EINVAL;
+
+	i = tpool->firstchunk;
+	pool_start = 0;
+	while (i < GUEST_MEMCHUNKS_MAX) {
+		if (i == c)
+			break;
+		poolsize = tpool->guest->mempool[i].size;
+		pool_start += poolsize / sizeof(struct ptable);
+		i = tpool->guest->mempool[i].next;
+	}
+
+	if (i >= GUEST_MEMCHUNKS_MAX)
+		return -ENOENT;
+
+	tpool->pool = (struct ptable *)tpool->guest->mempool[i].start;
+	tpool->num_tables = tpool->guest->mempool[i].size / sizeof(struct ptable);
+	tpool->used = &tpool->props[pool_start];
+	tpool->currentchunk = i;
+
+	return 0;
+}
+
+struct ptable *alloc_tablepool(struct tablepool *tpool)
+{
+	int c, i, poolsize, pool_start;
+
+	tpool->pool = NULL;
+
+
+	c = guest_memchunk_alloc(tpool->guest, PAGE_SIZE,
+				GUEST_MEMCHUNK_TTBL);
+
+	if (c < 0)
+		c = alloc_static_ttbl_chunk(tpool->guest);
+
+	if (c < 0)
+		return NULL;
+
+	if (tpool->currentchunk < GUEST_MEMCHUNKS_MAX)
+		tpool->guest->mempool[tpool->currentchunk].next = c;
+	else
+		tpool->firstchunk = c;
+
+	tpool->currentchunk = c;
+
+	tpool->pool = (struct ptable *)tpool->guest->mempool[c].start;
+	tpool->num_tables = tpool->guest->mempool[c].size / sizeof(struct ptable);
+
+	/* Table accounting */
+	i = tpool->firstchunk;
+	pool_start = 0;
+	while (tpool->guest->mempool[i].next < GUEST_MEMCHUNKS_MAX) {
+		poolsize = tpool->guest->mempool[i].size;
+		pool_start += poolsize / sizeof(struct ptable);
+		i = tpool->guest->mempool[i].next;
+	}
+
+	tpool->used = &tpool->props[pool_start];
+	tpool->hint = 0;
+
+	if (tpool->used[tpool->hint]) {
+		ERROR("%s table accounting error!\n", __func__);
+		return NULL;
+	}
+
+	return tpool->pool;
+}
+
+struct ptable *alloc_table(struct tablepool *tpool)
 {
 	struct ptable *table = NULL;
 	int i;
 
-	for (i = 0; i < NUM_TABLES; i++) {
-		if (!bit_raised(table_props[i], VALID_TABLE_BIT)) {
-			table = &tables[i];
-			/* Set the owner of the table */
-			table_props[i] = vm << 8;
-			/* Mark the table as being used */
-			bit_set(table_props[i], VALID_TABLE_BIT);
-			break;
+	if (!tpool->used[tpool->hint])
+		i = tpool->hint;
+	else {
+		for (i = 0; i < tpool->num_tables; i++) {
+			if (!tpool->used[i])
+				break;
+		}
+		if (i >= tpool->num_tables) {
+			if (alloc_tablepool(tpool) == NULL)
+				return NULL;
+			i = 0;
 		}
 	}
+
+	if (i < tpool->num_tables) {
+		table = &tpool->pool[i];
+		/* Set the table as used */
+		tpool->used[i] = 1;
+
+		if ((i + 1) < tpool->num_tables)
+			tpool->hint = i + 1;
+	}
+
 	return table;
 }
 
-int free_table(struct ptable *table)
+struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool)
 {
-	int res = -ENOENT, i;
+	struct ptable *pgd, *check;
 
-	for (i = 0; i < NUM_TABLES; i++) {
-		if (table == &tables[i]) {
-			memset(&tables[i], 0, sizeof(struct ptable));
-			table_props[i] = 0x0;
-			res = 0;
-		}
+	check = NULL;
+	tpool->guest = guest;
+	pgd = alloc_tablepool(tpool);
+	if (pgd != NULL)
+		check = alloc_table(tpool);
+
+	if (pgd != check) {
+		ERROR("%s invalid pgd!\n", __func__);
+		return NULL;
 	}
-	return res;
+
+	return pgd;
 }
 
-int free_guest_tables(uint64_t vmid)
+int free_pgd(struct tablepool *tpool)
 {
-	uint64_t owner_vm;
-	int res = 0, i;
+	int c;
 
-	for (i = 0; i < NUM_TABLES; i++) {
-		owner_vm = table_props[i] >> 8;
-		if (vmid == owner_vm) {
-			memset(&tables[i], 0, sizeof(struct ptable));
-			table_props[i] = 0x0;
-			res += 1;
+	c = tpool->firstchunk;
+	do {
+		if (get_tablepool(tpool, c))
+			break;
+		memset(tpool->pool, 0, tpool->num_tables * sizeof(struct ptable));
+		memset(tpool->used, 0, tpool->num_tables * sizeof(uint8_t));
+		c = tpool->guest->mempool[tpool->currentchunk].next;
+		tpool->guest->mempool[tpool->currentchunk].next = GUEST_MEMCHUNKS_MAX;
+		tpool->guest->mempool[tpool->currentchunk].type = GUEST_MEMCHUNK_FREE;
+		/* If it happens to be allocated from static memory */
+		free_static_ttbl_chunk(tpool);
+	} while (c < GUEST_MEMCHUNKS_MAX);
+
+	return 0;
+}
+
+int free_table(struct tablepool *tpool, struct ptable *table)
+{
+	int res = -ENOENT, i, c;
+
+	c = tpool->firstchunk;
+	do {
+		if (get_tablepool(tpool, c))
+			break;
+		for (i = 0; i < tpool->num_tables; i++) {
+			if (table == &tpool->pool[i]) {
+				memset(&tpool->pool[i], 0, sizeof(struct ptable));
+				tpool->used[i] = 0x0;
+				res = 0;
+			}
 		}
-	}
+		c = tpool->guest->mempool[c].next;
+	} while (c < GUEST_MEMCHUNKS_MAX);
+
 	return res;
 }
 
@@ -594,7 +772,7 @@ void print_table(struct ptable *addr)
 void print_tables(uint64_t vmid)
 {
 	kvm_guest_t *guest;
-	int i;
+	int c, i;
 
 	if (!debugflags)
 		return;
@@ -604,19 +782,19 @@ void print_tables(uint64_t vmid)
 		ERROR("No such guest %u?\n", vmid);
 		return;
 	}
-	/*
-	 * Guest pgd may belong to host accounting and it may be
-	 * freed separately. Dump it just in case.
-	 */
-	printf("Page table data for vmid %lu ::::\n", vmid);
-	print_table(guest->s2_pgd);
 
-	for (i = 0; i < NUM_TABLES; i++) {
-		if (bit_raised(table_props[i], VALID_TABLE_BIT)) {
-			if ((table_props[i] >> 8) == vmid)
-				print_table(&tables[i]);
-                }
-	}
+	printf("Stage 2 page table data for vmid %lu ::::\n", vmid);
+
+	c = guest->s2_tablepool.firstchunk;
+	do {
+		if (get_tablepool(&guest->s2_tablepool, c))
+			break;
+		for (i = 0; i < guest->s2_tablepool.num_tables; i++) {
+			if (guest->s2_tablepool.used[i])
+				print_table(&guest->s2_tablepool.pool[i]);
+		}
+		c = guest->mempool[c].next;
+	} while (c < GUEST_MEMCHUNKS_MAX);
 }
 
 /*
@@ -681,7 +859,7 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 	return true;
 }
 
-static int mmap_addr(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
+static int mmap_addr(mblockinfo_t *block, uint64_t vaddr, uint64_t paddr,
 		     uint64_t range_size, uint64_t prot, uint64_t type,
 		     uint64_t levels, uint32_t vmid)
 {
@@ -689,7 +867,7 @@ static int mmap_addr(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 	uint64_t noff;
 	int res = 0;
 
-	tp = pgd;
+	tp = block->pgd;
 	if (!tp || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR))
 		return -EINVAL;
 
@@ -700,7 +878,7 @@ static int mmap_addr(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 		noff = (vaddr & TABLE_0_MASK) >> L0_SHIFT;
 		nl = (struct ptable *)table_oaddr(tp->entries[noff]);
 		if (!nl) {
-			nl = alloc_table(vmid);
+			nl = alloc_table(block->tpool);
 			if (!nl) {
 				res = -ENOSPC;
 				goto out_error;
@@ -725,7 +903,7 @@ static int mmap_addr(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 			 * table we are going to overwrite.
 			 */
 			if (bit_raised(tp->entries[noff], TABLE_TYPE_BIT)) {
-				free_table((struct ptable *)
+				free_table(block->tpool, (struct ptable *)
 					   table_oaddr(tp->entries[noff]));
 			}
 			/* Clear all the fields other than output address */
@@ -733,7 +911,7 @@ static int mmap_addr(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 			goto out_finalize;
 		}
 		if (!nl) {
-			nl = alloc_table(vmid);
+			nl = alloc_table(block->tpool);
 			if (!nl) {
 				res = -ENOSPC;
 				goto out_error;
@@ -755,7 +933,7 @@ static int mmap_addr(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 		noff = (vaddr & TABLE_2_MASK) >> L2_SHIFT;
 		if (range_size == (1 << L2_SHIFT)) {
 			if (bit_raised(tp->entries[noff], TABLE_TYPE_BIT)) {
-				free_table((struct ptable *)
+				free_table(block->tpool, (struct ptable *)
 					   table_oaddr(tp->entries[noff]));
 			}
 			tp->entries[noff] = paddr & tdinfo.l2_blk_oa_mask;
@@ -763,7 +941,7 @@ static int mmap_addr(struct ptable *pgd, uint64_t vaddr, uint64_t paddr,
 		}
 		nl = (struct ptable *)table_oaddr(tp->entries[noff]);
 		if (!nl) {
-			nl = alloc_table(vmid);
+			nl = alloc_table(block->tpool);
 			if (!nl) {
 				res = -ENOSPC;
 				goto out_error;
@@ -850,11 +1028,8 @@ int __mmap_range(mblockinfo_t *block, uint64_t vaddr, uint64_t paddr,
 		 size_t length, uint64_t prot, uint64_t type,
 		 uint64_t levels, uint32_t vmid)
 {
-	struct ptable *pgd;
 	uint64_t blk_sz, new_blk_sz, tlength;
 	int res;
-
-	pgd = block->pgd;
 
 	/* Return zero size mappings explicitly here.*/
 	if (length <= 0)
@@ -879,14 +1054,14 @@ int __mmap_range(mblockinfo_t *block, uint64_t vaddr, uint64_t paddr,
 		 * stage-2 mapping, do full break-before-make cycle.
 		 */
 		if (invalidate && paddr && (block->type != INVALID_MEMORY)) {
-			res = mmap_addr(pgd, vaddr, 0x0, blk_sz, prot,
+			res = mmap_addr(block, vaddr, 0x0, blk_sz, prot,
 					INVALID_MEMORY, levels, vmid);
 			if (res)
 				return res;
 			invalidate_va(block->stage, vaddr);
 		}
 
-		res = mmap_addr(pgd, vaddr, paddr, blk_sz, prot, type, levels,
+		res = mmap_addr(block, vaddr, paddr, blk_sz, prot, type, levels,
 				vmid);
 		if (res)
 			return res;
@@ -1006,7 +1181,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			 * new mapping. This will replace the block entry we
 			 * found.
 			 */
-			tbl = alloc_table(vmid);
+			tbl = alloc_table(block->tpool);
 			if (!tbl)
 				HYP_ABORT();
 
@@ -1134,7 +1309,13 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	switch (stage) {
 	case STAGE2:
 		block.guest = get_guest_by_s2pgd(pgd);
+
+		if (!block.guest)
+			return -ENOENT;
+
 		block.pgd = pgd;
+		block.tpool = &block.guest->s2_tablepool;
+
 		if (type == KERNEL_MATTR)
 			type = (TYPE_MASK_STAGE2 & prot);
 		prot &= PROT_MASK_STAGE2;
@@ -1188,6 +1369,10 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		break;
 	case STAGE1:
 		block.guest = get_guest_by_s1pgd(pgd);
+
+		if (!block.guest)
+			return -ENOENT;
+
 		block.pgd = pgd;
 		if (type == KERNEL_MATTR) {
 			type = (TYPE_MASK_STAGE1 & prot);
@@ -1199,6 +1384,9 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			return -EINVAL;
 		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
+
+		block.tpool = &block.guest->s1_tablepool;
+
 		break;
 	default:
 		return -EINVAL;
@@ -1229,6 +1417,7 @@ int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 	case STAGE2:
 		block.guest = get_guest_by_s2pgd(pgd);
 		block.pgd = pgd;
+		block.tpool = &block.guest->s2_tablepool;
 		if (hostflags & HOST_STAGE2_LOCK)
 			return -EPERM;
 		break;
@@ -1239,6 +1428,7 @@ int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			return -EINVAL;
 		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
+		block.tpool = &block.guest->s1_tablepool;
 		break;
 	default:
 		return -EINVAL;
@@ -1258,13 +1448,12 @@ void table_init(void)
 	kvm_guest_t *host;
 
 	/* Clean up everything */
-	if (_zeromem16(tables, sizeof(tables)))
-		ERROR("tables not initialized, check alignment!");
-	__flush_dcache_area((void *)tables, sizeof(tables));
+	if (_zeromem16(guest_tables, sizeof(guest_tables))) {
+		ERROR("guest_tables not initialized, check alignment!\n");
+		HYP_ABORT();
+	}
+	__flush_dcache_area((void *)guest_tables, sizeof(guest_tables));
 
-	if (_zeromem16(table_props, sizeof(table_props)))
-		ERROR("table_props not initialized, check alignment!");
-	__flush_dcache_area((void *)table_props, sizeof(table_props));
 	isb();
 
 	host = get_guest(HOST_VMID);

@@ -182,7 +182,7 @@ int platform_entropy(uint8_t *entropy, size_t len)
 	/*
 	 * Our 'very secure' development entropy.
 	 */
-	while(len-- > 0) {
+	while (len-- > 0) {
 		wfe();
 		v1 = read_reg(CNTPCT_EL0);
 		b1 = v1 & 0xFF;
@@ -204,8 +204,8 @@ int platform_init_host_pgd(kvm_guest_t *host)
 	if (!host)
 		return -EINVAL;
 
-	host->s1_pgd = alloc_table(HOST_VMID);
-	host->s2_pgd = alloc_table(HOST_VMID);
+	host->s1_pgd = alloc_pgd(host, &host->s1_tablepool);
+	host->s2_pgd = alloc_pgd(host, &host->s2_tablepool);
 
 	if (!host->s1_pgd || !host->s2_pgd)
 		return -ENOMEM;
