@@ -742,9 +742,10 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		return 0;
 
 	/*
-	 * Request the MMU to tell us if this was touched, if it can.
+	 * Since we track the permission integrity, make sure the MMU does
+	 * not go about changing bits behind our backs.
 	 */
-	bit_set(prot, DBM_BIT);
+	bit_drop(prot, DBM_BIT);
 
 	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
