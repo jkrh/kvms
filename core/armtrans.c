@@ -656,7 +656,7 @@ cont:
 	return shared;
 }
 
-void print_mappings(uint32_t vmid, uint64_t stage)
+int print_mappings(uint32_t vmid, uint64_t stage)
 {
 	uint64_t start_vaddr = 0, end_vaddr = 0;
 	uint64_t start_addr = 0, perms = ~0UL;
@@ -664,12 +664,13 @@ void print_mappings(uint32_t vmid, uint64_t stage)
 	uint64_t operms = ~0UL, oaddr = 0;
 	kvm_guest_t *guest;
 	struct ptable *pgd;
+	int total = 0;
 	uint64_t *pte;
 
 	guest = get_guest(vmid);
 	if (!guest) {
 		ERROR("No such guest %u?\n", vmid);
-		return;
+		return -EINVAL;
 	}
 	switch (stage) {
 	case STAGE2:
@@ -679,7 +680,8 @@ void print_mappings(uint32_t vmid, uint64_t stage)
 		pgd = guest->s1_pgd;
 		break;
 	default:
-		return;
+		ERROR("Unknown stage?\n");
+		return -EINVAL;
 	}
 	LOG("VMID %u pgd %p mappings %p - %p\n", vmid,
 						(void *)pgd,
@@ -700,6 +702,7 @@ void print_mappings(uint32_t vmid, uint64_t stage)
 			vaddr += PAGE_SIZE;
 			continue;
 		}
+		total++;
 		/*
 		 * Grab the perms
 		 */
@@ -739,11 +742,13 @@ void print_mappings(uint32_t vmid, uint64_t stage)
 	}
 	/* Last entry, if there is one  */
 	if (!end_vaddr)
-		return;
+		return total;
 
 	size = end_vaddr - start_vaddr;
 	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
 	     start_vaddr, start_addr, size, perms);
+
+	return total;
 }
 
 void print_table(struct ptable *addr)

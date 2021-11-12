@@ -237,9 +237,9 @@ int count_shared(uint32_t vmid, bool lock);
  *
  * @param vmid vmid of the guest to dump
  * @param stage STAGE1 or STAGE2 of the address translation
- * @return void
+ * @return total number of pages in the guest or -errno
  */
-void print_mappings(uint32_t vmid, uint64_t stage);
+int print_mappings(uint32_t vmid, uint64_t stage);
 
 /**
  * Print page tables for given vmid to console/log

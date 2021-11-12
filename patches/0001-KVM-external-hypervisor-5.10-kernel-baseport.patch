@@ -1,4 +1,4 @@
-From 18a5cf60bf97968e4584a9ac4d9d5f01b71bd028 Mon Sep 17 00:00:00 2001
+From fee68882dd3b5140f91ca7fa052d0997917f2395 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -27,9 +27,8 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kvm/hyp/vgic-v3-sr.c   |   6 +
  arch/arm64/kvm/mmu.c              | 117 +++++---
  arch/arm64/kvm/reset.c            |   7 +-
- arch/arm64/lib/copy_template.S    |   9 +
  virt/kvm/kvm_main.c               |   2 +-
- 23 files changed, 832 insertions(+), 119 deletions(-)
+ 22 files changed, 823 insertions(+), 119 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -1673,26 +1672,6 @@ index 204c62debf06..723937cac6ab 100644
  	vtcr |= VTCR_EL2_LVLS_TO_SL0(lvls);
  
  	/*
-diff --git a/arch/arm64/lib/copy_template.S b/arch/arm64/lib/copy_template.S
-index 488df234c49a..c83d8b563f30 100644
---- a/arch/arm64/lib/copy_template.S
-+++ b/arch/arm64/lib/copy_template.S
-@@ -40,6 +40,15 @@ D_l	.req	x13
- D_h	.req	x14
- 
- 	mov	dst, dstin
-+	/* Let the hypervisor take a look on this copy operation first. */
-+	mov     dstin, #0x9009
-+	hvc	#0
-+	/* Hypervisor returns 0 if it handled the operation. */
-+	mov	tmp1, dstin
-+	mov	dstin, dst
-+	cmp	tmp1, #0
-+	beq	.Lexitfunc
-+
- 	cmp	count, #16
- 	/*When memory length is less than 16, the accessed are not aligned.*/
- 	b.lo	.Ltiny15
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
 index 57c0c3b18bde..fc4ca442087f 100644
 --- a/virt/kvm/kvm_main.c
