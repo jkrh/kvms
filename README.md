@@ -95,15 +95,43 @@ Guest support
   driver stack even the Virtio-GPU may run on some systems.
 
 
+Secure swapping
+-----------------
+- The support is experimental. High level logic is as follows:
+  - When the linux mm evicts a clean page, we measure it (sha256) to make sure
+    it can't change while the vm doesn't own it. Besides the actual page data,
+    we also measure the page permissions so that the page cannot change from RO
+    to RW once being reloaded.
+  - When the mm evicts a dirty page, we encrypt AND measure it on its way to the
+    swap. We don't use the authenticated encryption as the measurement code has
+    to be in place anyway to handle the clean / RO pages.
+
+Now, be warned, there are some rough corners. When a page has migrated away
+from the host, the host mm looses visibility to the page state and all the
+software and even the hardware managed dirty state it is able to perform go out
+of sync. Thus, the mm might not know what to sync to the media when the page
+eventually finds its way back to the host. Moreover, we also make the pages
+dirty behind the scenes every time we encrypt a writable guest page, but we do
+try to mark our changes in the qemu dirty log when the logging is active. It is
+yet to be sorted what the mm does when it scans an area where the pages may seem
+clean, but yet they might not be. Similar virtualization solutions (Intel TDX
+and AMD SEV) probably don't suffer from this potential pithole as the mm remains
+up to date about the page state, encrypted or not.
+
+
+Migration support TODO
+-----------------------
+- Dirty bitmask handling (partly done)
+- Key export / import
+- ??
+
+
 SHORT TERM TODO
 ----------------
-1) Testing, testing, testing and debugging, especially on memory pressure
-2) Analysis of the kvm callback functions in terms of whether or not further
-   hardening is required
-3) Protection of the critical shared memory blobs (vcpu, kvm and few others),
-   don't allow active VM kvm/vcpu remaps
-4) Proper 5.10 LTS kernel patch
-5) Fuzz the guest input devices in order to prevent the easiest attacks for
-   the malicious host.
-6) Android hardware support
-7) QEMU migration support bugfix (savevm causes a segfault)
+1) Memory pressure testing
+2) VCPU register save in the hyp
+3) Hardened guest config
+4) Migration support
+5) Finish android hardware support (32bit environment goes SIGILL)
+6) Translation code unit test: make sure 'at' and 'pt_walk' agree about the
+   system state

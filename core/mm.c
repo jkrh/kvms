@@ -308,6 +308,39 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	return 0;
 }
 
+static kvm_memslot *gfn_to_memslot(kvm_guest_t *guest, gfn_t gfn)
+{
+	int i = 0;
+
+	while (i < KVM_MEM_SLOTS_NUM) {
+		if ((gfn >= guest->slots[i].slot.base_gfn) &&
+		    (gfn < (guest->slots[i].slot.base_gfn +
+			    guest->slots[i].slot.npages)))
+			return &guest->slots[i].slot;
+		i++;
+	}
+	return NULL;
+}
+
+void set_guest_page_dirty(void *g, gfn_t gfn)
+{
+	kvm_memslot *slot;
+	uint64_t *dbm;
+	uint64_t bgfn;
+
+	slot = gfn_to_memslot(g, gfn);
+	if (slot && slot->dirty_bitmap) {
+		dbm = virt_to_phys(slot->dirty_bitmap);
+		if (dbm == (uint64_t *)~0UL) {
+			ERROR("dirty_bitmap is set but not translatable?\n");
+			return;
+		}
+		bgfn = gfn - slot->base_gfn;
+		set_bit_in_mem(bgfn, dbm);
+		dsb();
+	}
+}
+
 int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 {
 	kvm_guest_t *guest = (kvm_guest_t *)g;
@@ -317,6 +350,10 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	uint32_t nonce;
 	size_t ns = 0;
 	int res;
+
+	/* If for any reason this hits our shares, exit */
+	if (is_share(g, ipa, PAGE_SIZE) > 0)
+		return 0;
 
 	/*
 	 * FIXME: we need to re-key every 2^32 swaps.
@@ -346,6 +383,8 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 		return res;
 
 	memcpy((void *)addr, ciphertext, PAGE_SIZE);
+
+	set_guest_page_dirty(g, addr_to_fn(ipa));
 	return 0;
 }
 

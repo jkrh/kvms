@@ -10,6 +10,16 @@
 #define bit_drop(c, flag) (bit_t(c) &= ~bit_to_mask(flag))
 #define bit_raised(c, flag) (bit_t(c) & bit_to_mask(flag))
 
+static inline void set_bit_in_mem(int n, uint64_t *addr)
+{
+	addr[n / (sizeof(uint64_t) * 8)] |= 1UL << (n % (sizeof(uint64_t) * 8));
+}
+
+static inline void clear_bit_in_mem(int n, uint64_t *addr)
+{
+	addr[n / (sizeof(uint64_t) * 8)] &= ~(1UL << (n % (sizeof(uint64_t) * 8)));
+}
+
 #define VALID_TABLE_BIT 0
 #define TABLE_TYPE_BIT  1
 #define NSTABLE_BIT     63

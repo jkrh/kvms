@@ -122,6 +122,15 @@ int add_kvm_hyp_region(uint64_t vaddr, uint64_t paddr, uint64_t size);
 int remove_kvm_hyp_region(uint64_t vaddr);
 
 /**
+ * Set given guest 'g' frame 'gfn' as dirty
+ *
+ * @param guest, the guest
+ * @param gfn, the guest frame number
+ * @return void
+ */
+void set_guest_page_dirty(void *g, gfn_t gfn);
+
+/**
  * Fetch a page integrity structure for guest
  *
  * @param guest, the guest
