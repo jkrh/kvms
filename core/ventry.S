@@ -7,10 +7,8 @@
 #include <psci.h>
 
 .macro ventry target
-	.rept 31
-	nop
-	.endr
 	b	\target
+	.balign 128
 .endm
 
 	.section .vectors
