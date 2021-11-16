@@ -50,12 +50,11 @@ el1_sync:
 
 	/* Collect VMID to x0 */
 	mrs	x0, VTTBR_EL2
-	asr	x0, x0, #48
+	lsr	x0, x0, #48
 
 	/* Exception class to x1 */
 	mrs	x1, ESR_EL2
-	and	x1, x1, #0xFC000000
-	asr	x1, x1, #26
+	ubfx	x1, x1, #26, #6
 
 	cmp	x1, #0x24		// Data abort
 	beq	handle_abort
@@ -124,7 +123,7 @@ memctrl_trap:
 	# Guest or host?
 	#
 	mrs	x0, VTTBR_EL2
-	asr	x0, x0, #48
+	lsr	x0, x0, #48
 	cmp	x0, #GUEST_VMID_START
 	bge	el1_trap
 	#
@@ -219,7 +218,7 @@ smc_trap:
 
 host_smc_trap:
 	ldr	x0, [sp, #(8 * 0)]
-	asr	x0, x0, #24
+	lsr	x0, x0, #24
 	cmp	x0, #PSCI_SMC64
 	b.ne	host_fastforward
 	save_all_regs
@@ -311,7 +310,7 @@ el1_irq:
 	save_clobber_regs
 
 	mrs	x0, VTTBR_EL2
-	asr	x0, x0, #48
+	lsr	x0, x0, #48
 	cmp	x0, #GUEST_VMID_START
 	blt	dumpcall
 
@@ -345,7 +344,7 @@ el1_error:
 	save_clobber_regs
 
 	mrs	x0, VTTBR_EL2
-	asr	x0, x0, #48
+	lsr	x0, x0, #48
 	cmp	x0, #GUEST_VMID_START
 	blt	dumpcall
 
