@@ -10,6 +10,8 @@
 #include "host_platform.h"
 #include "host_defs.h"
 
+#define PAR_EL1_PAMASK 0x0000FFFFFFFFF000
+
 #define read_reg(r)                                                            \
 	__extension__({                                                        \
 		uint64_t value;                                                \
@@ -35,7 +37,6 @@
 	} while (0);
 
 /* Resolve el1 stage 1 va */
-
 #define ats1e1r(va)                                                            \
 	({                                                                     \
 		uint64_t value;                                                \
@@ -47,8 +48,47 @@
 		value;                                                         \
 	})
 
-/* Resolve el2 stage 1 va */
+/* Perform stage 1 and stage 2 address translation */
+#define s12e1r(va)                                                            \
+	({                                                                     \
+		uint64_t value;                                                \
+		__asm__ __volatile__("at	s12e1r, %[vaddr]\n"             \
+				     "mrs	%[paddr], PAR_EL1\n"           \
+				     : [paddr] "=r"(value)                     \
+				     : [vaddr] "r"(va)                         \
+				     :);                                       \
+		value;                                                         \
+	})
 
+/**
+ * Use 'at s12e1r' to resolve physical address from a stage1 address.
+ *
+ * The target must be in correct context i.e. stage 1 translation
+ * tables (pointed by TTBR0_EL1 and TTBR1_EL1) and stage 2
+ * VTTBR_EL2 must correspond the context for which the address
+ * is being resolved for.
+ *
+ * @param s1addr the stage 1 address
+ * @return the physical address on success or ~0UL on failure
+ */
+static inline void *at_s12e1r(void *s1addr)
+{
+
+	uint64_t paddr;
+
+	paddr = s12e1r(s1addr);
+
+	if ((paddr & 1) == 0)
+		paddr = (paddr & PAR_EL1_PAMASK);
+	else
+		paddr = ~0UL;
+
+	return (void *)paddr;
+}
+
+#define virt_to_phys at_s12e1r
+
+/* Resolve el2 stage 1 va */
 #define ats1e2r(va)                                                            \
 	({                                                                     \
 		uint64_t value;                                                \
