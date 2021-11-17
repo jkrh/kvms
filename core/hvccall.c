@@ -19,6 +19,7 @@
 #include "heap.h"
 #include "mm.h"
 #include "kjump.h"
+#include "validate.h"
 #include "platform_api.h"
 
 #define ISS_MASK		0x1FFFFFFUL

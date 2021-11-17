@@ -2,6 +2,8 @@
 #ifndef __CDEFINES_H__
 #define __CDEFINES_H__
 
+#include <stdint.h>
+
 typedef uint64_t u_register_t;
 
 #define PAGE_SIZE 0x1000UL
@@ -21,6 +23,7 @@ typedef uint64_t u_register_t;
 #define SZ_1M 0x000100000UL
 #define SZ_1G 0x040000000UL
 #define SZ_4G 0x100000000UL
+#define SZ_1T SZ_1G*1024UL
 
 #ifndef ROUND_UP
 #define ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))

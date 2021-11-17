@@ -11,6 +11,7 @@
 #include "bits.h"
 #include "guest.h"
 #include "hvccall.h"
+#include "validate.h"
 
 #define PHYS_OFFSET 0x40000000UL
 #define VIRT_UART 0x09000000UL

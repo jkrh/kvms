@@ -14,6 +14,13 @@
 #define TABLE_LEVELS    3
 #endif
 
+#define PT_SIZE_WORDS   512
+
+struct ptable
+{
+	uint64_t entries[PT_SIZE_WORDS];
+};
+
 /*
  * Stage-1 S2AP
  *    EL1        EL0
@@ -224,32 +231,6 @@ uint64_t pt_walk(struct ptable *table, uint64_t vaddr, uint64_t **ptep,
 int lock_host_kernel_area(uint64_t addr, size_t size, uint64_t depth);
 
 /**
- * Count the amount of guest ram visible to the host
- *
- * @param vmid to query
- * @param lock make the pages read only for the guest
- * @return int count of shared pages or -errno
- */
-int count_shared(uint32_t vmid, bool lock);
-
-/**
- * Print memory mappings for given guest to console/log
- *
- * @param vmid vmid of the guest to dump
- * @param stage STAGE1 or STAGE2 of the address translation
- * @return total number of pages in the guest or -errno
- */
-int print_mappings(uint32_t vmid, uint64_t stage);
-
-/**
- * Print page tables for given vmid to console/log
- *
- * @param vmid, vmid to dump
- * @return void
- */
-void print_tables(uint64_t vmid);
-
-/**
  * Generic stage-1 and -2 map function
  *
  * @param pgd PGD pointer to map into. NULL is interpreted to mean host.
@@ -276,5 +257,11 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
  */
 int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		size_t length);
+
+/*
+ * Internal use only below - keep out.
+ */
+int get_tablepool(struct tablepool *tpool, uint64_t c);
+
 
 #endif // __ARMTRANS_H__
