@@ -181,23 +181,26 @@ int validate_host_mappings(void)
 
 		while (vaddr < end) {
 			/*
-			 * Hardware walk. This is done first to make sure we can even
-			 * time this when needed.
+			 * Hardware walk. This is done first to make sure we
+			 * can even time this when needed.
 			 */
 			phys1 = (uint64_t)virt_to_phys((void *)vaddr);
 
 			/* Software walk */
 			phys2 = ~0UL;
-			ipa = pt_walk((struct ptable *)pgd, vaddr, 0, host->table_levels);
+			ipa = pt_walk((struct ptable *)pgd,
+				     vaddr | LINUX_VA_FILL,
+				     0, host->table_levels);
 			if (ipa != ~0UL)
-				phys2 = pt_walk(host->s2_pgd, ipa, 0, host->table_levels);
+				phys2 = pt_walk(host->s2_pgd, ipa, 0,
+						host->table_levels);
 
 			if (phys2 != ~0UL)
 				count++;
 
 			if (phys1 != phys2) {
-				LOG("mismatch at virtual address %p: %p/%p\n", vaddr,
-				    phys1, phys2);
+				LOG("mismatch at virtual address %p: %p/%p\n",
+				    vaddr, phys1, phys2);
 				ret++;
 			}
 

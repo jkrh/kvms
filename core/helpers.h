@@ -86,7 +86,16 @@ static inline void *at_s12e1r(void *s1addr)
 	return (void *)paddr;
 }
 
-#define virt_to_phys at_s12e1r
+#define LINUX_VA_FILL 0xffff800000000000UL
+
+static inline void *virt_to_phys(void *s1addr)
+{
+	uint64_t tmp;
+
+	tmp = (uint64_t)s1addr | 0xffff800000000000UL;
+
+	return at_s12e1r((void *)tmp);
+}
 
 /* Resolve el2 stage 1 va */
 #define ats1e2r(va)                                                            \
