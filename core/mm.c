@@ -161,18 +161,6 @@ int is_range_valid(uint64_t addr, size_t len, kvm_memslots *slots)
 	return __is_range_valid(addr, len, slots, false);
 }
 
-int user_copy(uint64_t dest, uint64_t src, uint64_t count,
-	      uint64_t dest_pgd, uint64_t src_pgd)
-{
-	uint64_t dest_ipa, src_ipa;
-
-	dest_ipa = pt_walk((struct ptable *)dest_pgd, dest, NULL, TABLE_LEVELS);
-	src_ipa = pt_walk((struct ptable *)src_pgd, src, NULL, TABLE_LEVELS);
-
-	memcpy((void *)dest_ipa, (void *)src_ipa, count);
-	return 0;
-}
-
 static int compfunc(const void *v1, const void *v2)
 {
 	const kvm_page_data *val1 = v1;
@@ -474,7 +462,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		 * Unmap scattered ranges from host page by page. Guest stage 2 mapping
 		 * must be validated and created before entering this functionality.
 		 */
-		phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
+		phys = pt_walk(guest, STAGE2, gpap, NULL);
 		if (phys == ~0UL)
 			goto cont;
 
@@ -527,7 +515,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		 * Restore scattered ranges page by page. Guest stage 2 mapping must be
 		 * maintained until this call has been completed.
 		 */
-		phys = pt_walk(guest->s2_pgd, gpap, NULL, TABLE_LEVELS);
+		phys = pt_walk(guest, STAGE2, gpap, NULL);
 		if (phys == ~0UL)
 			goto cont;
 
@@ -570,7 +558,7 @@ int restore_host_mappings(void *gp)
 
 		slot_end = slot_start;
 		while (slot_end <= (slot_start + size)) {
-			slot_addr = pt_walk(guest->s2_pgd, slot_end, &pte, 4);
+			slot_addr = pt_walk(guest, STAGE2, slot_end, &pte);
 			if (slot_addr == ~0UL)
 				goto cont;
 			/*
@@ -616,7 +604,7 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	 * Stage 1 pgd of the process that owns the VM.
 	 * We should be able to find the IPA from there.
 	 */
-	ipa = pt_walk(guest->s1_pgd, far_el2, NULL, TABLE_LEVELS);
+	ipa = pt_walk(guest, STAGE1, far_el2, NULL);
 	if (ipa == ~0UL)
 		return false;
 

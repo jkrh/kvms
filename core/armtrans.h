@@ -79,6 +79,7 @@ struct ptable
 
 #define STAGE1 0
 #define STAGE2 1
+#define STAGEA 3
 
 /*
  * Stage 1 MAIR_EL2 slot. Standard linux allocation on
@@ -190,16 +191,25 @@ int free_table(struct tablepool *tpool, struct ptable *table);
 
 /**
  * Generic page table walk function. Resolve a physical address or IPA
- * of a given virtual address for given PGD.
+ * of a given virtual address for given guest.
+ *
+ * @param guest guest to walk
+ * @param stage stage of the walk (STAGE1, STAGE2, STAGEA)
+ * @param vaddr virtual address to resolve
+ * @param ptep uint64_t pointer or NULL
+ * @return physical address and page permissions in **ptep, ~0UL on error
+ */
+uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
+		 uint64_t **ptep);
+
+/**
+ * Generic page table walk for the EL2 mode.
  *
  * @param vaddr virtual address to resolve
  * @param ptep uint64_t pointer or NULL
- * @param levels depth of the page table walk
  * @return physical address and page permissions in **ptep, ~0UL on error
  */
-uint64_t pt_walk(struct ptable *table, uint64_t vaddr, uint64_t **ptep,
-		 uint64_t levels);
-
+uint64_t pt_walk_el2(uint64_t vaddr, uint64_t **ptep);
 
 /**
  * Prevents the calling kernel from ever changing its internal memory
@@ -257,6 +267,20 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
  */
 int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		size_t length);
+
+/**
+ * Copy count bytes of memory from src to dest by using specified
+ * address mappings.
+ *
+ * @param dest destination virtual address
+ * @param src source virtual address
+ * @param count amount of bytes to copy
+ * @param dest_pgd destination mappings to use
+ * @param src_pgd source mappings to use
+ * @return zero if copy was done, negative error code otherwise
+ */
+int user_copy(uint64_t dest, uint64_t src, uint64_t count, uint64_t dest_pgd,
+	      uint64_t src_pgd);
 
 /*
  * Internal use only below - keep out.

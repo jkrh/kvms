@@ -23,12 +23,12 @@ int count_shared(uint32_t vmid, bool lock)
 
 	vaddr1 = 0;
 	while (vaddr1 <= GUEST_MEM_MAX) {
-		paddr1 = pt_walk(guest->s2_pgd, vaddr1, &pte1, TABLE_LEVELS);
+		paddr1 = pt_walk(guest, STAGE2, vaddr1, &pte1);
 		if (paddr1 == ~0UL)
 			goto cont;
 		total += 1;
 
-		paddr2 = pt_walk(host->s2_pgd, paddr1, &pte2, TABLE_LEVELS);
+		paddr2 = pt_walk(host, STAGE2, paddr1, &pte2);
 		if (paddr2 == ~0UL)
 			goto cont;
 		shared += 1;
@@ -61,7 +61,6 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 	uint64_t vaddr = 0, addr = 0, size = 0;
 	uint64_t operms = ~0UL, oaddr = 0;
 	kvm_guest_t *guest;
-	struct ptable *pgd;
 	int total = 0;
 	uint64_t *pte;
 
@@ -70,29 +69,24 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		ERROR("No such guest %u?\n", vmid);
 		return -EINVAL;
 	}
+
 	switch (stage) {
 	case STAGE2:
-		pgd = guest->s2_pgd;
-		break;
 	case STAGE1:
-		pgd = guest->s1_pgd;
+	case STAGEA:
 		break;
 	default:
 		ERROR("Unknown stage?\n");
 		return -EINVAL;
 	}
-	LOG("VMID %u pgd %p mappings %p - %p\n", vmid,
-						(void *)pgd,
-						(void *)vaddr,
-						(void *)guest->ramend);
+	LOG("VMID %u stage %u mappings %p - %p\n", vmid, stage,
+					(void *)vaddr,
+					(void *)guest->ramend);
 	LOG("vaddr\t\tpaddr\t\tsize\t\tprot\n");
 
 	while (vaddr < guest->ramend) {
 		pte = NULL;
-		if (stage == STAGE1)
-			addr = pt_walk(pgd, vaddr, &pte, guest->table_levels);
-		else
-			addr = pt_walk(pgd, vaddr, &pte, TABLE_LEVELS);
+		addr = pt_walk(guest, stage, vaddr, &pte);
 
 		/*
 		 * Find the beginning
@@ -150,32 +144,109 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 	return total;
 }
 
-int validate_host_mappings(void)
+int print_mappings_el2(void)
 {
-	uint64_t vaddr, end, ipa, phys1, phys2;
+	uint64_t start_vaddr = 0, end_vaddr = 0;
+	uint64_t start_addr = 0, perms = ~0UL;
+	uint64_t vaddr = 0, addr = 0, size = 0;
+	uint64_t operms = ~0UL, oaddr = 0;
 	kvm_guest_t *host;
-	uint64_t *pgd;
-	int ret = 0, count = 0;
-	int i;
-
-	if (get_current_vmid() != HOST_VMID) {
-		ERROR("validation must be called in the host context\n");
-		return -EFAULT;
-	}
+	uint64_t *pte;
+	int total = 0;
 
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
 
-	pgd = (uint64_t *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
-	if (!pgd)
+	LOG("EL2 mappings %p - %p\n", (void *)vaddr, host->ramend);
+	LOG("vaddr\t\tpaddr\t\tsize\t\tprot\n");
+
+	while (vaddr < host->ramend) {
+		pte = NULL;
+		addr = pt_walk_el2(vaddr, &pte);
+
+		/*
+		 * Find the beginning
+		 */
+		if (addr == ~0UL) {
+			vaddr += PAGE_SIZE;
+			continue;
+		}
+		total++;
+		/*
+		 * Grab the perms
+		 */
+		perms = *pte & PROT_MASK_STAGE1;
+
+		if (operms == ~0UL)
+			operms = perms;
+		/*
+		 * Seek to the end of the new mapping
+		 */
+		if ((addr == (oaddr + PAGE_SIZE)) && (perms == operms)) {
+			oaddr = addr;
+			vaddr += PAGE_SIZE;
+			end_vaddr = vaddr;
+			continue;
+		}
+		/*
+		 * Print it if there was something.
+		 */
+		if (end_vaddr) {
+			size = end_vaddr - start_vaddr;
+			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
+			    start_vaddr, start_addr, size, operms);
+		}
+		/*
+		 * Move along
+		 */
+		start_vaddr = vaddr;
+		start_addr = addr;
+
+		operms = perms;
+		oaddr = addr;
+		vaddr += PAGE_SIZE;
+		end_vaddr = vaddr;
+	}
+	/* Last entry, if there is one  */
+	if (!end_vaddr)
+		return total;
+
+	size = end_vaddr - start_vaddr;
+	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
+	     start_vaddr, start_addr, size, perms);
+
+	return total;
+}
+
+int validate_host_mappings(void)
+{
+	uint64_t vaddr, end, phys1, phys2;
+	kvm_guest_t *host;
+	uint64_t *pgd;
+	uint32_t vmid;
+	int ret = 0, count = 0;
+	int i;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
 		HYP_ABORT();
+
+	vmid = get_current_vmid();
+	if (vmid != HOST_VMID) {
+		load_host_s2();
+		isb();
+	}
+
+	if (!host->s1_1_pgd)
+		host->s1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	pgd = (uint64_t *)host->s1_1_pgd;
 
 	for (i = 0; i < PT_SIZE_WORDS; i++) {
 		if (pgd[i] == 0)
 			continue;
 
-		vaddr = i * SZ_1G;
+		vaddr = i * SZ_1G | LINUX_VA_FILL;
 		end = vaddr + SZ_1G;
 		LOG("Scanning block %p - %p\n", vaddr, end);
 
@@ -187,13 +258,7 @@ int validate_host_mappings(void)
 			phys1 = (uint64_t)virt_to_phys((void *)vaddr);
 
 			/* Software walk */
-			phys2 = ~0UL;
-			ipa = pt_walk((struct ptable *)pgd,
-				     vaddr | LINUX_VA_FILL,
-				     0, host->table_levels);
-			if (ipa != ~0UL)
-				phys2 = pt_walk(host->s2_pgd, ipa, 0,
-						host->table_levels);
+			phys2 = pt_walk(host, STAGEA, vaddr, 0);
 
 			if (phys2 != ~0UL)
 				count++;
@@ -208,6 +273,12 @@ int validate_host_mappings(void)
 		}
 	}
 	LOG("%d mapped pages, %d mismatches\n",  count, ret);
+
+	if (vmid != HOST_VMID) {
+		load_guest_s2(vmid);
+		isb();
+	}
+
 	return ret;
 }
 

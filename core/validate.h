@@ -19,6 +19,14 @@ int count_shared(uint32_t vmid, bool lock);
 int print_mappings(uint32_t vmid, uint64_t stage);
 
 /**
+ * Print EL2 mode memory mappings to console/log
+ *
+ * @param void
+ * @return total number of mapped pages or -errno
+ */
+int print_mappings_el2(void);
+
+/**
  * Validate host mappings
  *
  * Run all kernel stage 1 and hyp generated stage 2 host mappings via

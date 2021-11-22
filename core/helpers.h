@@ -90,11 +90,7 @@ static inline void *at_s12e1r(void *s1addr)
 
 static inline void *virt_to_phys(void *s1addr)
 {
-	uint64_t tmp;
-
-	tmp = (uint64_t)s1addr | 0xffff800000000000UL;
-
-	return at_s12e1r((void *)tmp);
+	return at_s12e1r(s1addr);
 }
 
 /* Resolve el2 stage 1 va */

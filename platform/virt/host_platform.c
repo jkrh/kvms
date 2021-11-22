@@ -95,7 +95,7 @@ nextmap:
 		} else {
 			perms = PAGE_KERNEL_RW;
 			type = DEVICE_MEMORY;
-			pgd = host->s1_pgd;
+			pgd = host->s0_2_pgd;
 		}
 
 		res = mmap_range(pgd, stage, base_memmap[i].addr,
@@ -110,7 +110,7 @@ nextmap:
 		goto nextmap;
 	}
 	perms = PAGE_KERNEL_RWX;
-	res = mmap_range(host->s1_pgd, STAGE1, PHYS_OFFSET, PHYS_OFFSET,
+	res = mmap_range(host->s0_2_pgd, STAGE1, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 4, perms, NORMAL_MEMORY);
 	if (res)
 		goto error;
@@ -121,14 +121,15 @@ nextmap:
 	if (res)
 		goto error;
 
-	host->table_levels = TABLE_LEVELS;
+	host->table_levels_s2 = TABLE_LEVELS;
+	host->table_levels_s1 = TABLE_LEVELS;
 	host->ramend = 0x200000000UL;
 
 	/* Initial slots for host */
 	platform_init_slots(host);
 
 	/* Virt is a debug target, dump. */
-	print_mappings(HOST_VMID, STAGE1);
+	print_mappings_el2();
 	print_mappings(HOST_VMID, STAGE2);
 
 error:
@@ -205,10 +206,10 @@ int platform_init_host_pgd(kvm_guest_t *host)
 	if (!host)
 		return -EINVAL;
 
-	host->s1_pgd = alloc_pgd(host, &host->s1_tablepool);
+	host->s0_2_pgd = alloc_pgd(host, &host->s1_tablepool);
 	host->s2_pgd = alloc_pgd(host, &host->s2_tablepool);
 
-	if (!host->s1_pgd || !host->s2_pgd)
+	if (!host->s0_2_pgd || !host->s2_pgd)
 		return -ENOMEM;
 
 	return 0;
@@ -257,7 +258,7 @@ void platform_mmu_prepare(void)
 	if (!host)
 		HYP_ABORT();
 
-	write_reg(TTBR0_EL2, (uint64_t)host->s1_pgd);
+	write_reg(TTBR0_EL2, (uint64_t)host->s0_2_pgd);
 	write_reg(VTTBR_EL2, (uint64_t)host->s2_pgd);
 	set_current_vmid(HOST_VMID);
 

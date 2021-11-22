@@ -101,7 +101,7 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		break;
 #ifdef DEBUG
 	case HYP_TRANSLATE:
-		res = pt_walk(guest->s2_pgd, a1, 0, guest->table_levels);
+		res = pt_walk(guest, STAGE2, a1, 0);
 		break;
 #endif
 	default:
@@ -143,7 +143,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest->s1_pgd, STAGE1, a1, a2, a3, a4,
+			res = mmap_range(guest->s0_2_pgd, STAGE1, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		/*
 		 * kern_hyp_va: MSB WATCH
@@ -167,7 +167,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a1, a2);
 		if (!res)
-			res = unmap_range(guest->s1_pgd, STAGE1, a1, a2);
+			res = unmap_range(guest->s0_2_pgd, STAGE1, a1, a2);
 
 #ifdef HOSTBLINDING_DEV
 		if (remove_kvm_hyp_region(a1))
@@ -341,29 +341,24 @@ do_retry:
 void print_abort(void)
 {
 	kvm_guest_t *host = NULL;
-	uint64_t ipa, pa, far;
-	uint64_t ttbr1_el1;
+	uint64_t pa, far;
 
-	ttbr1_el1 = (read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
 	host = get_guest(HOST_VMID);
+	if (!host)
+		while(1)
+			wfi();
+
 	far = read_reg(FAR_EL2);
 
 	ERROR("VTTBR_EL2 (0x%012x) ESR_EL2 (0x%012lx) FAR_EL2 (0x%012lx)\n",
 	      read_reg(VTTBR_EL2), read_reg(ESR_EL2), read_reg(FAR_EL2));
 	ERROR("HPFAR_EL2 (0x%012lx)\n", read_reg(HPFAR_EL2));
 
-	ERROR("Host s2 table (0x%012lx)\n", host->s2_pgd);
-	/* Walk IPA from host s1 table */
-	if (ttbr1_el1 != 0) {
-		ipa = pt_walk((struct ptable *)ttbr1_el1,
-			       far, NULL, TABLE_LEVELS);
-		/* Walk PA from host s2 table */
-		pa = pt_walk((struct ptable *)host->s2_pgd,
-			      ipa, NULL, TABLE_LEVELS);
+	ERROR("HOST STAGE1 (0x%012lx), STAGE2 (0x%012lx)\n", host->s1_1_pgd,
+	      host->s2_pgd);
 
-		ERROR("FAR: (0x%012lx) IPA: (0x%012lx) PA: (0x%012lx)\n",
-		      far, ipa, pa);
-	}
+	pa = pt_walk(host, STAGEA, far, NULL);
+	ERROR("FAR: (0x%012lx) PA: (0x%012lx)\n", far, pa);
 }
 
 NORETURN
@@ -382,7 +377,6 @@ NORETURN
 void dump_state(uint64_t level, void *sp)
 {
 	register uint64_t faddr;
-	register uint64_t stage2;
 	uint64_t *__frame = (uint64_t *)sp;
 
 	/* Try to make sure the dump stays readable */
@@ -392,10 +386,6 @@ void dump_state(uint64_t level, void *sp)
 	switch (level) {
 	case 1:
 		ERROR("Unhandled exception in EL1 at 0x%012lx\n", faddr);
-
-		stage2 = read_reg(VTTBR_EL2) & 0xFFFFFFFFFFFEUL;
-		ERROR("Mapping %012lx -> %012lx\n", faddr,
-		      pt_walk((struct ptable *)stage2, faddr, NULL, TABLE_LEVELS));
 		break;
 	case 2:
 		ERROR("Unhandled exception in EL2 at 0x%012lx\n", faddr);
@@ -433,14 +423,14 @@ void dump_state(uint64_t level, void *sp)
 #endif
 	spin_unlock(&crash_lock);
 	while (1)
-		wfi()
+		wfi();
 }
 
 void memctrl_exec(uint64_t *sp)
 {
-	uint64_t esr_el2, iss, rt, ipa, elr, ttbr;
-	kvm_guest_t *guest;
+	uint64_t esr_el2, iss, rt, ipa, elr;
 	uint32_t vmid, cid, inst;
+	kvm_guest_t *guest;
 
 	esr_el2 = read_reg(ESR_EL2);
 	iss = esr_el2 & ISS_MASK;
@@ -506,11 +496,11 @@ void memctrl_exec(uint64_t *sp)
 	case 0x302806:
 		PRINTREG("vmid %u core %u amair_el1 0x%lx\n", vmid, cid, sp[rt]);
 		write_reg(AMAIR_EL1, sp[rt]);
+		break;
 	default:
 		guest = get_guest(vmid);
 		elr = read_reg(ELR_EL2);
-		ttbr = read_reg(TTBR1_EL1) & TTBR_BADDR_MASK;
-		ipa = pt_walk((struct ptable *)ttbr, elr, 0, guest->table_levels);
+		ipa = pt_walk(guest, STAGE2, elr, 0);
 
 		ERROR("UNHANDLED TRAP AT %p, ipa %p\n", elr, ipa);
 		ERROR("VMID %u CORE %u ESR 0x%012lx ISS 0x%08X\n", vmid, cid,

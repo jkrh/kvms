@@ -93,8 +93,10 @@ struct kvm_guest_t {
 	uint32_t vmid;
 	guest_state_t state;
 	kernel_func_t *cpu_map[NUM_VCPUS];
-	struct ptable *s1_pgd;
-	struct ptable *s2_pgd;
+	struct ptable *s0_1_pgd; /* ttbr0_el1 */
+	struct ptable *s1_1_pgd; /* ttbr1_el1 */
+	struct ptable *s0_2_pgd; /* ttbr0_el2 */
+	struct ptable *s2_pgd;   /* vttbr_el2 */
 	struct tablepool s1_tablepool;
 	struct tablepool s2_tablepool;
 	void *kvm;	/* struct kvm */
@@ -103,7 +105,8 @@ struct kvm_guest_t {
 	uint64_t pd_index;
 	uint64_t ramend;
 	uint32_t sn;
-	uint32_t table_levels;
+	uint8_t table_levels_s1;
+	uint8_t table_levels_s2;
 	uint16_t index;
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
 	share_t shares[MAX_SHARES];

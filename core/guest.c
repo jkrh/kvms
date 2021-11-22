@@ -233,19 +233,6 @@ static kvm_guest_t *__get_guest_by_kvm(void **kvm, int *guest_index)
 	return guest;
 }
 
-uint64_t s1_to_phy(kvm_guest_t *guest, struct ptable *s1_pgd, uint64_t vaddr)
-{
-	uint64_t ipa, phy;
-
-	ipa = pt_walk(s1_pgd, vaddr, NULL, TABLE_LEVELS);
-
-	phy = ~0UL;
-	if ((ipa != ~0UL))
-		phy = pt_walk(guest->s2_pgd, ipa, NULL, TABLE_LEVELS);
-
-	return phy;
-}
-
 /**
  * Walk through the provided s1 range to verify it is physically contiguous
  * and mapped in the provided s1 page global directory.
@@ -267,7 +254,7 @@ bool s1_range_physically_contiguous(kvm_guest_t *guest, struct ptable *s1_pgd,
 	if (paddr != NULL)
 		tpaddr = *paddr;
 	else
-		tpaddr = s1_to_phy(guest, s1_pgd, s1addr);
+		tpaddr = pt_walk(guest, STAGEA, s1addr, 0);
 
 	if (tpaddr == ~0UL || !len)
 		return false;
@@ -276,7 +263,7 @@ bool s1_range_physically_contiguous(kvm_guest_t *guest, struct ptable *s1_pgd,
 	tlen = len;
 	ttlen = PAGE_SIZE;
 	while (tlen > 0) {
-		if (tpaddr != s1_to_phy(guest, s1_pgd, tvaddr))
+		if (tpaddr != pt_walk(guest, STAGEA, tvaddr, 0))
 			return false;
 
 		if (tlen >= PAGE_SIZE)
@@ -524,7 +511,7 @@ int init_guest(void *kvm)
 	pgd = KVM_GET_PGD_PTR(kvm);
 	*pgd = (uint64_t)guest->s2_pgd;
 	guest->kvm = kvm;
-	guest->table_levels = TABLE_LEVELS;
+	guest->table_levels_s2 = TABLE_LEVELS;
 
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
 	eops = KVM_GET_EXT_OPS_PTR(kvm);
@@ -533,8 +520,11 @@ int init_guest(void *kvm)
 	eops->save_host_traps = save_host_traps;
 	eops->restore_host_traps = restore_host_traps;
 
-	/* Save the current VM process stage1 PGD */
-	guest->s1_pgd = (struct ptable *)read_reg(TTBR0_EL1);
+	/* Save the current VM process stage1 PGDs */
+	guest->s0_1_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
+	guest->s1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	/* FIXME: do proper detection */
+	guest->table_levels_s1 = TABLE_LEVELS;
 
 	dsb();
 	isb();
@@ -567,7 +557,7 @@ kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd)
 	int i;
 
 	for (i = 0; i < MAX_VM; i++) {
-		if (guests[i].s1_pgd == pgd) {
+		if (guests[i].s0_2_pgd == pgd) {
 			guest = &guests[i];
 			break;
 		}
@@ -698,8 +688,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		 * measure the existing content.
 		 */
 		pte = NULL;
-		taddr = pt_walk(guest->s2_pgd, page_vaddr, &pte,
-				TABLE_LEVELS);
+		taddr = pt_walk(guest, STAGE2, page_vaddr, &pte);
 		if ((taddr != ~0UL) && (taddr != page_paddr)) {
 			ERROR("vmid %x 0x%lx already mapped: 0x%lx != 0x%lx\n",
 			      guest->vmid, (uint64_t)page_vaddr,
@@ -774,8 +763,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len)
 
 	map_addr = vaddr;
 	while (map_addr < (vaddr + len)) {
-		paddr = pt_walk(guest->s2_pgd, map_addr, &pte,
-				TABLE_LEVELS);
+		paddr = pt_walk(guest, STAGE2, map_addr, &pte);
 		if (paddr == ~0UL)
 			goto do_loop;
 
@@ -973,7 +961,7 @@ int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count)
 		src_pgd = ttbr1_el1;
 	}
 
-	/* Check that the guest address is within guest boundaries */
+	/* Check that the guest address is within qemu boundaries */
 	if (!is_range_valid_uaddr(usr_addr, count, &guest->slots[0]))
 		return -EINVAL;
 
@@ -1000,7 +988,7 @@ int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
 	if (guest == NULL)
 		goto out_no_entry;
 
-	addr = pt_walk(guest->s2_pgd, ipa, &pte, TABLE_LEVELS);
+	addr = pt_walk(guest, STAGE2, ipa, &pte);
 
 	if (addr == ~0UL)
 		goto out_no_entry;

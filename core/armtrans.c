@@ -486,25 +486,75 @@ block_type:
 	return ret;
 }
 
-uint64_t pt_walk(struct ptable *tbl, uint64_t vaddr, uint64_t **ptep,
-		 uint64_t levels)
+uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
+		 uint64_t **ptep)
 {
-	uint64_t level = levels;
+	kvm_guest_t *host;
+	struct ptable *tbl;
+	uint64_t addr, ipa, lvl;
 
-	return __pt_walk(tbl, vaddr, ptep, &level, NULL);
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
+
+	if (guest == host) {
+		host->s1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+		host->s0_1_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
+	}
+
+	switch (stage) {
+	case STAGEA:
+		ipa = pt_walk(guest, STAGE1, vaddr, 0);
+		if (ipa == ~0UL) {
+			addr = ipa;
+			break;
+		}
+		addr = pt_walk(guest, STAGE2, ipa, 0);
+		break;
+	case STAGE2:
+		lvl = guest->table_levels_s2;
+		addr = __pt_walk(guest->s2_pgd, vaddr, ptep, &lvl, NULL);
+		break;
+	case STAGE1:
+		/*
+		 * Kernel or userspace address? We don't track the userspace
+		 * beyond the vm qemu, so we resolve against that.
+		 */
+		if (bit_raised(vaddr, 55))
+			tbl = guest->s1_1_pgd;
+		else
+			tbl = guest->s0_1_pgd;
+
+		lvl = guest->table_levels_s1;
+		addr = __pt_walk(tbl, vaddr, ptep, &lvl, NULL);
+		break;
+	default:
+		addr = ~0UL;
+		break;
+	}
+
+	return addr;
 }
 
-static int lock_kernel_page(uint64_t ipa, uint64_t levels, int lvl)
+uint64_t pt_walk_el2(uint64_t vaddr, uint64_t **ptep)
 {
-	struct ptable *s2pgd;
+	kvm_guest_t *host;
+	uint64_t lvl;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
+
+	lvl = host->table_levels_s2;
+	return __pt_walk(host->s0_2_pgd, vaddr, ptep, &lvl, NULL);
+}
+
+static int lock_kernel_page(kvm_guest_t *guest, uint64_t ipa)
+{
 	uint64_t phys;
 	uint64_t *ptep;
 
-	s2pgd = (struct ptable *)(read_reg(VTTBR_EL2) & TTBR_BADDR_MASK);
-	if (!s2pgd)
-		HYP_ABORT();
-
-	phys = pt_walk(s2pgd, ipa, &ptep, levels);
+	phys = pt_walk(guest, STAGE2, ipa, &ptep);
 	if ((phys == ~0UL) || !*ptep) {
 		ERROR("lock_kernel_page(): ipa %p without a map?\n", ipa);
 		return -EINVAL;
@@ -518,7 +568,7 @@ static int lock_kernel_page(uint64_t ipa, uint64_t levels, int lvl)
 	dsbish();
 	isb();
 
-	LOG("Locked %d level page at %p\n", lvl, ipa);
+	LOG("Locked guest %u physical page at %p\n", guest->vmid, phys);
 	return 0;
 }
 
@@ -534,20 +584,19 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 	if (!guest)
 		HYP_ABORT();
 
-	nl = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
-	if (!nl)
-		HYP_ABORT();
-	levels = guest->table_levels;
 	/*
 	 * Don't go changing anything that's not there.
 	 */
-	ipa = pt_walk(nl, vaddr, 0, levels);
+	ipa = pt_walk(guest, STAGE2, vaddr, 0);
 	if (ipa == ~0UL) {
 		ERROR("Host kernel %p does not appear to be mapped\n", vaddr);
 		return -EINVAL;
 	}
+	nl = guest->s2_pgd;
+	levels = guest->table_levels_s2;
+
 	if (depth & 0x1)
-		lock_kernel_page((uint64_t)nl, levels, 0);
+		lock_kernel_page(guest, (uint64_t)nl);
 
 	vaddr = ROUND_UP(vaddr, SZ_1M * 2);
 	size -= ovaddr - vaddr;
@@ -565,7 +614,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 			if (!nl)
 				goto cont;
 			if (depth & 0x2)
-				lock_kernel_page((uint64_t)nl, levels, 1);
+				lock_kernel_page(guest, (uint64_t)nl);
 		}
 
 		if (levels >= 3) {
@@ -578,7 +627,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 			if (!nl)
 				goto cont;
 			if (depth & 0x4)
-				lock_kernel_page((uint64_t)nl, levels, 2);
+				lock_kernel_page(guest, (uint64_t)nl);
 		}
 
 		noff = (vaddr & TABLE_2_MASK) >> L2_SHIFT;
@@ -590,7 +639,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 		if (!nl)
 			goto cont;
 		if (depth & 0x8)
-			lock_kernel_page((uint64_t)nl, levels, 3);
+			lock_kernel_page(guest, (uint64_t)nl);
 
 cont:
 		vaddr += 0x1000;
@@ -609,11 +658,13 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 	uint64_t paddr, offt, tmp, i;
 	struct entryinfo einfo;
 
-	if (!block->guest || ((block->guest->s2_pgd != block->pgd) &&
-		(block->guest->s1_pgd != block->pgd)))
+	if (!block->guest)
 		HYP_ABORT();
 
-	block->level = block->guest->table_levels;
+	if (block->stage == STAGE1)
+		block->level = block->guest->table_levels_s1;
+	else
+		block->level = block->guest->table_levels_s2;
 	paddr = __pt_walk(block->pgd, addr, &block->ptep, &block->level, &einfo);
 	if (paddr == ~0UL) {
 		block->type = INVALID_MEMORY;
@@ -1141,7 +1192,7 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		if (length != PAGE_SIZE)
 			return -EPERM;
 
-		pt_walk(block.pgd, vaddr, &pte, TABLE_LEVELS);
+		__pt_walk(block.pgd, vaddr, &pte, 0, NULL);
 		attr = (*pte &
 			(PROT_MASK_STAGE2 | TYPE_MASK_STAGE2));
 		nattr = (type | prot);
@@ -1244,6 +1295,23 @@ int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			     TABLE_LEVELS);
 }
 
+int user_copy(uint64_t dest, uint64_t src, uint64_t count,
+	      uint64_t dest_pgd, uint64_t src_pgd)
+{
+	uint64_t dest_ipa, src_ipa;
+
+	dest_ipa = __pt_walk((struct ptable *)dest_pgd, dest, 0, 0, NULL);
+	if (dest_ipa == ~0UL)
+		return -EINVAL;
+
+	src_ipa = __pt_walk((struct ptable *)src_pgd, src, 0, 0, NULL);
+	if (src_ipa == ~0UL)
+		return -EINVAL;
+
+	memcpy((void *)dest_ipa, (void *)src_ipa, count);
+	return 0;
+}
+
 void table_init(void)
 {
 	kvm_guest_t *host;
@@ -1262,8 +1330,8 @@ void table_init(void)
 	if (platform_init_host_pgd(host))
 		HYP_ABORT();
 
-	LOG("host info: vmid %x, s1 pgd 0x%lx, s2 pgd 0x%lx\n",
-	    HOST_VMID, (uint64_t)host->s1_pgd, (uint64_t)host->s2_pgd);
+	LOG("HOST INFO: VMID %x, EL2 S1 PGD 0x%lx, EL1 S2 PGD 0x%lx\n",
+	    HOST_VMID, (uint64_t)host->s0_2_pgd, (uint64_t)host->s2_pgd);
 }
 
 void enable_mmu(void)

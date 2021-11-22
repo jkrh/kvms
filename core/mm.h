@@ -103,20 +103,6 @@ int is_range_valid(uint64_t addr, size_t len, kvm_memslots *slots);
  */
 int is_range_valid_uaddr(uint64_t addr, size_t len, kvm_memslots *slots);
 
-/**
- * Copy count bytes of memory from src to dest by using specified
- * address mappings.
- *
- * @param dest destination virtual address
- * @param src source virtual address
- * @param count amount of bytes to copy
- * @param dest_pgd destination mappings to use
- * @param src_pgd source mappings to use
- * @return zero if copy was done, negative error code otherwise
- */
-int user_copy(uint64_t dest, uint64_t src, uint64_t count, uint64_t dest_pgd,
-	      uint64_t src_pgd);
-
 int add_kvm_hyp_region(uint64_t vaddr, uint64_t paddr, uint64_t size);
 
 int remove_kvm_hyp_region(uint64_t vaddr);
