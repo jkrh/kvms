@@ -1,21 +1,28 @@
 [submodule "oss/binutils-gdb"]
 	path = oss/binutils-gdb
 	url = git://sourceware.org/git/binutils-gdb.git
+	ignore = dirty
 [submodule "oss/gcc"]
 	path = oss/gcc
 	url = https://github.com/gcc-mirror/gcc.git
+	ignore = dirty
 [submodule "oss/qemu"]
 	path = oss/qemu
 	url = https://github.com/qemu/qemu.git
+	ignore = dirty
 [submodule "oss/glibc"]
 	path = oss/glibc
 	url = git://sourceware.org/git/glibc.git
+	ignore = dirty
 [submodule "oss/linux"]
 	path = oss/linux
 	url = https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+	ignore = dirty
 [submodule "oss/qemu-android"]
 	path = oss/qemu-android
 	url = https://android.googlesource.com/platform/external/qemu
+	ignore = dirty
 [submodule "mbedtls"]
 	path = mbedtls
 	url = https://github.com/ARMmbed/mbedtls.git
+	ignore = dirty
