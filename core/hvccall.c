@@ -143,7 +143,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest->s0_2_pgd, STAGE1, a1, a2, a3, a4,
+			res = mmap_range(guest->EL2S1_pgd, STAGE1, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		/*
 		 * kern_hyp_va: MSB WATCH
@@ -167,7 +167,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a1, a2);
 		if (!res)
-			res = unmap_range(guest->s0_2_pgd, STAGE1, a1, a2);
+			res = unmap_range(guest->EL2S1_pgd, STAGE1, a1, a2);
 
 #ifdef HOSTBLINDING_DEV
 		if (remove_kvm_hyp_region(a1))
@@ -194,14 +194,14 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest->s2_pgd, STAGE2, a1, a2, a3, a4,
+			res = mmap_range(guest->EL1S2_pgd, STAGE2, a1, a2, a3, a4,
 				 KEEP_MATTR);
 		break;
 	case HYP_HOST_MAP_STAGE2:
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest->s2_pgd, STAGE2, a1, a2, a3, a4,
+			res = mmap_range(guest->EL1S2_pgd, STAGE2, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		break;
 	case HYP_HOST_BOOTSTEP:
@@ -354,8 +354,8 @@ void print_abort(void)
 	      read_reg(VTTBR_EL2), read_reg(ESR_EL2), read_reg(FAR_EL2));
 	ERROR("HPFAR_EL2 (0x%012lx)\n", read_reg(HPFAR_EL2));
 
-	ERROR("HOST STAGE1 (0x%012lx), STAGE2 (0x%012lx)\n", host->s1_1_pgd,
-	      host->s2_pgd);
+	ERROR("HOST STAGE1 (0x%012lx), STAGE2 (0x%012lx)\n", host->EL1S1_1_pgd,
+	      host->EL1S2_pgd);
 
 	pa = pt_walk(host, STAGEA, far, NULL);
 	ERROR("FAR: (0x%012lx) PA: (0x%012lx)\n", far, pa);

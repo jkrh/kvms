@@ -498,8 +498,8 @@ uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		HYP_ABORT();
 
 	if (guest == host) {
-		host->s1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
-		host->s0_1_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
+		host->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+		host->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
 	}
 
 	switch (stage) {
@@ -513,7 +513,7 @@ uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		break;
 	case STAGE2:
 		lvl = guest->table_levels_s2;
-		addr = __pt_walk(guest->s2_pgd, vaddr, ptep, &lvl, NULL);
+		addr = __pt_walk(guest->EL1S2_pgd, vaddr, ptep, &lvl, NULL);
 		break;
 	case STAGE1:
 		/*
@@ -521,9 +521,9 @@ uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		 * beyond the vm qemu, so we resolve against that.
 		 */
 		if (bit_raised(vaddr, 55))
-			tbl = guest->s1_1_pgd;
+			tbl = guest->EL1S1_1_pgd;
 		else
-			tbl = guest->s0_1_pgd;
+			tbl = guest->EL1S1_0_pgd;
 
 		lvl = guest->table_levels_s1;
 		addr = __pt_walk(tbl, vaddr, ptep, &lvl, NULL);
@@ -546,7 +546,7 @@ uint64_t pt_walk_el2(uint64_t vaddr, uint64_t **ptep)
 		HYP_ABORT();
 
 	lvl = host->table_levels_s2;
-	return __pt_walk(host->s0_2_pgd, vaddr, ptep, &lvl, NULL);
+	return __pt_walk(host->EL2S1_pgd, vaddr, ptep, &lvl, NULL);
 }
 
 static int lock_kernel_page(kvm_guest_t *guest, uint64_t ipa)
@@ -592,7 +592,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 		ERROR("Host kernel %p does not appear to be mapped\n", vaddr);
 		return -EINVAL;
 	}
-	nl = guest->s2_pgd;
+	nl = guest->EL1S2_pgd;
 	levels = guest->table_levels_s2;
 
 	if (depth & 0x1)
@@ -1331,7 +1331,7 @@ void table_init(void)
 		HYP_ABORT();
 
 	LOG("HOST INFO: VMID %x, EL2 S1 PGD 0x%lx, EL1 S2 PGD 0x%lx\n",
-	    HOST_VMID, (uint64_t)host->s0_2_pgd, (uint64_t)host->s2_pgd);
+	    HOST_VMID, (uint64_t)host->EL2S1_pgd, (uint64_t)host->EL1S2_pgd);
 }
 
 void enable_mmu(void)

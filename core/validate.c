@@ -238,9 +238,9 @@ int validate_host_mappings(void)
 		isb();
 	}
 
-	if (!host->s1_1_pgd)
-		host->s1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
-	pgd = (uint64_t *)host->s1_1_pgd;
+	if (!host->EL1S1_1_pgd)
+		host->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	pgd = (uint64_t *)host->EL1S1_1_pgd;
 
 	for (i = 0; i < PT_SIZE_WORDS; i++) {
 		if (pgd[i] == 0)

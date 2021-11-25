@@ -91,11 +91,11 @@ nextmap:
 		if (stage == STAGE2) {
 			perms = PAGE_HYP_RW;
 			type = S2_DEV_NGNRE;
-			pgd = host->s2_pgd;
+			pgd = host->EL1S2_pgd;
 		} else {
 			perms = PAGE_KERNEL_RW;
 			type = DEVICE_MEMORY;
-			pgd = host->s0_2_pgd;
+			pgd = host->EL2S1_pgd;
 		}
 
 		res = mmap_range(pgd, stage, base_memmap[i].addr,
@@ -110,13 +110,13 @@ nextmap:
 		goto nextmap;
 	}
 	perms = PAGE_KERNEL_RWX;
-	res = mmap_range(host->s0_2_pgd, STAGE1, PHYS_OFFSET, PHYS_OFFSET,
+	res = mmap_range(host->EL2S1_pgd, STAGE1, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 4, perms, NORMAL_MEMORY);
 	if (res)
 		goto error;
 
 	perms = PAGE_HYP_RWX;
-	res = mmap_range(host->s2_pgd, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
+	res = mmap_range(host->EL1S2_pgd, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 3, perms, S2_NORMAL_MEMORY);
 	if (res)
 		goto error;
@@ -206,10 +206,10 @@ int platform_init_host_pgd(kvm_guest_t *host)
 	if (!host)
 		return -EINVAL;
 
-	host->s0_2_pgd = alloc_pgd(host, &host->s1_tablepool);
-	host->s2_pgd = alloc_pgd(host, &host->s2_tablepool);
+	host->EL2S1_pgd = alloc_pgd(host, &host->s1_tablepool);
+	host->EL1S2_pgd = alloc_pgd(host, &host->s2_tablepool);
 
-	if (!host->s0_2_pgd || !host->s2_pgd)
+	if (!host->EL2S1_pgd || !host->EL1S2_pgd)
 		return -ENOMEM;
 
 	return 0;
@@ -258,8 +258,8 @@ void platform_mmu_prepare(void)
 	if (!host)
 		HYP_ABORT();
 
-	write_reg(TTBR0_EL2, (uint64_t)host->s0_2_pgd);
-	write_reg(VTTBR_EL2, (uint64_t)host->s2_pgd);
+	write_reg(TTBR0_EL2, (uint64_t)host->EL2S1_pgd);
+	write_reg(VTTBR_EL2, (uint64_t)host->EL1S2_pgd);
 	set_current_vmid(HOST_VMID);
 
 	dsb();

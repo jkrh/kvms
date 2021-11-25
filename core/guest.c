@@ -484,11 +484,11 @@ int init_guest(void *kvm)
 			return -ENOSPC;
 	}
 
-	if (!guest->s2_pgd) {
+	if (!guest->EL1S2_pgd) {
 		guest->s2_tablepool.guest = guest;
-		guest->s2_pgd = alloc_pgd(guest, &guest->s2_tablepool);
+		guest->EL1S2_pgd = alloc_pgd(guest, &guest->s2_tablepool);
 
-		if (guest->s2_pgd == NULL) {
+		if (guest->EL1S2_pgd == NULL) {
 			free_guest(kvm);
 			return -ENOMEM;
 		}
@@ -509,11 +509,11 @@ int init_guest(void *kvm)
 	 * that the guest has been initialized.
 	 */
 	pgd = KVM_GET_PGD_PTR(kvm);
-	*pgd = (uint64_t)guest->s2_pgd;
+	*pgd = (uint64_t)guest->EL1S2_pgd;
 	guest->kvm = kvm;
 	guest->table_levels_s2 = TABLE_LEVELS;
 
-	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
+	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) | (vmid << 48));
 	eops = KVM_GET_EXT_OPS_PTR(kvm);
 	eops->load_host_stage2 = load_host_s2;
 	eops->load_guest_stage2 = load_guest_s2;
@@ -521,8 +521,8 @@ int init_guest(void *kvm)
 	eops->restore_host_traps = restore_host_traps;
 
 	/* Save the current VM process stage1 PGDs */
-	guest->s0_1_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
-	guest->s1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	guest->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
+	guest->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
 	/* FIXME: do proper detection */
 	guest->table_levels_s1 = TABLE_LEVELS;
 
@@ -553,16 +553,20 @@ retry:
 
 kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd)
 {
-	kvm_guest_t *guest = NULL;
 	int i;
 
+	/* Look for the actual guests first.. */
 	for (i = 0; i < MAX_VM; i++) {
-		if (guests[i].s0_2_pgd == pgd) {
-			guest = &guests[i];
-			break;
-		}
+		if (guests[i].EL1S1_0_pgd == pgd)
+			return &guests[i];
 	}
-	return guest;
+	/* And if it wasn't any, the host..  */
+	for (i = 0; i < MAX_VM; i++) {
+		if (guests[i].EL2S1_pgd == pgd)
+			return &guests[i];
+	}
+
+	return NULL;
 }
 
 int is_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
@@ -630,7 +634,7 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 	int i;
 
 	for (i = 0; i < MAX_VM; i++) {
-		if (guests[i].s2_pgd == pgd) {
+		if (guests[i].EL1S2_pgd == pgd) {
 			guest = &guests[i];
 			break;
 		}
@@ -651,7 +655,7 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 		guest_index[guest->vmid] = INVALID_GUEST;
 		guest->vmid = vmid;
 		guest_index[vmid] = i;
-		guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->s2_pgd) | (vmid << 48));
+		guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) | (vmid << 48));
 		res = 0;
 	}
 
@@ -736,7 +740,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	 */
 	bit_drop(prot, DBM_BIT);
 
-	res = mmap_range(guest->s2_pgd, STAGE2, vaddr, paddr, len, prot,
+	res = mmap_range(guest->EL1S2_pgd, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
 	if (!res && !is_share(guest, vaddr, len))
 		res = remove_host_range(guest, vaddr, len, false);
@@ -797,7 +801,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len)
 		/*
 		 * Detach the page from the guest
 		 */
-		res = unmap_range(guest->s2_pgd, STAGE2, map_addr, PAGE_SIZE);
+		res = unmap_range(guest->EL1S2_pgd, STAGE2, map_addr, PAGE_SIZE);
 		if (res)
 			HYP_ABORT();
 		/*
@@ -843,7 +847,7 @@ int free_guest(void *kvm)
 	if (!guest)
 		return 0;
 
-	if (guest->s2_pgd == host->s2_pgd)
+	if (guest->EL1S2_pgd == host->EL1S2_pgd)
 		HYP_ABORT();
 
 	if (guest->vmid == HOST_VMID)

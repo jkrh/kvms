@@ -93,10 +93,10 @@ struct kvm_guest_t {
 	uint32_t vmid;
 	guest_state_t state;
 	kernel_func_t *cpu_map[NUM_VCPUS];
-	struct ptable *s0_1_pgd; /* ttbr0_el1 */
-	struct ptable *s1_1_pgd; /* ttbr1_el1 */
-	struct ptable *s0_2_pgd; /* ttbr0_el2 */
-	struct ptable *s2_pgd;   /* vttbr_el2 */
+	struct ptable *EL1S1_0_pgd; /* ttbr0_el1 */
+	struct ptable *EL1S1_1_pgd; /* ttbr1_el1 */
+	struct ptable *EL1S2_pgd;   /* vttbr_el2 */
+	struct ptable *EL2S1_pgd;   /* ttbr0_el2 */
 	struct tablepool s1_tablepool;
 	struct tablepool s2_tablepool;
 	void *kvm;	/* struct kvm */
