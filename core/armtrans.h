@@ -133,6 +133,8 @@ struct ptable
 #define TTBR_BADDR_MASK	0x0000FFFFFFFFFFFEUL
 #define MAX_CONTIGUOUS	128
 
+#define TCR_EL1_T0SZ_MASK ((uint64_t)0x3F)
+
 void tdinfo_init(void);
 
 /**

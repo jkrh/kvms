@@ -9,6 +9,7 @@
 #include "host_platform.h"
 #include "armtrans.h"
 #include "guest.h"
+#include "spinlock.h"
 
 #include "hvccall-defines.h"
 #include "hyp_config.h"
@@ -510,14 +511,29 @@ cont:
 
 bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 {
+	bool res;
 	kvm_guest_t *guest = NULL;
 	kvm_guest_t *host = NULL;
 	uint64_t ipa;
+	uint64_t tcr_el1_t0sz, user_space_sz;
 
+	res = true;
 	/* Check if we have such guest */
 	guest = get_guest_by_s1pgd((struct ptable *)ttbr0_el1);
 	if (guest == NULL)
 		return false;
+
+	spin_lock(&core_lock);
+
+	/*
+	 * We only deal with user space addresses here.
+	 */
+	tcr_el1_t0sz = (read_reg(TCR_EL1) & TCR_EL1_T0SZ_MASK);
+	user_space_sz = ((uint64_t)1 << (64 - tcr_el1_t0sz)) - 1;
+	if (far_el2 > user_space_sz) {
+		res = false;
+		goto map_back_out;
+	}
 
 #ifndef HOSTBLINDING_DEV
 	/*
@@ -534,21 +550,29 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	 * We should be able to find the IPA from there.
 	 */
 	ipa = pt_walk(guest, STAGE1, far_el2, NULL);
-	if (ipa == ~0UL)
-		return false;
+	if (ipa == ~0UL) {
+		res = false;
+		goto map_back_out;
+	}
 
 	host = get_guest(vmid);
-	if (host == NULL)
-		return false;
+	if (host == NULL) {
+		res = false;
+		goto map_back_out;
+	}
 
 	ipa = ipa & PAGE_MASK;
+
+	LOG("%s 0x%lx\n", __func__, ipa);
 
 	/* 1:1 mapping - TODO the parameters from platform map */
 	if (mmap_range(host->EL1S2_pgd, STAGE2, ipa, ipa,
 		       PAGE_SIZE, ((SH_NO<<8)|PAGE_HYP_RWX), S2_NORMAL_MEMORY))
 		HYP_ABORT();
 
-	return true;
+map_back_out:
+	spin_unlock(&core_lock);
+	return res;
 }
 
 #else

@@ -248,6 +248,7 @@ forward_aarch64sync:
 el1_trap:
 	cmp	x0, #GUEST_VMID_START
 	bge	3f
+	save_all_regs
 	/*
 	 * Check if came here to serve host data
 	 * abort in verbose debug mode.
@@ -281,7 +282,8 @@ el1_trap:
 	ldr	x0, [sp, #(8 * 0)]
 	add	sp, sp, #(PT_REGS_SIZE)
 	eret
-2:	b	forward_aarch64sync
+2:	load_all_regs
+	b	forward_aarch64sync
 3:	get_kern_exit	x3, x0
 	get_vcpu_ptr	x1, x0
 	mov	x0, #ARM_EXCEPTION_TRAP
