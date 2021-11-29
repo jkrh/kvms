@@ -485,7 +485,6 @@ int init_guest(void *kvm)
 	}
 
 	if (!guest->EL1S2_pgd) {
-		guest->s2_tablepool.guest = guest;
 		guest->EL1S2_pgd = alloc_pgd(guest, &guest->s2_tablepool);
 
 		if (guest->EL1S2_pgd == NULL) {
@@ -749,7 +748,7 @@ out_error:
 	return res;
 }
 
-int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len)
+int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t sec)
 {
 	kvm_guest_t *host;
 	uint64_t paddr, map_addr;
@@ -760,7 +759,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len)
 	if (!host)
 		HYP_ABORT();
 
-	if (!guest || !vaddr || (len % PAGE_SIZE)) {
+	if (!guest || (len % PAGE_SIZE)) {
 		res = 0xF0F0;
 		goto out_error;
 	}
@@ -771,7 +770,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len)
 		if (paddr == ~0UL)
 			goto do_loop;
 
-		if (guest->state == guest_running) {
+		if ((guest->state == guest_running) && sec) {
 			/*
 			 * This is a mmu notifier chain call and the
 			 * blob may get swapped out and freed. Take
@@ -795,8 +794,10 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len)
 					ERROR("add_range_info(%d): %d %p:%d\n",
 					      guest->vmid, map_addr, res);
 			}
-		} else
+		} else {
+			memset((void *)paddr, 0, PAGE_SIZE);
 			free_range_info(guest, map_addr);
+		}
 
 		/*
 		 * Detach the page from the guest
