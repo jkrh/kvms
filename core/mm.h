@@ -23,8 +23,6 @@ typedef uint64_t gfn_t;
 #define fn_to_addr(x) (x * PAGE_SIZE)
 #define addr_to_fn(x) (x / PAGE_SIZE)
 
-#define MAX_KVM_HYP_REGIONS 64
-
 typedef struct {
 	uint64_t vaddr;
 	uint64_t paddr;
@@ -102,10 +100,6 @@ int is_range_valid(uint64_t addr, size_t len, kvm_memslots *slots);
  * @return 1 if it is, 0 otherwise
  */
 int is_range_valid_uaddr(uint64_t addr, size_t len, kvm_memslots *slots);
-
-int add_kvm_hyp_region(uint64_t vaddr, uint64_t paddr, uint64_t size);
-
-int remove_kvm_hyp_region(uint64_t vaddr);
 
 /**
  * Set given guest 'g' frame 'gfn' as dirty

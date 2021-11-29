@@ -28,69 +28,6 @@ uint64_t hyp_text_start;
 uint64_t hyp_text_end;
 extern uint64_t core_lock;
 
-#ifdef HOSTBLINDING_DEV
-static kvm_hyp_region kvm_hyp_regions[MAX_KVM_HYP_REGIONS];
-#endif // HOSTBLINDING_DEV
-
-#ifdef HOSTBLINDING_DEV
-int add_kvm_hyp_region(uint64_t vaddr, uint64_t paddr, uint64_t size)
-{
-	int ret, i;
-
-	ret = 0;
-
-	if (size == 0)
-		return ret;
-
-	for (i = 0; i < MAX_KVM_HYP_REGIONS; i++) {
-		if (kvm_hyp_regions[i].vaddr == 0) {
-			kvm_hyp_regions[i].vaddr = vaddr;
-			kvm_hyp_regions[i].paddr = paddr;
-			kvm_hyp_regions[i].size = size;
-			break;
-		}
-	}
-	if (i >= MAX_KVM_HYP_REGIONS)
-		ret = -ENOMEM;
-
-	return ret;
-}
-
-int remove_kvm_hyp_region(uint64_t vaddr)
-{
-	int ret, i;
-
-	ret = 0;
-
-	for (i = 0; i < MAX_KVM_HYP_REGIONS; i++) {
-		if (kvm_hyp_regions[i].vaddr == vaddr) {
-			kvm_hyp_regions[i].vaddr = 0;
-			kvm_hyp_regions[i].paddr = 0;
-			kvm_hyp_regions[i].size = 0;
-			break;
-		}
-	}
-	if (i >= MAX_KVM_HYP_REGIONS)
-		ret = -ENOENT;
-
-	return ret;
-}
-
-bool is_in_kvm_hyp_region(uint64_t paddr)
-{
-	int i;
-
-	for (i = 0; i < MAX_KVM_HYP_REGIONS; i++) {
-		if (kvm_hyp_regions[i].size != 0) {
-			if (paddr >= kvm_hyp_regions[i].paddr &&
-				paddr < (kvm_hyp_regions[i].paddr + kvm_hyp_regions[i].size))
-				return true;
-		}
-	}
-	return false;
-}
-#endif // HOSTBLINDING_DEV
-
 void *kern_hyp_va(void *a)
 {
 	uint64_t p = (uint64_t)a;
@@ -427,15 +364,6 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
 		return -EINVAL;
 
-#ifdef HOSTBLINDING_DEV
-	/*
-	 * Leave in hyp regions mapped by KVM
-	 * Such as kernel bss.
-	 */
-	if (is_in_kvm_hyp_region(paddr))
-		return 0;
-#endif // HOSTBLINDING_DEV
-
 	guest = (kvm_guest_t *)g;
 	host = get_guest(HOST_VMID);
 	if (!host)
@@ -448,6 +376,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		 */
 		if (!contiguous)
 			return -EINVAL;
+
 		if (unmap_range(host->EL1S2_pgd, STAGE2, gpa, len))
 			HYP_ABORT();
 		return 0;

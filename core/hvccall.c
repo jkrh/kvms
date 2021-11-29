@@ -151,28 +151,12 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		LOG("HYP_HOST_MAP_STAGE1: %ld: 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n",
 		     res, a1, a2, a3, a4, a5);
 		 */
-#ifdef HOSTBLINDING_DEV
-		/*
-		 * Workaround. Keep mappings of the sections mapped to
-		 * el2 intact. Guest appears to map a piece of memory
-		 * from a kernel (bss) location mapped by KVM (for still
-		 * unknown reason).
-		 * We can't make this part of memory unreachable by host.
-		 */
-		if (add_kvm_hyp_region(a1, a2, a3))
-			HYP_ABORT();
-#endif // HOSTBLINDING_DEV
 		break;
 	case HYP_HOST_UNMAP_STAGE1:
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a1, a2);
 		if (!res)
 			res = unmap_range(guest->EL2S1_pgd, STAGE1, a1, a2);
-
-#ifdef HOSTBLINDING_DEV
-		if (remove_kvm_hyp_region(a1))
-			ERROR("kvm hyp region not found! %lx\n", a1);
-#endif // HOSTBLINDING_DEV
 		break;
 	/*
 	 * HYP_HOST_PREPARE_STAGE2 prepares a range of memory with an existing
