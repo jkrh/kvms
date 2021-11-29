@@ -87,7 +87,7 @@ INITRD="-initrd ${ANDROID_DIR}/ramdisk.img"
 SUPER="-drive file=${ANDROID_DIR}/composite.img,format=raw"
 PARTITIONS="$INITRD $SUPER"
 
-KERNEL_OPTS="ro selinux=0 nokaslr console=ttyAMA0 loglevel=8 androidboot.boot_devices=4010000000.pcie androidboot.fstab_suffix=f2fs androidboot.slot_suffix=_a androidboot.hardware.hwcomposer=drm_minigbm androidboot.selinux=permissive hw.gpu.mode=mesa ro.kernel.qemu.gltransport=virtio-gpu androidboot.hardware=cutf_cvm androidboot.hardware.gltransport=virtio-gpu androidboot.hardware.vulkan=pastel androidboot.hardware.egl=mesa androidboot.hardware.gralloc=minigbm androidboot.hardware.hwcomposer=drm_minigbm androidboot.lcd_density=160"
+KERNEL_OPTS="ro selinux=0 nokaslr console=ttyAMA0 loglevel=8 androidboot.boot_devices=4010000000.pcie androidboot.fstab_suffix=f2fs androidboot.slot_suffix=_a androidboot.hardware.hwcomposer=drm_minigbm androidboot.selinux=permissive hw.gpu.mode=mesa ro.kernel.qemu.gltransport=virtio-gpu androidboot.hardware=cutf_cvm androidboot.hardware.gltransport=virtio-gpu androidboot.hardware.vulkan=pastel androidboot.hardware.egl=mesa androidboot.hardware.gralloc=minigbm androidboot.lcd_density=160"
 
 if [ -z "$KVM" ]; then
 CPU="-cpu max,${PROFILE} "
