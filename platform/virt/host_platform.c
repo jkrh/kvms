@@ -89,7 +89,7 @@ nextmap:
 	i = 0;
 	while (base_memmap[i].len) {
 		if (stage == STAGE2) {
-			perms = PAGE_HYP_RW;
+			perms = ((SH_INN<<8) | PAGE_HYP_RW);
 			type = S2_DEV_NGNRE;
 			pgd = host->EL1S2_pgd;
 		} else {
@@ -115,7 +115,7 @@ nextmap:
 	if (res)
 		goto error;
 
-	perms = PAGE_HYP_RWX;
+	perms = ((SH_INN<<8) | PAGE_HYP_RWX);
 	res = mmap_range(host->EL1S2_pgd, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 3, perms, S2_NORMAL_MEMORY);
 	if (res)
