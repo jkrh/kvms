@@ -323,3 +323,12 @@ libxcb-dri2-0-dev
 libxcb-dri3-dev
 libxcb-present-dev
 libxshmfence-dev
+texinfo
+g++-aarch64-linux-gnu
+gcc-aarch64-linux-gnu
+llvm
+libgmp-dev
+libmpc-dev
+libmpfr-dev
+libelf-dev
+libspice-server-dev
