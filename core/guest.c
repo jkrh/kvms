@@ -758,9 +758,9 @@ out_error:
 int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t sec)
 {
 	kvm_guest_t *host;
-	uint64_t paddr, map_addr;
+	uint64_t paddr, map_addr, pc = 0;
 	uint64_t *pte;
-	int res = -EINVAL, pc = 0;
+	int res = -EINVAL;
 
 	host = get_guest(HOST_VMID);
 	if (!host)
@@ -822,20 +822,20 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		pc += 1;
 do_loop:
 		map_addr += PAGE_SIZE;
-		if (pc == 0xFFFF)
+		if (pc >= GUEST_MAX_PAGES)
 			ERROR("Unmap page counter overflow");
 	}
 
 out_error:
 	/*
-	 * If it ended with an error, append info on how many
-	 * pages were actually unmapped.
+	 * Log on how many pages were actually unmapped if there is a mismatch
+	 * in between the requested and actual number of pages.
 	 */
-	if (res)
-		res |= (pc << 16);
+	if ((len/PAGE_SIZE) != pc)
+		LOG("0x%lx %s request %ld pages. Actual: %ld sec:%ld\n", guest,
+		    __func__, (len/PAGE_SIZE), pc, sec);
 
 	return res;
-
 }
 
 int free_guest(void *kvm)
