@@ -234,8 +234,9 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	return 0;
 }
 
-static kvm_memslot *gfn_to_memslot(kvm_guest_t *guest, gfn_t gfn)
+kvm_memslot *gfn_to_memslot(void *g, gfn_t gfn)
 {
+	kvm_guest_t *guest = (kvm_guest_t *)g;
 	int i = 0;
 
 	while (i < KVM_MEM_SLOTS_NUM) {

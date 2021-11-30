@@ -23,6 +23,9 @@ typedef uint64_t gfn_t;
 #define fn_to_addr(x) (x * PAGE_SIZE)
 #define addr_to_fn(x) (x / PAGE_SIZE)
 
+#define KVM_MEM_LOG_DIRTY_PAGES (1UL << 0)
+#define KVM_MEM_READONLY (1UL << 1)
+
 typedef struct {
 	uint64_t vaddr;
 	uint64_t paddr;
@@ -100,6 +103,15 @@ int is_range_valid(uint64_t addr, size_t len, kvm_memslots *slots);
  * @return 1 if it is, 0 otherwise
  */
 int is_range_valid_uaddr(uint64_t addr, size_t len, kvm_memslots *slots);
+
+/**
+ * Translate a guest frame number to a memory slot
+ *
+ * @param g the kvm guest
+ * @param gfn guest frame number
+ * @return memslot pointer or NULL if none
+ */
+kvm_memslot *gfn_to_memslot(void *, gfn_t gfn);
 
 /**
  * Set given guest 'g' frame 'gfn' as dirty

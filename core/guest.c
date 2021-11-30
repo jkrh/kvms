@@ -666,6 +666,8 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 {
 	uint64_t page_vaddr, page_paddr, taddr, *pte;
 	uint64_t newtype, maptype, mapprot, mc = 0;
+	kvm_memslot *slot1;
+	kvm_memslot *slot2;
 	kvm_guest_t *host;
 	int res;
 
@@ -677,6 +679,11 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
+
+	slot1 = gfn_to_memslot(guest, addr_to_fn(vaddr));
+	slot2 = gfn_to_memslot(guest, addr_to_fn(vaddr + (len - PAGE_SIZE)));
+	if (!slot1 || (slot1 != slot2) || (slot1->flags & KVM_MEM_READONLY))
+		return -EINVAL;
 
 	newtype = (prot & TYPE_MASK_STAGE2);
 	/*
