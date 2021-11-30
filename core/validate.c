@@ -54,15 +54,106 @@ cont:
 	return shared;
 }
 
+
+char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
+{
+	const char *pv_access = "R-";
+	const char *upv_access = "--";
+	char pv_perm;
+	char upv_perm;
+	const char *mtype = "";
+
+	if (p == 0) {
+		if (stage == STAGE1)
+			return "prv usr";
+		else
+			return "prv usr type";
+	}
+
+	if (stage == STAGE1) {
+		pv_perm = (attrs & S1_PXN) ? '-' : 'X';
+		upv_perm = (attrs & S1_UXN) ? '-' : 'X';
+
+		switch (S1_AP(attrs)) {
+		case 0b00:
+			pv_access = "RW";
+			upv_access = "--";
+			break;
+		case 0b01:
+			pv_access = "RW";
+			upv_access = "RW";
+			if (pv_perm == 'X') {
+				/* Not executable, because AArch64 execution
+				 * treats all regions writable at EL0 as being PXN
+				 */
+				pv_perm = 'x';
+			}
+			break;
+		case 0b10:
+			upv_access = "R-";
+			pv_access = "--";
+			break;
+		case 0b11:
+			pv_access = "R-";
+			upv_access = "R-";
+			break;
+		}
+	} else if (stage == STAGE2) {
+		switch (S2_XN(attrs)) {
+		case 0b00:
+			pv_perm =  'X';
+			upv_perm = 'X';
+			break;
+		case 0b01:
+			pv_perm = '-';
+			upv_perm = 'X';
+			break;
+		case 0b10:
+			pv_perm = '-';
+			upv_perm = '-';
+			break;
+		case 0b11:
+			pv_perm = 'X';
+			upv_perm = '-';
+		}
+
+		switch (S2AP(attrs)) {
+		case 0b00:
+			pv_access = "--";
+			upv_access = "--";
+			break;
+		case 0b01:
+			pv_access = "R-";
+			upv_access = "R-";
+			break;
+		case 0b10:
+			pv_access = "-W";
+			upv_access = "-W";
+			break;
+		case 0b11:
+			pv_access = "RW";
+			upv_access = "RW";
+			break;
+		}
+		mtype = (S2_MEMTYPE(attrs) == S2_MEMTYPE_DEVICE) ? "Device" : "Normal";
+	} else
+		return "Unknown stage?";
+
+	sprintf(p, "%s%c %s%c %s",
+		pv_access, pv_perm, upv_access, upv_perm, mtype);
+	return p;
+}
+
 int print_mappings(uint32_t vmid, uint64_t stage)
 {
 	uint64_t start_vaddr = 0, end_vaddr = 0;
-	uint64_t start_addr = 0, perms = ~0UL;
+	uint64_t start_addr = 0, attrs = ~0UL;
 	uint64_t vaddr = 0, addr = 0, size = 0;
-	uint64_t operms = ~0UL, oaddr = 0;
+	uint64_t oattrs = ~0UL, oaddr = 0;
 	kvm_guest_t *guest;
 	int total = 0;
 	uint64_t *pte;
+	char buf[128];
 
 	guest = get_guest(vmid);
 	if (!guest) {
@@ -82,7 +173,8 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 	LOG("VMID %u stage %u mappings %p - %p\n", vmid, stage,
 					(void *)vaddr,
 					(void *)guest->ramend);
-	LOG("vaddr\t\tpaddr\t\tsize\t\tprot\n");
+	LOG("vaddr\t\tpaddr\t\tsize\t\tattributes         %s\n",
+		parse_attrs(0, 0, stage));
 
 	while (vaddr < guest->ramend) {
 		pte = NULL;
@@ -97,18 +189,15 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		}
 		total++;
 		/*
-		 * Grab the perms
+		 * Grab the attrs
 		 */
-		if (stage == STAGE1)
-			perms = *pte & PROT_MASK_STAGE1;
-		else
-			perms = *pte & PROT_MASK_STAGE2;
-		if (operms == ~0UL)
-			operms = perms;
+		attrs = *pte & ATTR_MASK;
+		if (oattrs == ~0UL)
+			oattrs = attrs;
 		/*
 		 * Seek to the end of the new mapping
 		 */
-		if ((addr == (oaddr + PAGE_SIZE)) && (perms == operms)) {
+		if ((addr == (oaddr + PAGE_SIZE)) && (attrs == oattrs)) {
 			oaddr = addr;
 			vaddr += PAGE_SIZE;
 			end_vaddr = vaddr;
@@ -119,8 +208,9 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		 */
 		if (end_vaddr) {
 			size = end_vaddr - start_vaddr;
-			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
-			    start_vaddr, start_addr, size, operms);
+			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
+			    start_vaddr, start_addr, size, oattrs,
+			    parse_attrs(buf, oattrs, stage));
 		}
 		/*
 		 * Move along
@@ -128,7 +218,7 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		start_vaddr = vaddr;
 		start_addr = addr;
 
-		operms = perms;
+		oattrs = attrs;
 		oaddr = addr;
 		vaddr += PAGE_SIZE;
 		end_vaddr = vaddr;
@@ -138,8 +228,9 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		return total;
 
 	size = end_vaddr - start_vaddr;
-	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
-	     start_vaddr, start_addr, size, perms);
+	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
+	     start_vaddr, start_addr, size, attrs,
+	     parse_attrs(buf, attrs, stage));
 
 	return total;
 }
@@ -147,19 +238,21 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 int print_mappings_el2(void)
 {
 	uint64_t start_vaddr = 0, end_vaddr = 0;
-	uint64_t start_addr = 0, perms = ~0UL;
+	uint64_t start_addr = 0, attrs = ~0UL;
 	uint64_t vaddr = 0, addr = 0, size = 0;
-	uint64_t operms = ~0UL, oaddr = 0;
+	uint64_t oattrs = ~0UL, oaddr = 0;
 	kvm_guest_t *host;
 	uint64_t *pte;
 	int total = 0;
+	char buf[128];
 
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
 
 	LOG("EL2 mappings %p - %p\n", (void *)vaddr, host->ramend);
-	LOG("vaddr\t\tpaddr\t\tsize\t\tprot\n");
+	LOG("vaddr\t\tpaddr\t\tsize\t\tattributes         %s\n",
+		parse_attrs(0, 0, STAGE1));
 
 	while (vaddr < host->ramend) {
 		pte = NULL;
@@ -174,16 +267,16 @@ int print_mappings_el2(void)
 		}
 		total++;
 		/*
-		 * Grab the perms
+		 * Grab the attrs
 		 */
-		perms = *pte & PROT_MASK_STAGE1;
+		attrs = *pte & ATTR_MASK;
 
-		if (operms == ~0UL)
-			operms = perms;
+		if (oattrs == ~0UL)
+			oattrs = attrs;
 		/*
 		 * Seek to the end of the new mapping
 		 */
-		if ((addr == (oaddr + PAGE_SIZE)) && (perms == operms)) {
+		if ((addr == (oaddr + PAGE_SIZE)) && (attrs == oattrs)) {
 			oaddr = addr;
 			vaddr += PAGE_SIZE;
 			end_vaddr = vaddr;
@@ -194,8 +287,9 @@ int print_mappings_el2(void)
 		 */
 		if (end_vaddr) {
 			size = end_vaddr - start_vaddr;
-			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
-			    start_vaddr, start_addr, size, operms);
+			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
+			    start_vaddr, start_addr, size, oattrs,
+			    parse_attrs(buf, oattrs, STAGE1));
 		}
 		/*
 		 * Move along
@@ -203,7 +297,7 @@ int print_mappings_el2(void)
 		start_vaddr = vaddr;
 		start_addr = addr;
 
-		operms = perms;
+		oattrs = attrs;
 		oaddr = addr;
 		vaddr += PAGE_SIZE;
 		end_vaddr = vaddr;
@@ -213,8 +307,9 @@ int print_mappings_el2(void)
 		return total;
 
 	size = end_vaddr - start_vaddr;
-	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%012lx\n",
-	     start_vaddr, start_addr, size, perms);
+	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
+	     start_vaddr, start_addr, size, attrs,
+	     parse_attrs(buf, attrs, STAGE1));
 
 	return total;
 }

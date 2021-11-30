@@ -44,25 +44,49 @@ struct ptable
 #define VADDR_MASK		0xFFFFFFFFFFFFUL
 #define PAGE_SHARED		0x40000000000040
 #define PAGE_SHARED_EXEC	0x00000000000040
-
+#define ATTR_MASK		0xFFFC0000000003FCUL
 
 /*
  * FIXME: we need more human readable permission bits.
  */
 
 /* Stage 1 */
+#define S1_PXN_SHIFT		53
+#define S1_PXN			(1UL << S1_PXN_SHIFT)
+
+#define S1_UXN_SHIFT		54
+#define S1_UXN			(1UL << S1_UXN_SHIFT)
+
+#define S1_AP_SHIFT		6
+#define S1_AP_MASK		(0x3UL << S1_AP_SHIFT)
+#define S1_AP(x)		((x & S1_AP_MASK) >> S1_AP_SHIFT)
+#define S1_NS_SHIFT		5
+#define ATS1_NS			(1UL << S1_NS_SHIFT)
+
 #define PAGE_KERNEL_RW		0x40000000000000
 #define PAGE_KERNEL_RWX		0x00000000000000
 #define PAGE_KERNEL_RO		0x40000000000080
 #define PAGE_KERNEL_EXEC	0x00000000000080
 
 /* Stage 2 */
+#define S2_XN_SHIFT		53
+#define S2_XN_MASK		(0x3UL << S2_XN_SHIFT)
+#define S2_XN(x)		((x & S2_XN_MASK) >> S2_XN_SHIFT)
+
 #define S2AP_SHIFT		6
 #define S2AP_NONE		(0x0UL << S2AP_SHIFT)
 #define S2AP_READ		(0x1UL << S2AP_SHIFT)
 #define S2AP_WRITE		(0x2UL << S2AP_SHIFT)
 #define S2AP_RW			(0x3UL << S2AP_SHIFT)
 #define S2AP_MASK		(0x3UL << S2AP_SHIFT)
+#define S2AP(x)			((x & S2AP_MASK) >> S2AP_SHIFT)
+
+#define S2_MEM_ATTR_SHIFT	2
+#define S2_MEM_ATTR_MASK	(0x0f << S2_MEM_ATTR_SHIFT)
+#define S2_MEM_ATTR(x)		((x & S2_MEM_ATTR_MASK) >> S2_MEM_ATTR_SHIFT)
+
+#define S2_MEMTYPE(x)		((S2_MEM_ATTR(x) & 0xc) >> 2)
+#define S2_MEMTYPE_DEVICE	0
 
 #define S2_EXEC_SHIFT		53
 #define S2_EXEC_EL1EL0		(0x0UL << S2_EXEC_SHIFT)
