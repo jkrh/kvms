@@ -758,7 +758,7 @@ out_error:
 int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t sec)
 {
 	kvm_guest_t *host;
-	uint64_t paddr, map_addr, pc = 0;
+	uint64_t paddr, map_addr, range_end, pc = 0;
 	uint64_t *pte;
 	int res = -EINVAL;
 
@@ -766,13 +766,15 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 	if (!host)
 		HYP_ABORT();
 
-	if (!guest || (len % PAGE_SIZE)) {
-		res = 0xF0F0;
+	range_end = vaddr + len;
+	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr))
 		goto out_error;
-	}
+
+	if (range_end > guest->ramend)
+		range_end = guest->ramend;
 
 	map_addr = vaddr;
-	while (map_addr < (vaddr + len)) {
+	while (map_addr < range_end) {
 		paddr = pt_walk(guest, STAGE2, map_addr, &pte);
 		if (paddr == ~0UL)
 			goto do_loop;
@@ -903,6 +905,7 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 {
 	kvm_guest_t *guest;
 	uint64_t addr, size;
+	uint64_t ramend;
 
 	if (!kvm || !slot || !reg)
 		return -EINVAL;
@@ -931,8 +934,11 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 	memcpy(&guest->slots[guest->sn].region, reg, sizeof(*reg));
 	memcpy(&guest->slots[guest->sn].slot, slot, sizeof(*slot));
 
-	guest->ramend = fn_to_addr(guest->slots[guest->sn].slot.base_gfn);
-	guest->ramend += guest->slots[guest->sn].slot.npages * PAGE_SIZE;
+	ramend = fn_to_addr(guest->slots[guest->sn].slot.base_gfn);
+	ramend += guest->slots[guest->sn].slot.npages * PAGE_SIZE;
+
+	if (guest->ramend < ramend)
+		guest->ramend = ramend;
 
 	LOG("guest 0x%lx slot 0x%lx - 0x%lx\n", kvm, addr, addr + size);
 	guest->sn++;

@@ -204,7 +204,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
  *  @param addr virtual address (ipa) to unmap
  *  @param len length of the blob
  *  @param sec 1 in case of page encryption required, 0 otherwise
- *  @return zero on success or error bitfield [0:16 0xF0F0 16:32 PC]
+ *  @return zero on success or negative error code on failure
  */
 int guest_unmap_range(kvm_guest_t *guest, uint64_t addr, uint64_t len, uint64_t sec);
 
