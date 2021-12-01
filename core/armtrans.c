@@ -268,6 +268,7 @@ int get_tablepool(struct tablepool *tpool, uint64_t c)
 	tpool->num_tables = tpool->guest->mempool[i].size / sizeof(struct ptable);
 	tpool->used = &tpool->props[pool_start];
 	tpool->currentchunk = i;
+	tpool->hint = 0;
 
 	return 0;
 }
@@ -288,10 +289,13 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 	if (c < 0)
 		return NULL;
 
-	if (tpool->currentchunk < GUEST_MEMCHUNKS_MAX)
+	if (tpool->currentchunk < GUEST_MEMCHUNKS_MAX) {
+		tpool->guest->mempool[c].previous = tpool->currentchunk;
 		tpool->guest->mempool[tpool->currentchunk].next = c;
-	else
+	} else {
+		tpool->guest->mempool[c].previous = GUEST_MEMCHUNKS_MAX;
 		tpool->firstchunk = c;
+	}
 
 	tpool->currentchunk = c;
 
@@ -369,20 +373,30 @@ struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool)
 
 int free_pgd(struct tablepool *tpool)
 {
-	int c;
+	guest_memchunk_t *mempool;
+	int c, p;
 
+	if (!tpool->guest)
+		return -ENOENT;
+
+	mempool = tpool->guest->mempool;
 	c = tpool->firstchunk;
-	do {
+	while (mempool[c].next < GUEST_MEMCHUNKS_MAX)
+		c = mempool[c].next;
+
+	while (c < GUEST_MEMCHUNKS_MAX) {
 		if (get_tablepool(tpool, c))
 			break;
 		memset(tpool->pool, 0, tpool->num_tables * sizeof(struct ptable));
-		memset(tpool->used, 0, tpool->num_tables * sizeof(uint8_t));
-		c = tpool->guest->mempool[tpool->currentchunk].next;
-		tpool->guest->mempool[tpool->currentchunk].next = GUEST_MEMCHUNKS_MAX;
-		tpool->guest->mempool[tpool->currentchunk].type = GUEST_MEMCHUNK_FREE;
+		memset(tpool->used, 0, tpool->num_tables);
+		p = c;
+		c = mempool[p].previous;
+		mempool[p].type = GUEST_MEMCHUNK_FREE;
+		mempool[p].next = GUEST_MEMCHUNKS_MAX;
+		mempool[p].previous = GUEST_MEMCHUNKS_MAX;
 		/* If it happens to be allocated from static memory */
 		free_static_ttbl_chunk(tpool);
-	} while (c < GUEST_MEMCHUNKS_MAX);
+	}
 
 	return 0;
 }

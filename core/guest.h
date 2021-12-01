@@ -87,6 +87,7 @@ typedef struct {
 	size_t size;
 	guest_memchunk_user_t type;
 	uint16_t next;
+	uint16_t previous;
 } guest_memchunk_t;
 
 struct kvm_guest_t {
