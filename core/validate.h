@@ -1,6 +1,24 @@
 #include <stdint.h>
 
 /**
+ * Stop the hyp execution for analysis
+ *
+ * Prevent anyone entering the hypervisor for state inspection.
+ * The host kernel side will remain running, ipi of some kind is
+ * required for dumping the kernel side.
+ *
+ * @return 0
+ */
+int debugstop(void);
+
+/**
+ * Restore the execution after analysis, see above
+ *
+ * @return 0
+ */
+int debugstart(void);
+
+/**
  * Count the amount of guest ram visible to the host
  *
  * @param vmid to query

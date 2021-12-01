@@ -4,6 +4,21 @@
 #include "validate.h"
 #include "helpers.h"
 #include "hvccall.h"
+#include "spinlock.h"
+
+extern uint64_t core_lock;
+
+int debugstop(void)
+{
+	spin_lock(&core_lock);
+	return 0;
+}
+
+int debugstart(void)
+{
+	spin_unlock(&core_lock);
+	return 0;
+}
 
 int count_shared(uint32_t vmid, bool lock)
 {

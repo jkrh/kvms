@@ -835,8 +835,8 @@ out_error:
 	 * in between the requested and actual number of pages.
 	 */
 	if ((len/PAGE_SIZE) != pc)
-		LOG("0x%lx %s request %ld pages. Actual: %ld sec:%ld\n", guest,
-		    __func__, (len/PAGE_SIZE), pc, sec);
+		LOG("guest %p (%u) %s request %p, %ld pages. Actual: %ld sec:%ld\n",
+		    guest, guest->vmid, __func__, vaddr, (len/PAGE_SIZE), pc, sec);
 
 	return res;
 }
