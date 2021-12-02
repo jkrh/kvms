@@ -182,10 +182,22 @@ void enable_mmu(void);
  * Allocate translation table area
  *
  * @param tpool tablepool structure to populate with information on the
- * 		allocated area.
+ *		allocated area.
  * @return pointer to the start of table area or NULL if out of memory
  */
 struct ptable *alloc_tablepool(struct tablepool *tpool);
+
+/**
+ * Get index to a free table entry within the currently active table pool
+ *
+ * If there is no space left in currently active pool a new pool will be
+ * allocated and associated with the provided tablepool structure.
+ *
+ * @param tpool tablepool structure to get the index from
+ * @param new_pool optional information on whether a new pool was allocated
+ * @return index to the table pool or negative error code on failure
+ */
+int tablepool_get_free_idx(struct tablepool *tpool, bool *new_pool);
 
 /**
  * Allocate a page table structure
@@ -199,7 +211,7 @@ struct ptable *alloc_table(struct tablepool *tpool);
  * Alloc a page global directory
  *
  * @param guest for which the pgd is allocated for
- * @param tpool table pool to be associated with the pgd 
+ * @param tpool table pool to be associated with the pgd
  * @return pgd address on success or NULL on failure
  */
 struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool);

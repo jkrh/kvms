@@ -322,10 +322,12 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 	return tpool->pool;
 }
 
-struct ptable *alloc_table(struct tablepool *tpool)
+int tablepool_get_free_idx(struct tablepool *tpool, bool *new_pool)
 {
-	struct ptable *table = NULL;
 	int i;
+
+	if (new_pool != NULL)
+		*new_pool = false;
 
 	if (!tpool->used[tpool->hint])
 		i = tpool->hint;
@@ -336,12 +338,25 @@ struct ptable *alloc_table(struct tablepool *tpool)
 		}
 		if (i >= tpool->num_tables) {
 			if (alloc_tablepool(tpool) == NULL)
-				return NULL;
+				return -ENOSPC;
 			i = 0;
+			if (new_pool != NULL)
+				*new_pool = true;
 		}
 	}
 
-	if (i < tpool->num_tables) {
+	return i;
+}
+
+struct ptable *alloc_table(struct tablepool *tpool)
+{
+	struct ptable *table;
+	int i;
+
+	table = NULL;
+	i = tablepool_get_free_idx(tpool, NULL);
+
+	if (i >= 0) {
 		table = &tpool->pool[i];
 		/* Set the table as used */
 		tpool->used[i] = 1;
