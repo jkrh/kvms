@@ -108,8 +108,8 @@ char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 			}
 			break;
 		case 0b10:
-			upv_access = "R-";
-			pv_access = "--";
+			pv_access = "R-";
+			upv_access = "--";
 			break;
 		case 0b11:
 			pv_access = "R-";
