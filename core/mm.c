@@ -529,7 +529,7 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	/*
 	 * We only deal with user space addresses here.
 	 */
-	tcr_el1_t0sz = (read_reg(TCR_EL1) & TCR_EL1_T0SZ_MASK);
+	tcr_el1_t0sz = TCR_EL1_T0SZ(read_reg(TCR_EL1));
 	user_space_sz = ((uint64_t)1 << (64 - tcr_el1_t0sz)) - 1;
 	if (far_el2 > user_space_sz) {
 		res = false;

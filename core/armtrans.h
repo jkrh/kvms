@@ -157,7 +157,13 @@ struct ptable
 #define TTBR_BADDR_MASK	0x0000FFFFFFFFFFFEUL
 #define MAX_CONTIGUOUS	128
 
-#define TCR_EL1_T0SZ_MASK ((uint64_t)0x3F)
+#define TCR_EL1_T0SZ_MASK	0x3FUL
+#define TCR_EL1_T0SZ_SHIFT	0
+#define TCR_EL1_T0SZ(x)		((x & TCR_EL1_T0SZ_MASK) >> TCR_EL1_T0SZ_SHIFT)
+
+#define TCR_EL1_T1SZ_MASK	0x3F0000UL
+#define TCR_EL1_T1SZ_SHIFT	16
+#define TCR_EL1_T1SZ(x)		((x & TCR_EL1_T1SZ_MASK) >> TCR_EL1_T1SZ_SHIFT)
 
 void tdinfo_init(void);
 

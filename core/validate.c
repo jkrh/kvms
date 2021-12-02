@@ -5,6 +5,8 @@
 #include "helpers.h"
 #include "hvccall.h"
 #include "spinlock.h"
+#include "bits.h"
+#include "math.h"
 
 bool at_debugstop = false;
 extern uint64_t core_lock;
@@ -51,7 +53,8 @@ int count_shared(uint32_t vmid, bool lock)
 			goto cont;
 		shared += 1;
 #ifdef DEBUG
-		LOG("Page %p is mapped in both the guest and the host\n", paddr2);
+		LOG("Page %p is mapped in both the guest and the host\n",
+		    paddr2);
 #endif
 		if (lock) {
 			*pte1 &= ~0x600000000000C0;
@@ -63,7 +66,7 @@ int count_shared(uint32_t vmid, bool lock)
 			dsbish();
 			isb();
 		}
-cont:
+	cont:
 		vaddr1 += PAGE_SIZE;
 	}
 	LOG("%d pages in the guest %u, total of %d shared with the host\n",
@@ -71,7 +74,6 @@ cont:
 
 	return shared;
 }
-
 
 char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 {
@@ -119,7 +121,7 @@ char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 	} else if (stage == STAGE2) {
 		switch (S2_XN(attrs)) {
 		case 0b00:
-			pv_perm =  'X';
+			pv_perm = 'X';
 			upv_perm = 'X';
 			break;
 		case 0b01:
@@ -153,48 +155,32 @@ char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 			upv_access = "RW";
 			break;
 		}
-		mtype = (S2_MEMTYPE(attrs) == S2_MEMTYPE_DEVICE) ? "Device" : "Normal";
+		mtype = (S2_MEMTYPE(attrs) == S2_MEMTYPE_DEVICE) ? "Device" :
+								   "Normal";
 	} else
 		return "Unknown stage?";
 
-	sprintf(p, "%s%c %s%c %s",
-		pv_access, pv_perm, upv_access, upv_perm, mtype);
+	sprintf(p, "%s%c %s%c %s", pv_access, pv_perm, upv_access, upv_perm,
+		mtype);
 	return p;
 }
 
-int print_mappings(uint32_t vmid, uint64_t stage)
+int print_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr, uint64_t end)
 {
 	uint64_t start_vaddr = 0, end_vaddr = 0;
 	uint64_t start_addr = 0, attrs = ~0UL;
-	uint64_t vaddr = 0, addr = 0, size = 0;
 	uint64_t oattrs = ~0UL, oaddr = 0;
-	kvm_guest_t *guest;
-	int total = 0;
+	uint64_t addr = 0, size = 0;
 	uint64_t *pte;
+	int total = 0;
 	char buf[128];
 
-	guest = get_guest(vmid);
-	if (!guest) {
-		ERROR("No such guest %u?\n", vmid);
-		return -EINVAL;
-	}
+	LOG("VMID %u stage %u mappings %p - %p\n", guest->vmid, stage, (void *)vaddr,
+	    (void *)end);
+	LOG("vaddr\t\t\tpaddr\t\tsize\t\tattributes         %s\n",
+	    parse_attrs(0, 0, stage));
 
-	switch (stage) {
-	case STAGE2:
-	case STAGE1:
-	case STAGEA:
-		break;
-	default:
-		ERROR("Unknown stage?\n");
-		return -EINVAL;
-	}
-	LOG("VMID %u stage %u mappings %p - %p\n", vmid, stage,
-					(void *)vaddr,
-					(void *)guest->ramend);
-	LOG("vaddr\t\tpaddr\t\tsize\t\tattributes         %s\n",
-		parse_attrs(0, 0, stage));
-
-	while (vaddr < guest->ramend) {
+	while (vaddr < end) {
 		pte = NULL;
 		addr = pt_walk(guest, stage, vaddr, &pte);
 
@@ -226,7 +212,7 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		 */
 		if (end_vaddr) {
 			size = end_vaddr - start_vaddr;
-			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
+			LOG("0x%016lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
 			    start_vaddr, start_addr, size, oattrs,
 			    parse_attrs(buf, oattrs, stage));
 		}
@@ -246,10 +232,47 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		return total;
 
 	size = end_vaddr - start_vaddr;
-	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
-	     start_vaddr, start_addr, size, attrs,
-	     parse_attrs(buf, attrs, stage));
+	LOG("0x%016lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n", start_vaddr,
+	    start_addr, size, attrs, parse_attrs(buf, attrs, stage));
 
+	return total;
+}
+
+int print_mappings(uint32_t vmid, uint64_t stage)
+{
+	uint64_t vaddr = 0, t1sz, fill;
+	kvm_guest_t *guest;
+	int total = 0;
+
+	guest = get_guest(vmid);
+	if (!guest) {
+		ERROR("No such guest %u?\n", vmid);
+		return -EINVAL;
+	}
+
+	switch (stage) {
+	case STAGEA:
+	case STAGE2:
+		return print_range(guest, stage, vaddr, guest->ramend);
+		break;
+	case STAGE1:
+		t1sz = TCR_EL1_T1SZ(read_reg(TCR_EL1));
+		fill = ~0 - pow(2,(64 - t1sz)) + 1;
+
+		/* Kernel logical map */
+		vaddr = fill;
+		total += print_range(guest, stage, vaddr, vaddr + (4 * SZ_1G));
+
+		/* Kasan shadow region */
+		vaddr = fill;
+		bit_set(vaddr, 63 - t1sz);
+		total += print_range(guest, stage, vaddr, vaddr + (4 * SZ_1G));
+
+		break;
+	default:
+		ERROR("Unknown stage?\n");
+		return -EINVAL;
+	}
 	return total;
 }
 
@@ -270,7 +293,7 @@ int print_mappings_el2(void)
 
 	LOG("EL2 mappings %p - %p\n", (void *)vaddr, host->ramend);
 	LOG("vaddr\t\tpaddr\t\tsize\t\tattributes         %s\n",
-		parse_attrs(0, 0, STAGE1));
+	    parse_attrs(0, 0, STAGE1));
 
 	while (vaddr < host->ramend) {
 		pte = NULL;
@@ -325,9 +348,8 @@ int print_mappings_el2(void)
 		return total;
 
 	size = end_vaddr - start_vaddr;
-	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
-	     start_vaddr, start_addr, size, attrs,
-	     parse_attrs(buf, attrs, STAGE1));
+	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n", start_vaddr,
+	    start_addr, size, attrs, parse_attrs(buf, attrs, STAGE1));
 
 	return total;
 }
@@ -335,6 +357,7 @@ int print_mappings_el2(void)
 int validate_host_mappings(void)
 {
 	uint64_t vaddr, end, phys1, phys2;
+	uint64_t t1sz, fill;
 	kvm_guest_t *host;
 	uint64_t *pgd;
 	uint32_t vmid;
@@ -351,15 +374,17 @@ int validate_host_mappings(void)
 		isb();
 	}
 
-	if (!host->EL1S1_1_pgd)
-		host->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
+	t1sz = TCR_EL1_T1SZ(read_reg(TCR_EL1));
+	fill = ~0 - pow(2,(64 - t1sz)) + 1;
+	host->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) &
+					      TTBR_BADDR_MASK);
 	pgd = (uint64_t *)host->EL1S1_1_pgd;
 
 	for (i = 0; i < PT_SIZE_WORDS; i++) {
 		if (pgd[i] == 0)
 			continue;
 
-		vaddr = i * SZ_1G | LINUX_VA_FILL;
+		vaddr = i * SZ_1G | fill;
 		end = vaddr + SZ_1G;
 		LOG("Scanning block %p - %p\n", vaddr, end);
 
@@ -385,7 +410,7 @@ int validate_host_mappings(void)
 			vaddr += PAGE_SIZE;
 		}
 	}
-	LOG("%d mapped pages, %d mismatches\n",  count, ret);
+	LOG("%d mapped pages, %d mismatches\n", count, ret);
 
 	if (vmid != HOST_VMID) {
 		load_guest_s2(vmid);
