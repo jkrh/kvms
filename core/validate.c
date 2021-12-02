@@ -6,17 +6,20 @@
 #include "hvccall.h"
 #include "spinlock.h"
 
+bool at_debugstop = false;
 extern uint64_t core_lock;
 
 int debugstop(void)
 {
 	spin_lock(&core_lock);
+	at_debugstop = true;
 	return 0;
 }
 
 int debugstart(void)
 {
 	spin_unlock(&core_lock);
+	at_debugstop = false;
 	return 0;
 }
 

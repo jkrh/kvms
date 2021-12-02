@@ -1,11 +1,10 @@
 #include <stdint.h>
 
 /**
- * Stop the hyp execution for analysis
+ * Stop the execution for analysis
  *
- * Prevent anyone entering the hypervisor for state inspection.
- * The host kernel side will remain running, ipi of some kind is
- * required for dumping the kernel side.
+ * Stop the hypervisor and the kernel execution for state inspection.
+ * The kernel will stop on the next call to schedule().
  *
  * @return 0
  */

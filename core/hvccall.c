@@ -40,6 +40,7 @@ hyp_func_t *__fpsimd_guest_restore;
 extern uint64_t hyp_text_start;
 extern uint64_t hyp_text_end;
 extern uint64_t core_lock;
+extern bool at_debugstop;
 uint64_t crash_lock;
 uint64_t hostflags;
 
@@ -421,6 +422,13 @@ void memctrl_exec(uint64_t *sp)
 	rt = (iss & ISS_RT_MASK) >> ISS_RT_SHIFT;
 	cid = smp_processor_id();
 	vmid = get_current_vmid();
+
+#ifdef DEBUG
+	if (at_debugstop) {
+		spin_lock(&core_lock);
+		spin_unlock(&core_lock);
+	}
+#endif
 
 #ifdef SYSREG_PRINT
 	spin_lock(&crash_lock);
