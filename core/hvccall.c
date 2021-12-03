@@ -79,7 +79,7 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		      register_t a8, register_t a9)
 {
 	kvm_guest_t *guest = NULL;
-	int64_t res = 0;
+	int64_t res = -EINVAL;
 
 	guest = get_guest(get_current_vmid());
 	if (!guest)
@@ -106,7 +106,6 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		break;
 #endif
 	default:
-		res = -EINVAL;
 		break;
 	}
 	spin_unlock(&core_lock);
@@ -125,6 +124,12 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	uint32_t vmid;
 	int ct;
 
+#ifdef DEBUG
+	if (at_debugstop) {
+		spin_lock(&core_lock);
+		spin_unlock(&core_lock);
+	}
+#endif
 	ct = is_apicall(cn);
 	if ((ct == CALL_TYPE_GUESTCALL) && (hostflags & HOST_KVM_CALL_LOCK))
 		return -EPERM;

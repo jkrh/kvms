@@ -9,6 +9,8 @@
 #include "commondefines.h"
 #include "host_platform.h"
 #include "host_defs.h"
+#include "armtrans.h"
+#include "math.h"
 
 #define PAR_EL1_PAMASK 0x0000FFFFFFFFF000
 
@@ -86,7 +88,15 @@ static inline void *at_s12e1r(void *s1addr)
 	return (void *)paddr;
 }
 
-#define LINUX_VA_FILL 0xffff800000000000UL
+static inline uint64_t el1_fill(void)
+{
+	uint64_t t1sz, fill;
+
+	t1sz = TCR_EL1_T1SZ(read_reg(TCR_EL1));
+	fill = ~0 - pow(2,(64 - t1sz)) + 1;
+
+	return fill;
+}
 
 static inline void *virt_to_phys(void *s1addr)
 {

@@ -240,7 +240,7 @@ int print_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr, uint64_t end
 
 int print_mappings(uint32_t vmid, uint64_t stage)
 {
-	uint64_t vaddr = 0, t1sz, fill;
+	uint64_t vaddr = 0;
 	kvm_guest_t *guest;
 	int total = 0;
 
@@ -256,16 +256,12 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		return print_range(guest, stage, vaddr, guest->ramend);
 		break;
 	case STAGE1:
-		t1sz = TCR_EL1_T1SZ(read_reg(TCR_EL1));
-		fill = ~0 - pow(2,(64 - t1sz)) + 1;
-
 		/* Kernel logical map */
-		vaddr = fill;
+		vaddr = el1_fill();
 		total += print_range(guest, stage, vaddr, vaddr + (4 * SZ_1G));
 
 		/* Kasan shadow region */
-		vaddr = fill;
-		bit_set(vaddr, 63 - t1sz);
+		bit_set(vaddr, 63 - TCR_EL1_T1SZ(read_reg(TCR_EL1)));
 		total += print_range(guest, stage, vaddr, vaddr + (4 * SZ_1G));
 
 		break;
@@ -356,8 +352,7 @@ int print_mappings_el2(void)
 
 int validate_host_mappings(void)
 {
-	uint64_t vaddr, end, phys1, phys2;
-	uint64_t t1sz, fill;
+	uint64_t vaddr, end, phys1, phys2, fill;
 	kvm_guest_t *host;
 	uint64_t *pgd;
 	uint32_t vmid;
@@ -374,8 +369,7 @@ int validate_host_mappings(void)
 		isb();
 	}
 
-	t1sz = TCR_EL1_T1SZ(read_reg(TCR_EL1));
-	fill = ~0 - pow(2,(64 - t1sz)) + 1;
+	fill = el1_fill();
 	host->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) &
 					      TTBR_BADDR_MASK);
 	pgd = (uint64_t *)host->EL1S1_1_pgd;
