@@ -6,7 +6,7 @@
 #include "hvccall.h"
 #include "spinlock.h"
 #include "bits.h"
-#include "math.h"
+#include "imath.h"
 
 bool at_debugstop = false;
 extern uint64_t core_lock;

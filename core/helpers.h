@@ -10,7 +10,7 @@
 #include "host_platform.h"
 #include "host_defs.h"
 #include "armtrans.h"
-#include "math.h"
+#include "imath.h"
 
 #define PAR_EL1_PAMASK 0x0000FFFFFFFFF000
 

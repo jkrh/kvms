@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-#include "math.h"
+#include "imath.h"
 
 uint64_t pow(uint64_t x, uint64_t y)
 {
