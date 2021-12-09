@@ -40,7 +40,8 @@ struct ptable
 #define PROT_MASK_STAGE2	0x6A0000000003C0
 #define TYPE_MASK_STAGE1	0x1C
 #define TYPE_MASK_STAGE2	0x3C
-#define TYPE_SHIFT		2
+#define ATTR_INDX_SHIFT		2
+
 #define VADDR_MASK		0xFFFFFFFFFFFFUL
 #define PAGE_SHARED		0x40000000000040
 #define PAGE_SHARED_EXEC	0x00000000000040
@@ -59,47 +60,41 @@ struct ptable
 
 #define S1_AP_SHIFT		6
 #define S1_AP_MASK		(0x3UL << S1_AP_SHIFT)
-#define S1_AP(x)		((x & S1_AP_MASK) >> S1_AP_SHIFT)
-#define S1_NS_SHIFT		5
-#define ATS1_NS			(1UL << S1_NS_SHIFT)
 
-#define PAGE_KERNEL_RW		0x40000000000000
+#define S1_AP_RW_N		0UL
+#define S1_AP_RW_RW		(1UL << S1_AP_SHIFT)
+#define S1_AP_RO_N		(2UL << S1_AP_SHIFT)
+#define S1_AP_RO_RO		(3UL << S1_AP_SHIFT)
+
+#define PAGE_KERNEL_RW		S1_UXN              //0x40000000000000
 #define PAGE_KERNEL_RWX		0x00000000000000
-#define PAGE_KERNEL_RO		0x40000000000080
-#define PAGE_KERNEL_EXEC	0x00000000000080
-
+#define PAGE_KERNEL_RO		S1_UXN | S1_AP_RO_N //0x40000000000080
+#define PAGE_KERNEL_EXEC	S1_AP_RO_N          //0x00000000000080
 /* Stage 2 */
 #define S2_XN_SHIFT		53
 #define S2_XN_MASK		(0x3UL << S2_XN_SHIFT)
-#define S2_XN(x)		((x & S2_XN_MASK) >> S2_XN_SHIFT)
+#define S2_EXEC_EL1EL0		(0x0UL << S2_XN_SHIFT)
+#define S2_EXEC_EL0		(0x1UL << S2_XN_SHIFT)
+#define S2_EXEC_NONE		(0x2UL << S2_XN_SHIFT)
+#define S2_EXEC_EL1		(0x3UL << S2_XN_SHIFT)
 
 #define S2AP_SHIFT		6
-#define S2AP_NONE		(0x0UL << S2AP_SHIFT)
-#define S2AP_READ		(0x1UL << S2AP_SHIFT)
-#define S2AP_WRITE		(0x2UL << S2AP_SHIFT)
-#define S2AP_RW			(0x3UL << S2AP_SHIFT)
 #define S2AP_MASK		(0x3UL << S2AP_SHIFT)
-#define S2AP(x)			((x & S2AP_MASK) >> S2AP_SHIFT)
+#define S2AP_NONE		(0 << S2AP_SHIFT)
+#define S2AP_READ		(1UL << S2AP_SHIFT)
+#define S2AP_WRITE		(2UL << S2AP_SHIFT)
+#define S2AP_RW			(3UL << S2AP_SHIFT)
+
 
 #define S2_MEM_ATTR_SHIFT	2
-#define S2_MEM_ATTR_MASK	(0x0f << S2_MEM_ATTR_SHIFT)
-#define S2_MEM_ATTR(x)		((x & S2_MEM_ATTR_MASK) >> S2_MEM_ATTR_SHIFT)
+#define S2_MEM_ATTR_MASK	(0x0fUL << S2_MEM_ATTR_SHIFT)
 
-#define S2_MEMTYPE(x)		((S2_MEM_ATTR(x) & 0xc) >> 2)
 #define S2_MEMTYPE_DEVICE	0
 
-#define S2_EXEC_SHIFT		53
-#define S2_EXEC_EL1EL0		(0x0UL << S2_EXEC_SHIFT)
-#define S2_EXEC_EL0		(0x1UL << S2_EXEC_SHIFT)
-#define S2_EXEC_NONE		(0x2UL << S2_EXEC_SHIFT)
-#define S2_EXEC_EL1		(0x3UL << S2_EXEC_SHIFT)
-#define S2_EXEC_MASK		(0x3UL << S2_EXEC_SHIFT)
-
-#define PAGE_HYP_RW		0x400000000000c0
-#define PAGE_HYP_RWX		0x000000000000c0
-#define PAGE_HYP_RO		0x40000000000040
-#define PAGE_HYP_EXEC		0x00000000000040
-#define PAGE_HYP_DEVICE		0x400000000000c0
+#define PAGE_HYP_RW		(S2_EXEC_NONE | S2AP_RW)  //0x400000000000c0
+#define PAGE_HYP_RWX		(S2_EXEC_EL1 | S2AP_RW)   //0x000000000000c0
+#define PAGE_HYP_RO		(S2_EXEC_EL1 | S2AP_READ) //0x40000000000040
+#define PAGE_HYP_EXEC		(S2_EXEC_NONE | S2AP_READ)//0x00000000000040
 
 #define STAGE1 0
 #define STAGE2 1
@@ -109,17 +104,17 @@ struct ptable
  * Stage 1 MAIR_EL2 slot. Standard linux allocation on
  * virt, platform specific otherwise.
  */
-#define DEVICE_STRONGORDER	(PLAT_DEVICE_STRONGORDER << TYPE_SHIFT)
-#define DEVICE_ORDER		(PLAT_DEVICE_ORDER << TYPE_SHIFT)
-#define DEVICE_GRE		(PLAT_DEVICE_GRE << TYPE_SHIFT)
-#define NORMAL_NOCACHE		(PLAT_NORMAL_NOCACHE << TYPE_SHIFT)
-#define NORMAL_WBACK_P		(PLAT_NORMAL_WBACK_P << TYPE_SHIFT)
-#define NORMAL_WT_P		(PLAT_NORMAL_WT_P << TYPE_SHIFT)
+#define DEVICE_STRONGORDER	(PLAT_DEVICE_STRONGORDER << ATTR_INDX_SHIFT)
+#define DEVICE_ORDER		(PLAT_DEVICE_ORDER << ATTR_INDX_SHIFT)
+#define DEVICE_GRE		(PLAT_DEVICE_GRE << ATTR_INDX_SHIFT)
+#define NORMAL_NOCACHE		(PLAT_NORMAL_NOCACHE << ATTR_INDX_SHIFT)
+#define NORMAL_WBACK_P		(PLAT_NORMAL_WBACK_P << ATTR_INDX_SHIFT)
+#define NORMAL_WT_P		(PLAT_NORMAL_WT_P << ATTR_INDX_SHIFT)
 #define NORMAL_MEMORY NORMAL_WBACK_P
 #define DEVICE_MEMORY DEVICE_ORDER
-#define INVALID_MEMORY		1 << 6
-#define KERNEL_MATTR		1 << 7
-#define KEEP_MATTR			1 << 8
+#define INVALID_MEMORY		(1 << 6)
+#define KERNEL_MATTR		(1 << 7)
+#define KEEP_MATTR		(1 << 8)
 
 /* Shareability SH [9:8], Stage 1 and 2 */
 #define SH_SHIFT		0x8
@@ -128,22 +123,27 @@ struct ptable
 #define SH_INN			0x3
 
 /* Stage 2 MemAttr[3:2] */
-#define S2_DEVICE		(0x0 << TYPE_SHIFT)
-#define S2_ONONE		(0x4 << TYPE_SHIFT)
-#define S2_OWT			(0x8 << TYPE_SHIFT)
-#define S2_OWB			(0xC << TYPE_SHIFT)
+#define S2_MEM_ATTR_SHIFT	2
+#define S2_MEM_TYPE_SHIFT	(S2_MEM_ATTR_SHIFT + 2)
+#define S2_MEM_TYPE_MASK	(0x3 << S2_MEM_TYPE_SHIFT)
+#define S2_DEVICE		(0x0 << S2_MEM_TYPE_SHIFT)
+#define S2_ONONE		(0x1 << S2_MEM_TYPE_SHIFT)
+#define S2_OWT			(0x2 << S2_MEM_TYPE_SHIFT)
+#define S2_OWB			(0x3 << S2_MEM_TYPE_SHIFT)
+
 /* Stage 2 MemAttr[1:0] Meaning when MemAttr[3:2] == 0b00 */
-#define NGNRNE		(0x0 << TYPE_SHIFT)
-#define NGNRE		(0x1 << TYPE_SHIFT)
-#define NGRE		(0x2 << TYPE_SHIFT)
-#define GRE		(0x3 << TYPE_SHIFT)
+#define NGNRNE			(0x0 << S2_MEM_ATTR_SHIFT)
+#define NGNRE			(0x1 << S2_MEM_ATTR_SHIFT)
+#define NGRE			(0x2 << S2_MEM_ATTR_SHIFT)
+#define GRE			(0x3 << S2_MEM_ATTR_SHIFT)
+
 /* Stage 2 MemAttr[1:0] Meaning when MemAttr[3:2] != 0b00 */
 /* Inner Non-cacheable */
-#define S2_INONE		(0x1 << TYPE_SHIFT)
+#define S2_INONE		(0x1 << S2_MEM_ATTR_SHIFT)
 /* Inner Write-Through Cacheable */
-#define S2_IWT			(0x2 << TYPE_SHIFT)
+#define S2_IWT			(0x2 << S2_MEM_ATTR_SHIFT)
 /* Inner Write-Back Cacheable */
-#define S2_IWB			(0x3 << TYPE_SHIFT)
+#define S2_IWB			(0x3 << S2_MEM_ATTR_SHIFT)
 
 /* Stage 2 normal memory attributes */
 #define S2_NORMAL_MEMORY	(S2_OWB | S2_IWB)

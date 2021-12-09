@@ -57,7 +57,7 @@ int count_shared(uint32_t vmid, bool lock)
 		    paddr2);
 #endif
 		if (lock) {
-			*pte1 &= ~0x600000000000C0;
+			*pte1 &= ~(S2_XN_MASK & S2AP_MASK);
 			*pte1 |= PAGE_HYP_RO;
 
 			dsbish();
@@ -79,8 +79,8 @@ char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 {
 	const char *pv_access = "R-";
 	const char *upv_access = "--";
-	char pv_perm;
-	char upv_perm;
+	char pv_perm = '-';
+	char upv_perm = '-';
 	const char *mtype = "";
 
 	if (p == 0) {
@@ -94,12 +94,12 @@ char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 		pv_perm = (attrs & S1_PXN) ? '-' : 'X';
 		upv_perm = (attrs & S1_UXN) ? '-' : 'X';
 
-		switch (S1_AP(attrs)) {
-		case 0b00:
+		switch (attrs & S1_AP_MASK) {
+		case S1_AP_RW_N:
 			pv_access = "RW";
 			upv_access = "--";
 			break;
-		case 0b01:
+		case S1_AP_RW_RW:
 			pv_access = "RW";
 			upv_access = "RW";
 			if (pv_perm == 'X') {
@@ -109,53 +109,53 @@ char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 				pv_perm = 'x';
 			}
 			break;
-		case 0b10:
+		case S1_AP_RO_N:
 			pv_access = "R-";
 			upv_access = "--";
 			break;
-		case 0b11:
+		case S1_AP_RO_RO:
 			pv_access = "R-";
 			upv_access = "R-";
 			break;
 		}
 	} else if (stage == STAGE2) {
-		switch (S2_XN(attrs)) {
-		case 0b00:
-			pv_perm = 'X';
+		switch (attrs & S2_XN_MASK) {
+		case S2_EXEC_EL1EL0:
+			pv_perm =  'X';
 			upv_perm = 'X';
 			break;
-		case 0b01:
+		case S2_EXEC_EL0:
 			pv_perm = '-';
 			upv_perm = 'X';
 			break;
-		case 0b10:
+		case S2_EXEC_NONE:
 			pv_perm = '-';
 			upv_perm = '-';
 			break;
-		case 0b11:
+		case S2_EXEC_EL1:
 			pv_perm = 'X';
 			upv_perm = '-';
 		}
 
-		switch (S2AP(attrs)) {
-		case 0b00:
+		switch (attrs & S2AP_MASK) {
+		case S2AP_NONE:
 			pv_access = "--";
 			upv_access = "--";
 			break;
-		case 0b01:
+		case S2AP_READ:
 			pv_access = "R-";
 			upv_access = "R-";
 			break;
-		case 0b10:
+		case S2AP_WRITE:
 			pv_access = "-W";
 			upv_access = "-W";
 			break;
-		case 0b11:
+		case S2AP_RW:
 			pv_access = "RW";
 			upv_access = "RW";
 			break;
 		}
-		mtype = (S2_MEMTYPE(attrs) == S2_MEMTYPE_DEVICE) ? "Device" :
+		mtype = ((attrs & S2_MEM_TYPE_MASK) == S2_DEVICE) ? "Device" :
 								   "Normal";
 	} else
 		return "Unknown stage?";

@@ -128,7 +128,7 @@ static void setup_hyp_stage1(void)
 	for (i = 0; i < 8; i++) {
 		for (j = 0; j < 8; j++) {
 			if (kmairt[i] == pmairt[j]) {
-				kmaidx2pmaidx[i] = (j << TYPE_SHIFT);
+				kmaidx2pmaidx[i] = (j << ATTR_INDX_SHIFT);
 				break;
 			}
 		}
@@ -145,7 +145,7 @@ static uint8_t k2p_mattrindx(uint8_t attridx)
 		need_hyp_s1_init = false;
 	}
 
-	return kmaidx2pmaidx[(attridx >> TYPE_SHIFT)];
+	return kmaidx2pmaidx[(attridx >> ATTR_INDX_SHIFT)];
 }
 
 void tdinfo_init(void)
@@ -589,7 +589,7 @@ static int lock_kernel_page(kvm_guest_t *guest, uint64_t ipa)
 		ERROR("lock_kernel_page(): ipa %p without a map?\n", ipa);
 		return -EINVAL;
 	}
-	*ptep &= ~0x600000000000C0;
+	*ptep &= ~(S2_XN_MASK | S2AP_MASK);
 	*ptep |= PAGE_HYP_RO;
 
 	dsbish();
@@ -1238,14 +1238,14 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 		}
 
 		/* Exec permission */
-		val = (nattr & S2_EXEC_MASK);
+		val = (nattr & S2_XN_MASK);
 		if (val != S2_EXEC_NONE) {
-			if (val != (attr & S2_EXEC_MASK))
+			if (val != (attr & S2_XN_MASK))
 				return -EPERM;
 		}
 
-		nattr &= ~(S2AP_WRITE | S2_EXEC_MASK);
-		attr &= ~(S2AP_WRITE | S2_EXEC_MASK);
+		nattr &= ~(S2AP_WRITE | S2_XN_MASK);
+		attr &= ~(S2AP_WRITE | S2_XN_MASK);
 		if (attr != nattr)
 			return -EPERM;
 		break;
