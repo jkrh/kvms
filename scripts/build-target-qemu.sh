@@ -152,10 +152,11 @@ do_qemu()
 	mkdir -p $BASE_DIR/oss/ubuntu/build/qemu/build
 	cd $BASE_DIR/oss/ubuntu/build
 	if [ -n "$STATIC" ]; then
-		sed -i '/spice-server &&/i spice_libs="  -L/usr/lib/aarch64-linux-gnu -lspice-server -lpixman-1 -lgmodule-2.0 -lgobject-2.0 -lgio-2.0 -lglib-2.0 -lpthread -lpcre -ljpeg -lm -lffi -lz -lssl -lcrypto -ldl -lopus -lm"' qemu/configure
-		SLIB="-lgbm"
+		sed -i '/spice-server &&/i spice_libs=" -L/usr/lib/aarch64-linux-gnu -lgmodule-2.0 -lgobject-2.0 -lgio-2.0 -lglib-2.0 -lspice-server -lpixman-1 -lgmodule-2.0 -lgobject-2.0 -lgio-2.0 -lglib-2.0 -lpthread -lpcre -ljpeg -lm -lffi -lz -lssl -lcrypto -ldl -lopus -lm"' qemu/configure
+		sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --audio-drv-list=oss $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
+	else
+		sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --extra-cflags=\"-I/usr/local/include -L/usr/local/lib/aarch64-linux-gnu -lgbm\" $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
 	fi
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --extra-cflags=\"-I/usr/local/include -L/usr/local/lib/aarch64-linux-gnu $SLIB\" $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
 	sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; make -j$NJOBS; make install"
 }
 
