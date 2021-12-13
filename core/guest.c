@@ -233,6 +233,35 @@ static kvm_guest_t *__get_guest_by_kvm(void **kvm, int *guest_index)
 	return guest;
 }
 
+kvm_guest_t *alloc_guest(void *kvm)
+{
+	kvm_guest_t *guest = NULL;
+	uint64_t vmid = 0;
+
+	guest = get_free_guest(vmid);
+
+	if (guest != NULL) {
+		guest->EL1S2_pgd = alloc_pgd(guest, &guest->s2_tablepool);
+
+		if (guest->EL1S2_pgd == NULL) {
+			free_guest(kvm);
+			return NULL;
+		}
+
+		/*
+		 * Allocate the tablepool for creating guest specific EL2 mappings.
+		 */
+		alloc_pgd(guest, &guest->s1_tablepool);
+		if (!guest->s1_tablepool.pool) {
+			free_guest(kvm);
+			return NULL;
+		}
+		guest->kvm = kern_hyp_va(kvm);
+	}
+
+	return guest;
+}
+
 /**
  * Walk through the provided s1 range to verify it is physically contiguous
  * and mapped in the provided s1 page global directory.
@@ -366,7 +395,7 @@ int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 {
 	kvm_guest_t *host, *guest;
 	struct ptable *s1_pgd;
-	uint64_t vmid, tpaddr;
+	uint64_t tpaddr;
 	guest_memchunk_t chunk;
 	int res;
 
@@ -375,13 +404,10 @@ int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 		return -EINVAL;
 
 	guest = __get_guest_by_kvm(&kvm, NULL);
-
 	if (guest == NULL) {
-		vmid = (uint64_t)KVM_GET_VMID(kvm);
-		guest = get_free_guest(vmid);
-		if (!guest)
+		guest = alloc_guest(kvm);
+		if (guest == NULL)
 			return -ENOSPC;
-		guest->kvm = kvm;
 	}
 
 	host = get_guest(HOST_VMID);
@@ -467,7 +493,6 @@ int init_guest(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
 	struct hyp_extension_ops *eops;
-	uint64_t vmid = 0;
 	uint64_t *pgd;
 	uint8_t key[32];
 	int res;
@@ -476,22 +501,12 @@ int init_guest(void *kvm)
 		return -EINVAL;
 
 	guest = __get_guest_by_kvm(&kvm, NULL);
-
-	if (!guest) {
-		vmid = (uint64_t)KVM_GET_VMID(kvm);
-		guest = get_free_guest(vmid);
-		if (!guest)
+	if (guest == NULL) {
+		guest = alloc_guest(kvm);
+		if (guest == NULL)
 			return -ENOSPC;
 	}
 
-	if (!guest->EL1S2_pgd) {
-		guest->EL1S2_pgd = alloc_pgd(guest, &guest->s2_tablepool);
-
-		if (guest->EL1S2_pgd == NULL) {
-			free_guest(kvm);
-			return -ENOMEM;
-		}
-	}
 	mbedtls_aes_init(&guest->aes_ctx);
 	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 				    &mbedtls_entropy_ctx, 0, 0);
@@ -512,7 +527,9 @@ int init_guest(void *kvm)
 	guest->kvm = kvm;
 	guest->table_levels_s2 = TABLE_LEVELS;
 
-	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) | (vmid << 48));
+	guest->vmid = KVM_GET_VMID(kvm);
+	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
+				    ((uint64_t)guest->vmid << 48));
 	eops = KVM_GET_EXT_OPS_PTR(kvm);
 	eops->load_host_stage2 = load_host_s2;
 	eops->load_guest_stage2 = load_guest_s2;
@@ -530,23 +547,14 @@ int init_guest(void *kvm)
 	return 0;
 }
 
-/* NOTE; KVM is hyp addr */
-
 kvm_guest_t *get_guest_by_kvm(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
-	int i, rc = 0;
 
-retry:
 	guest = __get_guest_by_kvm(&kvm, NULL);
-	if (!guest) {
-		i = init_guest(kvm);
-		if (i)
-			return NULL;
-		rc += 1;
-		if (rc < 2)
-			goto retry;
-	}
+	if (guest == NULL)
+		guest = alloc_guest(kvm);
+
 	return guest;
 }
 
@@ -855,7 +863,7 @@ int free_guest(void *kvm)
 		HYP_ABORT();
 
 	guest = __get_guest_by_kvm(&kvm, NULL);
-	if (!guest)
+	if (guest == NULL)
 		return 0;
 
 	if (guest->EL1S2_pgd == host->EL1S2_pgd)
