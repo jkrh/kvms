@@ -5,14 +5,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "include/generated/uapi/linux/version.h"
 #include "guest.h"
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
-#define TABLE_LEVELS    4
-#else
-#define TABLE_LEVELS    3
-#endif
+#define MAX_TABLE_LEVELS	4
 
 #define PT_SIZE_WORDS   512
 
@@ -219,10 +214,22 @@ struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool);
 /**
  * Free a page global directory
  *
- * @param tpool table pool containing the pgd
+ * Free the memory area reserved for the PGD. Optionally (by setting the
+ * pgd_base) also handle the case where the whole PGD memory is not freed
+ * but a fragment of it. In this case the possible references to the area
+ * being freed are cleaned from the remaining PGD. References needs to be
+ * cleaned to avoid situation where the freed memory is allocated and used
+ * by another SW entity leading to a corrupted translation table.
+ *
+ * @param tpool page table memory to be freed
+ * @param pgd_base optional page global directory base address.
+ *	  Set to NULL if the area pointer by tpool contain also the PGD base
+ *	  address.
+ *	  Set to PGD base address if the base address is not within the tpool
+ *	  area.
  * @return zero on success or negative error code on failure
  */
-int free_pgd(struct tablepool *tpool);
+int free_pgd(struct tablepool *tpool, struct ptable *pgd_base);
 
 /**
  * Free a page table structure

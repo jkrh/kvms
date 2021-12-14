@@ -50,6 +50,13 @@
 #define PLATFORM_VTCR_EL2 0x600000UL
 #endif
 
+typedef enum {
+	PTE_FOUND = 0,
+	PTE_NEXT_TBL,
+	PTE_NOT_FOUND,
+	PTE_INVALID
+} tbl_search_t;
+
 static uint64_t kmaidx2pmaidx[8];
 static bool need_hyp_s1_init = true;
 
@@ -368,6 +375,148 @@ struct ptable *alloc_table(struct tablepool *tpool)
 	return table;
 }
 
+static uint64_t *next_pte_from_tbl(uint64_t *table, uint64_t *tblpos)
+{
+	uint64_t desci;
+	uint64_t *pte = NULL;
+
+	for (desci = *tblpos; desci < PT_SIZE_WORDS; desci++) {
+		if (table[desci] == 0)
+			continue;
+
+		pte = &table[desci];
+		break;
+	}
+
+	*tblpos = desci;
+
+	return pte;
+}
+
+static tbl_search_t pte_from_tbl_by_oaddr(uint64_t *tbl, uint64_t *tblpos,
+				   uint64_t **pte, uint64_t oaddr)
+{
+	tbl_search_t res = PTE_NOT_FOUND;
+	uint64_t *tpte = NULL;
+	uint64_t toaddr, desci;
+
+	for (desci = *tblpos; desci < PT_SIZE_WORDS; desci++) {
+		tpte = next_pte_from_tbl(tbl, &desci);
+		if (desci >= PT_SIZE_WORDS)
+			break;
+
+		if (bit_raised(*tpte, VALID_TABLE_BIT)) {
+			toaddr = table_oaddr(*tpte);
+			if (toaddr == oaddr) {
+				*pte = tpte;
+				res = PTE_FOUND;
+				break;
+			}
+			if (bit_raised(*tpte, TABLE_TYPE_BIT)) {
+				*pte = (uint64_t *)toaddr;
+				res = PTE_NEXT_TBL;
+				break;
+			}
+		}
+	}
+
+	*tblpos = desci;
+
+	return res;
+}
+
+static uint64_t *pte_from_pgd_by_oaddr(struct ptable *pgd, uint64_t oaddr,
+				uint64_t levels, uint64_t lastlevel)
+{
+	tbl_search_t res = PTE_INVALID;
+	uint64_t desci[MAX_TABLE_LEVELS] = {0};
+	uint64_t *pte[MAX_TABLE_LEVELS] = {NULL};
+	uint64_t firstlevel, searchlevel;
+	uint64_t *tpte = NULL;
+
+	if (levels > MAX_TABLE_LEVELS || lastlevel >= 3)
+		HYP_ABORT();
+
+	firstlevel = MAX_TABLE_LEVELS - levels;
+	pte[firstlevel] = pgd->entries;
+	searchlevel = firstlevel;
+
+	while (desci[firstlevel] < PT_SIZE_WORDS) {
+		res = pte_from_tbl_by_oaddr(pte[searchlevel],
+					    &desci[searchlevel], &tpte, oaddr);
+
+		switch (res) {
+		case PTE_NEXT_TBL:
+			/*
+			 * We found a table entry from current
+			 * search level. Dive into the next level
+			 * pointed by the table entry if we are
+			 * required to do so by the specified
+			 * lastlevel.
+			 */
+			desci[searchlevel]++;
+			if (searchlevel < lastlevel) {
+				searchlevel += 1;
+				pte[searchlevel] = tpte;
+				desci[searchlevel] = 0;
+			}
+			break;
+		case PTE_NOT_FOUND:
+			/*
+			 * There was no more entries in the current
+			 * searchlevel. Go back up one level if we
+			 * are not already in the highest required
+			 * level.
+			 */
+			if (searchlevel > firstlevel)
+				searchlevel -= 1;
+			break;
+		case PTE_FOUND:
+			/*
+			 * We found the output address we were searching
+			 * for. Return the page table entry pointing to it.
+			 */
+			return tpte;
+		default:
+			HYP_ABORT();
+			break;
+		}
+	}
+
+	return NULL;
+}
+
+static int clean_parentpgd(struct tablepool *tpool, struct ptable *ppgd)
+{
+	int res = -ENOENT;
+	uint64_t table;
+	struct ptable *tableptr;
+	uint64_t *pte;
+	uint64_t desci;
+
+	for (table = 0; table < tpool->num_tables; table++) {
+		tableptr = &tpool->pool[table];
+		desci = 0;
+		pte = next_pte_from_tbl(tableptr->entries, &desci);
+		if (pte == NULL)
+			continue;
+		/*
+		 * There was entry found from table. Check if this table
+		 * pointer is referenced by the tables in PGD hierarchy.
+		 * Remove the reference if found.
+		 */
+		pte = pte_from_pgd_by_oaddr(ppgd, (uint64_t)tableptr,
+						TABLE_LEVELS, 2);
+		if (pte != NULL) {
+			LOG("%s cleaned 0x%lx\n", __func__, *pte);
+			*pte = 0;
+		}
+		memset(tableptr, 0, sizeof(struct ptable));
+	}
+
+	return res;
+}
+
 struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool)
 {
 	struct ptable *pgd, *check;
@@ -386,7 +535,7 @@ struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool)
 	return pgd;
 }
 
-int free_pgd(struct tablepool *tpool)
+int free_pgd(struct tablepool *tpool, struct ptable *pgd_base)
 {
 	guest_memchunk_t *mempool;
 	int c, p;
@@ -402,6 +551,9 @@ int free_pgd(struct tablepool *tpool)
 	while (c < GUEST_MEMCHUNKS_MAX) {
 		if (get_tablepool(tpool, c))
 			break;
+		if (pgd_base != NULL)
+			clean_parentpgd(tpool, pgd_base);
+
 		memset(tpool->pool, 0, tpool->num_tables * sizeof(struct ptable));
 		memset(tpool->used, 0, tpool->num_tables);
 		p = c;
@@ -411,6 +563,13 @@ int free_pgd(struct tablepool *tpool)
 		mempool[p].previous = GUEST_MEMCHUNKS_MAX;
 		/* If it happens to be allocated from static memory */
 		free_static_ttbl_chunk(tpool);
+	}
+
+	if (tpool == &tpool->guest->s1_tablepool) {
+		dsb();
+		tlbialle2is();
+		dsb();
+		isb();
 	}
 
 	return 0;

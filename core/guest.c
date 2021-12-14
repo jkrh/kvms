@@ -878,8 +878,8 @@ int free_guest(void *kvm)
 	if (res)
 		return res;
 
-	free_pgd(&guest->s2_tablepool);
-	free_pgd(&guest->s1_tablepool);
+	free_pgd(&guest->s2_tablepool, NULL);
+	free_pgd(&guest->s1_tablepool, host->EL2S1_pgd);
 	/*
 	 * Handle VMID zero as a special case since it is used
 	 * for early init purposes and there may exist another
