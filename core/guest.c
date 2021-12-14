@@ -259,6 +259,8 @@ kvm_guest_t *alloc_guest(void *kvm)
 		guest->kvm = kern_hyp_va(kvm);
 	}
 
+	set_blinding_default(guest);
+
 	return guest;
 }
 

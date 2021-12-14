@@ -85,6 +85,8 @@ int machine_virt(kvm_guest_t *host)
 	uint64_t perms, type;
 	struct ptable *pgd;
 
+	host->s2_host_access = true;
+
 nextmap:
 	i = 0;
 	while (base_memmap[i].len) {

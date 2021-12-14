@@ -113,6 +113,7 @@ struct kvm_guest_t {
 	share_t shares[MAX_SHARES];
 	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
 	mbedtls_aes_context aes_ctx;
+	bool s2_host_access;
 };
 
 /**
@@ -263,9 +264,9 @@ int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count);
  * @param ipa guest physical address
  * @param size range size
  * @return operation specific return value, zero if descriptor is not found
- * 	   HYP_MKYOUNG zero
- * 	   HYP_MKOLD one if the operation was done, zero otherwise
- * 	   HYP_ISYOUNG state of the AF flag (1 young, 0 old)
+ *	   HYP_MKYOUNG zero
+ *	   HYP_MKOLD one if the operation was done, zero otherwise
+ *	   HYP_ISYOUNG state of the AF flag (1 young, 0 old)
  */
 int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
 			     uint64_t size);
@@ -333,7 +334,7 @@ int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len);
  * @param minsize minimum size requirement for the chunk
  * @param type the type of allocation this chunk is used for
  * @return index to guest mempool in case of success, negative error code
- * 	   otherwise
+ *	   otherwise
  */
 int guest_memchunk_alloc(kvm_guest_t *guest,
 			 size_t minsize,
@@ -347,7 +348,7 @@ int guest_memchunk_alloc(kvm_guest_t *guest,
  * @param guest the guest
  * @param chunk the chunk to be added to mempool
  * @return index to guest mempool in case of success, negative error code
- * 	   otherwise
+ *	   otherwise
  */
 int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk);
 
@@ -359,7 +360,17 @@ int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk);
  * @param guest the guest
  * @param chunk the chunk to be removed from mempool
  * @return zero in case of success, negative error code
- * 	   otherwise
+ *	   otherwise
  */
 int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk);
+
+static inline void set_blinding_default(kvm_guest_t *guest)
+{
+#ifdef HOSTBLINDING
+	guest->s2_host_access = false;
+#else
+	guest->s2_host_access = true;
+#endif // HOSTBLINDING
+}
+
 #endif // __KVM_GUEST_H__
