@@ -117,7 +117,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		register_t a4, register_t a5, register_t a6, register_t a7,
 		register_t a8, register_t a9)
 {
-	kvm_guest_t *guest = NULL;
+	kvm_guest_t *guest = NULL, *host = NULL;
 	int64_t res = -EINVAL;
 	bool retried = false;
 	hyp_func_t *func;
@@ -146,10 +146,18 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 * Stage 1 and 2 host side mappings
 	 */
 	case HYP_HOST_MAP_STAGE1:
-		guest = get_guest(HOST_VMID);
-		res = guest_validate_range(guest, a1, a2, a3);
+		host = get_guest(HOST_VMID);
+		if (!a5)
+			guest = host;
+		else
+			guest = get_guest_by_kvm((void *)a5);
+		/*
+		 * This is a hyp mode mapping.
+		 * Validate the requested range for the host.
+		 */
+		res = guest_validate_range(host, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest->EL2S1_pgd, STAGE1, a1, a2, a3, a4,
+			res = mmap_range(guest, STAGE1, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		/*
 		 * kern_hyp_va: MSB WATCH
@@ -159,10 +167,18 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		 */
 		break;
 	case HYP_HOST_UNMAP_STAGE1:
-		guest = get_guest(HOST_VMID);
-		res = guest_validate_range(guest, a1, a1, a2);
+		host = get_guest(HOST_VMID);
+		if (!a3)
+			guest = host;
+		else
+			guest = get_guest_by_kvm((void *)a3);
+		/*
+		 * This is a hyp mode mapping.
+		 * Validate the requested range for the host.
+		 */
+		res = guest_validate_range(host, a1, a1, a2);
 		if (!res)
-			res = unmap_range(guest->EL2S1_pgd, STAGE1, a1, a2);
+			res = unmap_range(guest, STAGE1, a1, a2);
 		break;
 	/*
 	 * HYP_HOST_PREPARE_STAGE2 prepares a range of memory with an existing
@@ -184,14 +200,14 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest->EL1S2_pgd, STAGE2, a1, a2, a3, a4,
+			res = mmap_range(guest, STAGE2, a1, a2, a3, a4,
 				 KEEP_MATTR);
 		break;
 	case HYP_HOST_MAP_STAGE2:
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest->EL1S2_pgd, STAGE2, a1, a2, a3, a4,
+			res = mmap_range(guest, STAGE2, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		break;
 	case HYP_HOST_BOOTSTEP:

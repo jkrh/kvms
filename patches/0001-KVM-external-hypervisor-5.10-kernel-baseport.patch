@@ -1,4 +1,4 @@
-From 91855bcd8f122303ef9f8b20d07e525a43cf9a59 Mon Sep 17 00:00:00 2001
+From 0cad3fd592351f07fb7e975abe367d6ea974a0a7 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -10,14 +10,15 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/include/asm/kvm_asm.h  |  24 ++
  arch/arm64/include/asm/kvm_host.h |  27 +-
  arch/arm64/include/asm/kvm_hyp.h  |  13 +
- arch/arm64/include/asm/kvm_mmu.h  |  61 +++--
+ arch/arm64/include/asm/kvm_mmu.h  |  64 +++--
  arch/arm64/kernel/asm-offsets.c   |   9 +
  arch/arm64/kernel/head.S          |  16 +-
  arch/arm64/kvm/Makefile           |   2 +-
- arch/arm64/kvm/arm.c              |  41 ++-
- arch/arm64/kvm/ext-guest.c        | 440 ++++++++++++++++++++++++++++++
- arch/arm64/kvm/ext-guest.h        |  30 ++
- arch/arm64/kvm/hvccall-defines.h  |  61 +++++
+ arch/arm64/kvm/arm.c              |  56 ++--
+ arch/arm64/kvm/ext-guest.c        | 445 ++++++++++++++++++++++++++++++
+ arch/arm64/kvm/ext-guest.h        |  31 +++
+ arch/arm64/kvm/fpsimd.c           |   4 +-
+ arch/arm64/kvm/hvccall-defines.h  |  61 ++++
  arch/arm64/kvm/hyp/Makefile       |   2 +-
  arch/arm64/kvm/hyp/entry.S        |  13 +-
  arch/arm64/kvm/hyp/kvms-hvci.S    |  11 +
@@ -25,17 +26,17 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kvm/hyp/nvhe/tlb.c     |  17 +-
  arch/arm64/kvm/hyp/pgtable.c      |  24 +-
  arch/arm64/kvm/hyp/vgic-v3-sr.c   |   6 +
- arch/arm64/kvm/mmu.c              | 121 +++++---
+ arch/arm64/kvm/mmu.c              | 133 ++++++---
  arch/arm64/kvm/reset.c            |   7 +-
  virt/kvm/kvm_main.c               |   2 +-
- 22 files changed, 830 insertions(+), 120 deletions(-)
+ 23 files changed, 857 insertions(+), 133 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
  create mode 100644 arch/arm64/kvm/hyp/kvms-hvci.S
 
 diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
-index 5cfe3cf6f2ac..fa9bd1e9608f 100644
+index 5cfe3cf6f2acb..fa9bd1e9608f3 100644
 --- a/arch/arm64/configs/defconfig
 +++ b/arch/arm64/configs/defconfig
 @@ -1092,3 +1092,13 @@ CONFIG_DEBUG_KERNEL=y
@@ -53,7 +54,7 @@ index 5cfe3cf6f2ac..fa9bd1e9608f 100644
 +CONFIG_VIRTIO_VSOCKETS=y
 +CONFIG_ARM64_PTR_AUTH=n
 diff --git a/arch/arm64/include/asm/kvm_asm.h b/arch/arm64/include/asm/kvm_asm.h
-index 044bb9e2cd74..db5eec9c4ebc 100644
+index 044bb9e2cd74f..db5eec9c4ebc3 100644
 --- a/arch/arm64/include/asm/kvm_asm.h
 +++ b/arch/arm64/include/asm/kvm_asm.h
 @@ -180,23 +180,47 @@ DECLARE_KVM_HYP_SYM(__bp_harden_hyp_vecs);
@@ -105,7 +106,7 @@ index 044bb9e2cd74..db5eec9c4ebc 100644
  extern char __smccc_workaround_1_smc[__SMCCC_WORKAROUND_1_SMC_SZ];
  
 diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
-index 912b83e784bb..1b2baa99f8eb 100644
+index 912b83e784bbf..1b2baa99f8eb8 100644
 --- a/arch/arm64/include/asm/kvm_host.h
 +++ b/arch/arm64/include/asm/kvm_host.h
 @@ -67,6 +67,13 @@ struct kvm_vmid {
@@ -172,7 +173,7 @@ index 912b83e784bb..1b2baa99f8eb 100644
   * The couple of isb() below are there to guarantee the same behaviour
   * on VHE as on !VHE, where the eret to EL1 acts as a context
 diff --git a/arch/arm64/include/asm/kvm_hyp.h b/arch/arm64/include/asm/kvm_hyp.h
-index 123e67cb8505..fa057c50ee6f 100644
+index 123e67cb85050..fa057c50ee6f5 100644
 --- a/arch/arm64/include/asm/kvm_hyp.h
 +++ b/arch/arm64/include/asm/kvm_hyp.h
 @@ -57,12 +57,25 @@ DECLARE_PER_CPU(unsigned long, kvm_hyp_vector);
@@ -202,7 +203,7 @@ index 123e67cb8505..fa057c50ee6f 100644
  #ifdef __KVM_NVHE_HYPERVISOR__
  void __timer_enable_traps(struct kvm_vcpu *vcpu);
 diff --git a/arch/arm64/include/asm/kvm_mmu.h b/arch/arm64/include/asm/kvm_mmu.h
-index 331394306cce..55d09f47c341 100644
+index 331394306ccee..75fb0846522e3 100644
 --- a/arch/arm64/include/asm/kvm_mmu.h
 +++ b/arch/arm64/include/asm/kvm_mmu.h
 @@ -49,6 +49,8 @@
@@ -254,11 +255,12 @@ index 331394306cce..55d09f47c341 100644
  	return v;
  }
  
-@@ -110,8 +103,28 @@ static __always_inline unsigned long __kern_hyp_va(unsigned long v)
+@@ -110,8 +103,29 @@ static __always_inline unsigned long __kern_hyp_va(unsigned long v)
  
  #include <asm/kvm_pgtable.h>
  #include <asm/stage2_pgtable.h>
 -
+-int create_hyp_mappings(void *from, void *to, enum kvm_pgtable_prot prot);
 +#include <linux/kvm_types.h>
 +
 +struct hyp_map_data {
@@ -279,12 +281,13 @@ index 331394306cce..55d09f47c341 100644
 +			  struct hyp_map_data *data);
 +int stage2_map_set_prot_attr(enum kvm_pgtable_prot prot,
 +			     struct stage2_map_data *data);
- int create_hyp_mappings(void *from, void *to, enum kvm_pgtable_prot prot);
-+int clean_hyp_mappings(void *from, void *to);
++int create_hyp_mappings(void *from, void *to, enum kvm_pgtable_prot prot,
++			struct kvm *kvm);
++int clean_hyp_mappings(void *from, void *to, struct kvm *kvm);
  int create_hyp_io_mappings(phys_addr_t phys_addr, size_t size,
  			   void __iomem **kaddr,
  			   void __iomem **haddr);
-@@ -131,8 +144,6 @@ phys_addr_t kvm_mmu_get_httbr(void);
+@@ -131,8 +145,6 @@ phys_addr_t kvm_mmu_get_httbr(void);
  phys_addr_t kvm_get_idmap_vector(void);
  int kvm_mmu_init(void);
  
@@ -293,7 +296,7 @@ index 331394306cce..55d09f47c341 100644
  #define kvm_flush_dcache_to_poc(a,l)	__flush_dcache_area((a), (l))
  
  static inline bool vcpu_has_cache_enabled(struct kvm_vcpu *vcpu)
-@@ -273,8 +284,9 @@ static __always_inline u64 kvm_get_vttbr(struct kvm_s2_mmu *mmu)
+@@ -273,8 +285,9 @@ static __always_inline u64 kvm_get_vttbr(struct kvm_s2_mmu *mmu)
   */
  static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
  {
@@ -304,7 +307,7 @@ index 331394306cce..55d09f47c341 100644
  
  	/*
  	 * ARM errata 1165522 and 1530923 require the actual execution of the
-@@ -284,5 +296,12 @@ static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
+@@ -284,5 +297,12 @@ static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
  	asm(ALTERNATIVE("nop", "isb", ARM64_WORKAROUND_SPECULATIVE_AT));
  }
  
@@ -318,7 +321,7 @@ index 331394306cce..55d09f47c341 100644
  #endif /* __ASSEMBLY__ */
  #endif /* __ARM64_KVM_MMU_H__ */
 diff --git a/arch/arm64/kernel/asm-offsets.c b/arch/arm64/kernel/asm-offsets.c
-index 7d32fc959b1a..91a2fdd3b20c 100644
+index 7d32fc959b1a0..91a2fdd3b20c2 100644
 --- a/arch/arm64/kernel/asm-offsets.c
 +++ b/arch/arm64/kernel/asm-offsets.c
 @@ -110,6 +110,15 @@ int main(void)
@@ -338,7 +341,7 @@ index 7d32fc959b1a..91a2fdd3b20c 100644
  #ifdef CONFIG_CPU_PM
    DEFINE(CPU_CTX_SP,		offsetof(struct cpu_suspend_ctx, sp));
 diff --git a/arch/arm64/kernel/head.S b/arch/arm64/kernel/head.S
-index f9119eea735e..833bd87077df 100644
+index f9119eea735e2..833bd87077df8 100644
 --- a/arch/arm64/kernel/head.S
 +++ b/arch/arm64/kernel/head.S
 @@ -490,7 +490,21 @@ EXPORT_SYMBOL(kimage_vaddr)
@@ -365,7 +368,7 @@ index f9119eea735e..833bd87077df 100644
  	cmp	x0, #CurrentEL_EL2
  	b.eq	1f
 diff --git a/arch/arm64/kvm/Makefile b/arch/arm64/kvm/Makefile
-index 1504c81fbf5d..66558ce2f53b 100644
+index 1504c81fbf5de..66558ce2f53bc 100644
 --- a/arch/arm64/kvm/Makefile
 +++ b/arch/arm64/kvm/Makefile
 @@ -22,6 +22,6 @@ kvm-y := $(KVM)/kvm_main.o $(KVM)/coalesced_mmio.o $(KVM)/eventfd.o \
@@ -377,7 +380,7 @@ index 1504c81fbf5d..66558ce2f53b 100644
  
  kvm-$(CONFIG_KVM_ARM_PMU)  += pmu-emul.o
 diff --git a/arch/arm64/kvm/arm.c b/arch/arm64/kvm/arm.c
-index 5bc978be8043..edc8d601ac6a 100644
+index 5bc978be80434..b3cd527949876 100644
 --- a/arch/arm64/kvm/arm.c
 +++ b/arch/arm64/kvm/arm.c
 @@ -37,10 +37,12 @@
@@ -443,6 +446,15 @@ index 5bc978be8043..edc8d601ac6a 100644
  	if (!has_vhe())
  		kfree(kvm);
  	else
+@@ -294,7 +297,7 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
+ 	if (err)
+ 		return err;
+ 
+-	return create_hyp_mappings(vcpu, vcpu + 1, PAGE_HYP);
++	return create_hyp_mappings(vcpu, vcpu + 1, PAGE_HYP, vcpu->kvm);
+ }
+ 
+ void kvm_arch_vcpu_postcreate(struct kvm_vcpu *vcpu)
 @@ -303,6 +306,10 @@ void kvm_arch_vcpu_postcreate(struct kvm_vcpu *vcpu)
  
  void kvm_arch_vcpu_destroy(struct kvm_vcpu *vcpu)
@@ -450,7 +462,7 @@ index 5bc978be8043..edc8d601ac6a 100644
 +	u8 *start = (u8 *)vcpu;
 +	u8 *end = start + sizeof(*vcpu);
 +
-+	clean_hyp_mappings((void *)start, (void *)end);
++	clean_hyp_mappings((void *)start, (void *)end, vcpu->kvm);
  	if (vcpu->arch.has_run_once && unlikely(!irqchip_in_kernel(vcpu->kvm)))
  		static_branch_dec(&userspace_irqchip_in_use);
  
@@ -505,7 +517,53 @@ index 5bc978be8043..edc8d601ac6a 100644
  }
  
  static void cpu_hyp_reinit(void)
-@@ -1791,7 +1805,10 @@ int kvm_arch_init(void *opaque)
+@@ -1627,21 +1641,24 @@ static int init_hyp_mode(void)
+ 	 * Map the Hyp-code called directly from the host
+ 	 */
+ 	err = create_hyp_mappings(kvm_ksym_ref(__hyp_text_start),
+-				  kvm_ksym_ref(__hyp_text_end), PAGE_HYP_EXEC);
++				  kvm_ksym_ref(__hyp_text_end), PAGE_HYP_EXEC,
++				  NULL);
+ 	if (err) {
+ 		kvm_err("Cannot map world-switch code\n");
+ 		goto out_err;
+ 	}
+ 
+ 	err = create_hyp_mappings(kvm_ksym_ref(__start_rodata),
+-				  kvm_ksym_ref(__end_rodata), PAGE_HYP_RO);
++				  kvm_ksym_ref(__end_rodata), PAGE_HYP_RO,
++				  NULL);
+ 	if (err) {
+ 		kvm_err("Cannot map rodata section\n");
+ 		goto out_err;
+ 	}
+ 
+ 	err = create_hyp_mappings(kvm_ksym_ref(__bss_start),
+-				  kvm_ksym_ref(__bss_stop), PAGE_HYP_RO);
++				  kvm_ksym_ref(__bss_stop), PAGE_HYP_RO,
++				  NULL);
+ 	if (err) {
+ 		kvm_err("Cannot map bss section\n");
+ 		goto out_err;
+@@ -1659,7 +1676,7 @@ static int init_hyp_mode(void)
+ 	for_each_possible_cpu(cpu) {
+ 		char *stack_page = (char *)per_cpu(kvm_arm_hyp_stack_page, cpu);
+ 		err = create_hyp_mappings(stack_page, stack_page + PAGE_SIZE,
+-					  PAGE_HYP);
++					  PAGE_HYP, NULL);
+ 
+ 		if (err) {
+ 			kvm_err("Cannot map hyp stack\n");
+@@ -1674,7 +1691,7 @@ static int init_hyp_mode(void)
+ 		char *percpu_begin = (char *)kvm_arm_hyp_percpu_base[cpu];
+ 		char *percpu_end = percpu_begin + nvhe_percpu_size();
+ 
+-		err = create_hyp_mappings(percpu_begin, percpu_end, PAGE_HYP);
++		err = create_hyp_mappings(percpu_begin, percpu_end, PAGE_HYP, NULL);
+ 
+ 		if (err) {
+ 			kvm_err("Cannot map hyp percpu region\n");
+@@ -1791,7 +1808,10 @@ int kvm_arch_init(void *opaque)
  		return err;
  
  	if (!in_hyp_mode) {
@@ -519,10 +577,10 @@ index 5bc978be8043..edc8d601ac6a 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..f7f860cd7699
+index 0000000000000..2497015fa8d88
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,440 @@
+@@ -0,0 +1,445 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -704,7 +762,8 @@ index 000000000000..f7f860cd7699
 +}
 +
 +int __create_hyp_mappings(unsigned long start, unsigned long size,
-+			  unsigned long phys, enum kvm_pgtable_prot prot)
++			  unsigned long phys, enum kvm_pgtable_prot prot,
++			  struct kvm *kvm)
 +{
 +	struct hyp_map_data data = {
 +		.phys   = ALIGN_DOWN(phys, PAGE_SIZE),
@@ -715,25 +774,25 @@ index 000000000000..f7f860cd7699
 +	if (err)
 +		return err;
 +
-+	err = __kvms_hvc_cmd(HYP_HOST_MAP_STAGE1, start, phys, size, prot);
++	err = __kvms_hvc_cmd(HYP_HOST_MAP_STAGE1, start, phys, size, prot, kvm);
 +	if (err)
 +		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
 +	return err;
 +}
 +
-+static int __clean_hyp_mappings(void *start, size_t size)
++static int __clean_hyp_mappings(void *start, size_t size, struct kvm *kvm)
 +{
 +	int err;
 +
-+	err = __kvms_hvc_cmd(HYP_HOST_UNMAP_STAGE1, start, size);
++	err = __kvms_hvc_cmd(HYP_HOST_UNMAP_STAGE1, start, size, kvm);
 +	if (err)
 +		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
 +	return err;
 +}
 +
-+int clean_hyp_mappings(void *from, void *to)
++int clean_hyp_mappings(void *from, void *to, struct kvm *kvm)
 +{
 +	unsigned long start;
 +	size_t size;
@@ -743,7 +802,7 @@ index 000000000000..f7f860cd7699
 +	size = to - from;
 +	start = kern_hyp_va((unsigned long)from);
 +
-+	return  __clean_hyp_mappings((void *)start, size);
++	return  __clean_hyp_mappings((void *)start, size, kvm);
 +}
 +
 +int kvm_set_hyp_text(void *__ts, void *__te)
@@ -780,20 +839,20 @@ index 000000000000..f7f860cd7699
 +	u8 *mmuend = mmustart + sizeof(kvm->arch.mmu);
 +	int ret;
 +
-+	ret = create_hyp_mappings(kvmstart, kvmend, PAGE_HYP);
++	ret = create_hyp_mappings(kvmstart, kvmend, PAGE_HYP, kvm);
 +	if (ret)
 +		return ret;
 +
-+	ret = create_hyp_mappings(mmustart, mmuend, PAGE_HYP);
++	ret = create_hyp_mappings(mmustart, mmuend, PAGE_HYP, kvm);
 +	if (ret) {
-+		clean_hyp_mappings(kvmstart, kvmend);
++		clean_hyp_mappings(kvmstart, kvmend, kvm);
 +		return ret;
 +	}
 +
 +	ret = __kvm_init_guest(kvm);
 +	if (ret) {
-+		clean_hyp_mappings(kvmstart, kvmend);
-+		clean_hyp_mappings(mmustart, mmuend);
++		clean_hyp_mappings(kvmstart, kvmend, kvm);
++		clean_hyp_mappings(mmustart, mmuend, kvm);
 +		kvm_err("kvm_init_guest returned %d\n", ret);
 +	}
 +
@@ -819,8 +878,8 @@ index 000000000000..f7f860cd7699
 +	u8 *mmustart = (u8 *)&kvm->arch.mmu;
 +	u8 *mmuend = mmustart + sizeof(kvm->arch.mmu);
 +
-+	clean_hyp_mappings(kvmstart, kvmend);
-+	clean_hyp_mappings(mmustart, mmuend);
++	clean_hyp_mappings(kvmstart, kvmend, kvm);
++	clean_hyp_mappings(mmustart, mmuend, kvm);
 +
 +	return __kvm_free_guest(kvm);
 +}
@@ -904,21 +963,24 @@ index 000000000000..f7f860cd7699
 +	 * Map the Hyp-code called directly from the host
 +	 */
 +	err = create_hyp_mappings(kvm_ksym_ref(__hyp_text_start),
-+				  kvm_ksym_ref(__hyp_text_end), PAGE_HYP_EXEC);
++				  kvm_ksym_ref(__hyp_text_end), PAGE_HYP_EXEC,
++				  NULL);
 +	if (err) {
 +		kvm_err("Cannot map world-switch code\n");
 +		goto out_err;
 +	}
 +
 +	err = create_hyp_mappings(kvm_ksym_ref(__start_rodata),
-+				  kvm_ksym_ref(__end_rodata), PAGE_HYP_RO);
++				  kvm_ksym_ref(__end_rodata), PAGE_HYP_RO,
++				  NULL);
 +	if (err) {
 +		kvm_err("Cannot map rodata section\n");
 +		goto out_err;
 +	}
 +
 +	err = create_hyp_mappings(kvm_ksym_ref(__bss_start),
-+				  kvm_ksym_ref(__bss_stop), PAGE_HYP_RO);
++				  kvm_ksym_ref(__bss_stop), PAGE_HYP_RO,
++				  NULL);
 +	if (err) {
 +		kvm_err("Cannot map bss section\n");
 +		goto out_err;
@@ -930,7 +992,8 @@ index 000000000000..f7f860cd7699
 +		char *percpu_begin = (char *)kvm_arm_hyp_percpu_base[cpu];
 +		char *percpu_end = percpu_begin + nvhe_percpu_size();
 +
-+		err = create_hyp_mappings(percpu_begin, percpu_end, PAGE_HYP);
++		err = create_hyp_mappings(percpu_begin, percpu_end, PAGE_HYP,
++					  NULL);
 +
 +		if (err) {
 +			kvm_err("Cannot map hyp percpu region\n");
@@ -942,11 +1005,11 @@ index 000000000000..f7f860cd7699
 +
 +out_err:
 +	clean_hyp_mappings(kvm_ksym_ref(__hyp_text_start),
-+			   kvm_ksym_ref(__hyp_text_end));
++			   kvm_ksym_ref(__hyp_text_end), NULL);
 +	clean_hyp_mappings(kvm_ksym_ref(__start_rodata),
-+			   kvm_ksym_ref(__end_rodata));
++			   kvm_ksym_ref(__end_rodata), NULL);
 +	clean_hyp_mappings(kvm_ksym_ref(__bss_start),
-+			   kvm_ksym_ref(__bss_stop));
++			   kvm_ksym_ref(__bss_stop), NULL);
 +
 +	kvm_err("error initializing Hyp mode: %d\n", err);
 +	return err;
@@ -965,10 +1028,10 @@ index 000000000000..f7f860cd7699
 +}
 diff --git a/arch/arm64/kvm/ext-guest.h b/arch/arm64/kvm/ext-guest.h
 new file mode 100644
-index 000000000000..a380eef11e5e
+index 0000000000000..f9b649ab35932
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.h
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,31 @@
 +#include <linux/kvm.h>
 +#include <linux/kvm_host.h>
 +#include <asm/kvm_asm.h>
@@ -990,8 +1053,9 @@ index 000000000000..a380eef11e5e
 +int kvm_init_stage2_mmu(struct kvm *kvm, struct kvm_s2_mmu *mmu);
 +
 +int __create_hyp_mappings(unsigned long start, unsigned long size,
-+			  unsigned long phys, enum kvm_pgtable_prot prot);
-+int clean_hyp_mappings(void *from, void *to);
++			  unsigned long phys, enum kvm_pgtable_prot prot,
++			  struct kvm *kvm);
++int clean_hyp_mappings(void *from, void *to, struct kvm *kvm);
 +int create_guest_mapping(u32 vmid, unsigned long start, unsigned long phys,
 +			unsigned long size, u64 prot);
 +int update_hyp_memslots(struct kvm *kvm, struct kvm_memory_slot *slot,
@@ -999,9 +1063,27 @@ index 000000000000..a380eef11e5e
 +void unmap_stage2_range(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size);
 +void unmap_stage2_range_sec(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size);
 +unsigned long hyp_get_free_vmid(struct kvm *kvm, u64 vmid);
+diff --git a/arch/arm64/kvm/fpsimd.c b/arch/arm64/kvm/fpsimd.c
+index 3e081d556e810..bd74c6419f8a9 100644
+--- a/arch/arm64/kvm/fpsimd.c
++++ b/arch/arm64/kvm/fpsimd.c
+@@ -34,11 +34,11 @@ int kvm_arch_vcpu_run_map_fp(struct kvm_vcpu *vcpu)
+ 	 * Make sure the host task thread flags and fpsimd state are
+ 	 * visible to hyp:
+ 	 */
+-	ret = create_hyp_mappings(ti, ti + 1, PAGE_HYP);
++	ret = create_hyp_mappings(ti, ti + 1, PAGE_HYP, vcpu->kvm);
+ 	if (ret)
+ 		goto error;
+ 
+-	ret = create_hyp_mappings(fpsimd, fpsimd + 1, PAGE_HYP);
++	ret = create_hyp_mappings(fpsimd, fpsimd + 1, PAGE_HYP, vcpu->kvm);
+ 	if (ret)
+ 		goto error;
+ 
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..6b16696ea27a
+index 0000000000000..6b16696ea27a9
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
 @@ -0,0 +1,61 @@
@@ -1067,7 +1149,7 @@ index 000000000000..6b16696ea27a
 +
 +#endif // __HYP_API__
 diff --git a/arch/arm64/kvm/hyp/Makefile b/arch/arm64/kvm/hyp/Makefile
-index 4a81eddabcd8..d9bde57dc08c 100644
+index 4a81eddabcd83..d9bde57dc08c6 100644
 --- a/arch/arm64/kvm/hyp/Makefile
 +++ b/arch/arm64/kvm/hyp/Makefile
 @@ -10,4 +10,4 @@ subdir-ccflags-y := -I$(incdir)				\
@@ -1077,7 +1159,7 @@ index 4a81eddabcd8..d9bde57dc08c 100644
 -obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o smccc_wa.o
 +obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o smccc_wa.o kvms-hvci.o
 diff --git a/arch/arm64/kvm/hyp/entry.S b/arch/arm64/kvm/hyp/entry.S
-index 0c66a1d408fd..129c75a7e1b0 100644
+index 0c66a1d408fd7..129c75a7e1b0b 100644
 --- a/arch/arm64/kvm/hyp/entry.S
 +++ b/arch/arm64/kvm/hyp/entry.S
 @@ -30,6 +30,10 @@ SYM_FUNC_START(__guest_enter)
@@ -1122,7 +1204,7 @@ index 0c66a1d408fd..129c75a7e1b0 100644
  
 diff --git a/arch/arm64/kvm/hyp/kvms-hvci.S b/arch/arm64/kvm/hyp/kvms-hvci.S
 new file mode 100644
-index 000000000000..4339c8f6fcb6
+index 0000000000000..4339c8f6fcb6d
 --- /dev/null
 +++ b/arch/arm64/kvm/hyp/kvms-hvci.S
 @@ -0,0 +1,11 @@
@@ -1138,7 +1220,7 @@ index 000000000000..4339c8f6fcb6
 +	hvc	#0
 +	ret
 diff --git a/arch/arm64/kvm/hyp/nvhe/switch.c b/arch/arm64/kvm/hyp/nvhe/switch.c
-index 6624596846d3..1be5877200ac 100644
+index 6624596846d3d..1be5877200ac4 100644
 --- a/arch/arm64/kvm/hyp/nvhe/switch.c
 +++ b/arch/arm64/kvm/hyp/nvhe/switch.c
 @@ -47,7 +47,6 @@ static void __activate_traps(struct kvm_vcpu *vcpu)
@@ -1190,7 +1272,7 @@ index 6624596846d3..1be5877200ac 100644
  	}
  
 diff --git a/arch/arm64/kvm/hyp/nvhe/tlb.c b/arch/arm64/kvm/hyp/nvhe/tlb.c
-index 229b06748c20..c182795976c5 100644
+index 229b06748c208..c182795976c57 100644
 --- a/arch/arm64/kvm/hyp/nvhe/tlb.c
 +++ b/arch/arm64/kvm/hyp/nvhe/tlb.c
 @@ -41,9 +41,10 @@ static void __tlb_switch_to_guest(struct kvm_s2_mmu *mmu,
@@ -1259,7 +1341,7 @@ index 229b06748c20..c182795976c5 100644
  
  void __kvm_flush_vm_context(void)
 diff --git a/arch/arm64/kvm/hyp/pgtable.c b/arch/arm64/kvm/hyp/pgtable.c
-index 4d99d07c610c..247c1dfc2beb 100644
+index 4d99d07c610c8..247c1dfc2beb3 100644
 --- a/arch/arm64/kvm/hyp/pgtable.c
 +++ b/arch/arm64/kvm/hyp/pgtable.c
 @@ -9,6 +9,7 @@
@@ -1308,7 +1390,7 @@ index 4d99d07c610c..247c1dfc2beb 100644
  	bool device = prot & KVM_PGTABLE_PROT_DEVICE;
  	kvm_pte_t attr = device ? PAGE_S2_MEMATTR(DEVICE_nGnRE) :
 diff --git a/arch/arm64/kvm/hyp/vgic-v3-sr.c b/arch/arm64/kvm/hyp/vgic-v3-sr.c
-index 452f4cacd674..7afa96f528c3 100644
+index 452f4cacd6743..7afa96f528c37 100644
 --- a/arch/arm64/kvm/hyp/vgic-v3-sr.c
 +++ b/arch/arm64/kvm/hyp/vgic-v3-sr.c
 @@ -198,6 +198,7 @@ void __vgic_v3_save_state(struct vgic_v3_cpu_if *cpu_if)
@@ -1360,7 +1442,7 @@ index 452f4cacd674..7afa96f528c3 100644
  	case 7:
  		__vgic_v3_write_ap0rn(cpu_if->vgic_ap0r[3], 3);
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 26068456ec0f..e0b4ead8e253 100644
+index 26068456ec0f3..d377a1c5b24d7 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
 @@ -31,6 +31,10 @@ static phys_addr_t hyp_idmap_vector;
@@ -1384,7 +1466,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  {
  	__unmap_stage2_range(mmu, start, size, true);
  }
-@@ -187,8 +192,9 @@ void free_hyp_pgds(void)
+@@ -187,8 +192,10 @@ void free_hyp_pgds(void)
  	mutex_unlock(&kvm_hyp_pgd_mutex);
  }
  
@@ -1392,13 +1474,25 @@ index 26068456ec0f..e0b4ead8e253 100644
 -				 unsigned long phys, enum kvm_pgtable_prot prot)
 +__attribute__((weak))
 +int __create_hyp_mappings(unsigned long start, unsigned long size,
-+			  unsigned long phys, enum kvm_pgtable_prot prot)
++			  unsigned long phys, enum kvm_pgtable_prot prot,
++			  struct kvm *kvm)
  {
  	int err;
  
-@@ -222,10 +228,10 @@ static phys_addr_t kvm_kaddr_to_phys(void *kaddr)
+@@ -215,17 +222,20 @@ static phys_addr_t kvm_kaddr_to_phys(void *kaddr)
+  * @from:	The virtual kernel start address of the range
+  * @to:		The virtual kernel end address of the range (exclusive)
+  * @prot:	The protection to be applied to this range
++ * @kvm:	The kvm this range is associated with, NULL for mappings that
++ *		are common to all guests.
+  *
+  * The same virtual address as the kernel virtual address is also used
+  * in Hyp-mode mapping (modulo HYP_PAGE_OFFSET) to the same underlying
+  * physical pages.
   */
- int create_hyp_mappings(void *from, void *to, enum kvm_pgtable_prot prot)
+-int create_hyp_mappings(void *from, void *to, enum kvm_pgtable_prot prot)
++int create_hyp_mappings(void *from, void *to, enum kvm_pgtable_prot prot,
++			struct kvm *kvm)
  {
 -	phys_addr_t phys_addr;
  	unsigned long virt_addr;
@@ -1408,7 +1502,25 @@ index 26068456ec0f..e0b4ead8e253 100644
  
  	if (is_kernel_in_hyp_mode())
  		return 0;
-@@ -360,6 +366,7 @@ int create_hyp_exec_mappings(phys_addr_t phys_addr, size_t size,
+@@ -238,7 +248,7 @@ int create_hyp_mappings(void *from, void *to, enum kvm_pgtable_prot prot)
+ 
+ 		phys_addr = kvm_kaddr_to_phys(from + virt_addr - start);
+ 		err = __create_hyp_mappings(virt_addr, PAGE_SIZE, phys_addr,
+-					    prot);
++					    prot, kvm);
+ 		if (err)
+ 			return err;
+ 	}
+@@ -281,7 +291,7 @@ static int __create_hyp_private_mapping(phys_addr_t phys_addr, size_t size,
+ 	if (ret)
+ 		goto out;
+ 
+-	ret = __create_hyp_mappings(base, size, phys_addr, prot);
++	ret = __create_hyp_mappings(base, size, phys_addr, prot, NULL);
+ 	if (ret)
+ 		goto out;
+ 
+@@ -360,6 +370,7 @@ int create_hyp_exec_mappings(phys_addr_t phys_addr, size_t size,
   * Note we don't need locking here as this is only called when the VM is
   * created, which can only be done once.
   */
@@ -1416,7 +1528,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  int kvm_init_stage2_mmu(struct kvm *kvm, struct kvm_s2_mmu *mmu)
  {
  	int cpu, err;
-@@ -499,13 +506,20 @@ void kvm_free_stage2_pgd(struct kvm_s2_mmu *mmu)
+@@ -499,13 +510,20 @@ void kvm_free_stage2_pgd(struct kvm_s2_mmu *mmu)
  int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
  			  phys_addr_t pa, unsigned long size, bool writable)
  {
@@ -1438,7 +1550,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  
  	size += offset_in_page(guest_ipa);
  	guest_ipa &= PAGE_MASK;
-@@ -516,10 +530,8 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
+@@ -516,10 +534,8 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
  		if (ret)
  			break;
  
@@ -1451,7 +1563,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  		if (ret)
  			break;
  
-@@ -632,6 +644,9 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
+@@ -632,6 +648,9 @@ static bool fault_supports_stage2_huge_mapping(struct kvm_memory_slot *memslot,
  	hva_t uaddr_start, uaddr_end;
  	size_t size;
  
@@ -1461,7 +1573,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  	/* The memslot and the VMA are guaranteed to be aligned to PAGE_SIZE */
  	if (map_size == PAGE_SIZE)
  		return true;
-@@ -743,7 +758,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -743,7 +762,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  			  unsigned long fault_status)
  {
  	int ret = 0;
@@ -1470,7 +1582,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  	bool exec_fault;
  	bool device = false;
  	unsigned long mmu_seq;
-@@ -757,7 +772,12 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -757,7 +776,12 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	unsigned long fault_level = kvm_vcpu_trap_get_fault_level(vcpu);
  	unsigned long vma_pagesize, fault_granule;
  	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_R;
@@ -1484,7 +1596,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  
  	fault_granule = 1UL << ARM64_HW_PGTABLE_LEVEL_SHIFT(fault_level);
  	write_fault = kvm_is_write_fault(vcpu);
-@@ -868,7 +888,6 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -868,7 +892,6 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  		return -ENOEXEC;
  
  	spin_lock(&kvm->mmu_lock);
@@ -1492,7 +1604,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  	if (mmu_notifier_retry(kvm, mmu_seq))
  		goto out_unlock;
  
-@@ -898,18 +917,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -898,18 +921,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  	else if (cpus_have_const_cap(ARM64_HAS_CACHE_DIC))
  		prot |= KVM_PGTABLE_PROT_X;
  
@@ -1519,7 +1631,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  
  out_unlock:
  	spin_unlock(&kvm->mmu_lock);
-@@ -919,7 +934,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
+@@ -919,7 +938,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
  }
  
  /* Resolve the access fault by making the page young again. */
@@ -1529,7 +1641,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  {
  	pte_t pte;
  	kvm_pte_t kpte;
-@@ -1061,13 +1077,13 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
+@@ -1061,13 +1081,13 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
  	return ret;
  }
  
@@ -1550,7 +1662,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  {
  	struct kvm_memslots *slots;
  	struct kvm_memory_slot *memslot;
-@@ -1095,17 +1111,14 @@ static int handle_hva_to_gpa(struct kvm *kvm,
+@@ -1095,17 +1115,14 @@ static int handle_hva_to_gpa(struct kvm *kvm,
  
  static int kvm_unmap_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
  {
@@ -1570,7 +1682,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  		return 0;
  
  	trace_kvm_unmap_hva_range(start, end);
-@@ -1113,7 +1126,8 @@ int kvm_unmap_hva_range(struct kvm *kvm,
+@@ -1113,7 +1130,8 @@ int kvm_unmap_hva_range(struct kvm *kvm,
  	return 0;
  }
  
@@ -1580,7 +1692,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  {
  	kvm_pfn_t *pfn = (kvm_pfn_t *)data;
  
-@@ -1127,6 +1141,7 @@ static int kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data
+@@ -1127,6 +1145,7 @@ static int kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data
  	 */
  	kvm_pgtable_stage2_map(kvm->arch.mmu.pgt, gpa, PAGE_SIZE,
  			       __pfn_to_phys(*pfn), KVM_PGTABLE_PROT_R, NULL);
@@ -1588,7 +1700,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  	return 0;
  }
  
-@@ -1149,7 +1164,8 @@ int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
+@@ -1149,7 +1168,8 @@ int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
  	return 0;
  }
  
@@ -1598,7 +1710,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  {
  	pte_t pte;
  	kvm_pte_t kpte;
-@@ -1160,12 +1176,14 @@ static int kvm_age_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
+@@ -1160,12 +1180,14 @@ static int kvm_age_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
  	return pte_valid(pte) && pte_young(pte);
  }
  
@@ -1614,7 +1726,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  int kvm_age_hva(struct kvm *kvm, unsigned long start, unsigned long end)
  {
  	if (!kvm->arch.mmu.pgt)
-@@ -1174,6 +1192,7 @@ int kvm_age_hva(struct kvm *kvm, unsigned long start, unsigned long end)
+@@ -1174,6 +1196,7 @@ int kvm_age_hva(struct kvm *kvm, unsigned long start, unsigned long end)
  	return handle_hva_to_gpa(kvm, start, end, kvm_age_hva_handler, NULL);
  }
  
@@ -1622,7 +1734,16 @@ index 26068456ec0f..e0b4ead8e253 100644
  int kvm_test_age_hva(struct kvm *kvm, unsigned long hva)
  {
  	if (!kvm->arch.mmu.pgt)
-@@ -1301,9 +1320,16 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -1197,7 +1220,7 @@ static int kvm_map_idmap_text(void)
+ {
+ 	unsigned long size = hyp_idmap_end - hyp_idmap_start;
+ 	int err = __create_hyp_mappings(hyp_idmap_start, size, hyp_idmap_start,
+-					PAGE_HYP_EXEC);
++					PAGE_HYP_EXEC, NULL);
+ 	if (err)
+ 		kvm_err("Failed to idmap %lx-%lx\n",
+ 			hyp_idmap_start, hyp_idmap_end);
+@@ -1301,9 +1324,16 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	bool writable = !(mem->flags & KVM_MEM_READONLY);
  	int ret = 0;
  
@@ -1639,7 +1760,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  
  	/*
  	 * Prevent userspace from creating a memory region outside of the IPA
-@@ -1370,6 +1396,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -1370,6 +1400,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	else if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
  		stage2_flush_memslot(kvm, memslot);
  	spin_unlock(&kvm->mmu_lock);
@@ -1647,7 +1768,7 @@ index 26068456ec0f..e0b4ead8e253 100644
 +	if (!ret) {
 +		ret = create_hyp_mappings(&memslot,
 +					  &memslot + sizeof(*memslot),
-+					  PAGE_HYP);
++					  PAGE_HYP, kvm);
 +		if (ret) {
 +			unmap_stage2_range(&kvm->arch.mmu, mem->guest_phys_addr,
 +					   mem->memory_size);
@@ -1659,7 +1780,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  out:
  	mmap_read_unlock(current->mm);
  	return ret;
-@@ -1385,7 +1424,7 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
+@@ -1385,7 +1428,7 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
  
  void kvm_arch_flush_shadow_all(struct kvm *kvm)
  {
@@ -1669,7 +1790,7 @@ index 26068456ec0f..e0b4ead8e253 100644
  
  void kvm_arch_flush_shadow_memslot(struct kvm *kvm,
 diff --git a/arch/arm64/kvm/reset.c b/arch/arm64/kvm/reset.c
-index 204c62debf06..723937cac6ab 100644
+index 204c62debf06e..723937cac6ab9 100644
 --- a/arch/arm64/kvm/reset.c
 +++ b/arch/arm64/kvm/reset.c
 @@ -457,12 +457,9 @@ int kvm_arm_setup_stage2(struct kvm *kvm, unsigned long type)
@@ -1688,7 +1809,7 @@ index 204c62debf06..723937cac6ab 100644
  
  	/*
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 57c0c3b18bde..fc4ca442087f 100644
+index 57c0c3b18bde7..fc4ca442087f0 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
 @@ -4889,7 +4889,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
@@ -1701,5 +1822,5 @@ index 57c0c3b18bde..fc4ca442087f 100644
  					   offsetof(struct kvm_vcpu, arch),
  					   sizeof_field(struct kvm_vcpu, arch),
 -- 
-2.25.1
+2.17.1
 

@@ -294,7 +294,7 @@ int lock_host_kernel_area(uint64_t addr, size_t size, uint64_t depth);
 /**
  * Generic stage-1 and -2 map function
  *
- * @param pgd PGD pointer to map into. NULL is interpreted to mean host.
+ * @param guest to map into.
  * @param stage STAGE1 or STAGE2
  * @param vaddr virtual address to map
  * @param paddr physical address to map to
@@ -304,19 +304,19 @@ int lock_host_kernel_area(uint64_t addr, size_t size, uint64_t depth);
  *             the type is embedded in prot parameter.
  * @return zero or success or negative error code on failure
  */
-int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
+int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type);
 
 /**
  * Generic stage-1 and -2 unmap function
  *
- * @param pgd PGD pointer to unmap from. NULL is interpreted to mean host.
+ * @param guest to unmap from.
  * @param stage STAGE1 or STAGE2
  * @param vaddr virtual address to unmap
  * @param length page aligned length to unmap
  * @return zero or success or negative error code on failure
  */
-int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
+int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		size_t length);
 
 /**

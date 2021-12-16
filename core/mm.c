@@ -382,7 +382,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		if (!contiguous)
 			return -EINVAL;
 
-		if (unmap_range(host->EL1S2_pgd, STAGE2, gpa, len))
+		if (unmap_range(host, STAGE2, gpa, len))
 			HYP_ABORT();
 		return 0;
 	}
@@ -397,7 +397,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 			goto cont;
 
 		phys &= PAGE_MASK;
-		if (unmap_range(host->EL1S2_pgd, STAGE2, phys, PAGE_SIZE))
+		if (unmap_range(host, STAGE2, phys, PAGE_SIZE))
 			HYP_ABORT();
 cont:
 		gpap += PAGE_SIZE;
@@ -428,7 +428,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		 */
 		if (!contiguous)
 			return -EINVAL;
-		if (mmap_range(host->EL1S2_pgd, STAGE2, gpa, gpa,
+		if (mmap_range(host, STAGE2, gpa, gpa,
 			       len, ((SH_INN<<8)|PAGE_HYP_RW),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
@@ -448,7 +448,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 			goto cont;
 
 		phys &= PAGE_MASK;
-		if (mmap_range(host->EL1S2_pgd, STAGE2, phys, phys,
+		if (mmap_range(host, STAGE2, phys, phys,
 			       PAGE_SIZE, ((SH_INN<<8)|PAGE_HYP_RW),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
@@ -496,7 +496,7 @@ int restore_host_mappings(void *gp)
 			 * on it.
 			 */
 			memset((void *)slot_addr, 0, PAGE_SIZE);
-			res = mmap_range(host->EL1S2_pgd, STAGE2, slot_addr, slot_addr,
+			res = mmap_range(host, STAGE2, slot_addr, slot_addr,
 					 PAGE_SIZE, PAGE_HYP_RWX, S2_NORMAL_MEMORY);
 			if (res)
 				HYP_ABORT();
@@ -564,7 +564,7 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	LOG("%s 0x%lx\n", __func__, ipa);
 
 	/* 1:1 mapping - TODO the parameters from platform map */
-	if (mmap_range(host->EL1S2_pgd, STAGE2, ipa, ipa,
+	if (mmap_range(host, STAGE2, ipa, ipa,
 		       PAGE_SIZE, ((SH_NO<<8)|PAGE_HYP_RWX), S2_NORMAL_MEMORY))
 		HYP_ABORT();
 

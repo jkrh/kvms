@@ -1331,14 +1331,14 @@ out_done:
 	return res;
 }
 
-int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
+int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type)
 {
 	uint64_t attr, nattr, val, *pte;
 	kvm_guest_t *host;
 
-	if (!pgd || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR) ||
-	   (length > SZ_1G * 4))
+	if (!guest || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR) ||
+	   (length > (SZ_1G * 4)))
 		return -EINVAL;
 
 	host = get_guest(HOST_VMID);
@@ -1349,13 +1349,13 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 
 	switch (stage) {
 	case STAGE2:
-		block.guest = get_guest_by_s2pgd(pgd);
-
-		if (!block.guest)
+		if (!guest->EL1S2_pgd)
 			return -ENOENT;
 
-		block.pgd = pgd;
-		block.tpool = &block.guest->s2_tablepool;
+		block.guest = guest;
+
+		block.pgd = guest->EL1S2_pgd;
+		block.tpool = &guest->s2_tablepool;
 
 		if (type == KERNEL_MATTR)
 			type = (TYPE_MASK_STAGE2 & prot);
@@ -1409,24 +1409,27 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			return -EPERM;
 		break;
 	case STAGE1:
-		block.guest = get_guest_by_s1pgd(pgd);
-
-		if (!block.guest)
+		/*
+		 * This can be  either hosts own pool or a guest
+		 * specific EL2 table pool.
+		 */
+		if (!guest->s1_tablepool.pool)
 			return -ENOENT;
 
-		block.pgd = pgd;
+		/* Page global directory base address for EL2 is owned by host */
+		block.guest = host;
+		block.pgd = host->EL2S1_pgd;
+
 		if (type == KERNEL_MATTR) {
 			type = (TYPE_MASK_STAGE1 & prot);
 			type = k2p_mattrindx(type);
 		}
 		prot &= PROT_MASK_STAGE1;
 
-		if (block.guest != host)
-			return -EINVAL;
 		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
 
-		block.tpool = &block.guest->s1_tablepool;
+		block.tpool = &guest->s1_tablepool;
 
 		break;
 	default:
@@ -1442,12 +1445,12 @@ int mmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 			     TABLE_LEVELS);
 }
 
-int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
+int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		size_t length)
 {
 	kvm_guest_t *host;
 
-	if (!pgd || (vaddr > MAX_VADDR) || (length > SZ_1G * 4))
+	if (!guest || (vaddr > MAX_VADDR) || (length > (SZ_1G * 4)))
 		return -EINVAL;
 
 	host = get_guest(HOST_VMID);
@@ -1456,20 +1459,18 @@ int unmap_range(struct ptable *pgd, uint64_t stage, uint64_t vaddr,
 
 	switch (stage) {
 	case STAGE2:
-		block.guest = get_guest_by_s2pgd(pgd);
-		block.pgd = pgd;
+		block.guest = guest;
+		block.pgd = guest->EL1S2_pgd;
 		block.tpool = &block.guest->s2_tablepool;
 		if (hostflags & HOST_STAGE2_LOCK)
 			return -EPERM;
 		break;
 	case STAGE1:
-		block.guest = get_guest_by_s1pgd(pgd);
-		block.pgd = pgd;
-		if (block.guest != host)
-			return -EINVAL;
+		block.guest = host;
+		block.pgd = host->EL2S1_pgd;
 		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
-		block.tpool = &block.guest->s1_tablepool;
+		block.tpool = &guest->s1_tablepool;
 		break;
 	default:
 		return -EINVAL;

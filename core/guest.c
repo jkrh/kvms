@@ -757,7 +757,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	 */
 	bit_drop(prot, DBM_BIT);
 
-	res = mmap_range(guest->EL1S2_pgd, STAGE2, vaddr, paddr, len, prot,
+	res = mmap_range(guest, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
 	if (!res && !is_share(guest, vaddr, len))
 		res = remove_host_range(guest, vaddr, len, false);
@@ -822,7 +822,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		/*
 		 * Detach the page from the guest
 		 */
-		res = unmap_range(guest->EL1S2_pgd, STAGE2, map_addr, PAGE_SIZE);
+		res = unmap_range(guest, STAGE2, map_addr, PAGE_SIZE);
 		if (res)
 			HYP_ABORT();
 		/*
