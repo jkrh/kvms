@@ -272,26 +272,21 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 	return total;
 }
 
-int print_mappings_el2(void)
+int __print_mappings_el2(uint64_t ivaddr, uint64_t iend)
 {
 	uint64_t start_vaddr = 0, end_vaddr = 0;
 	uint64_t start_addr = 0, attrs = ~0UL;
-	uint64_t vaddr = 0, addr = 0, size = 0;
+	uint64_t vaddr = ivaddr, addr = 0, size = 0;
 	uint64_t oattrs = ~0UL, oaddr = 0;
-	kvm_guest_t *host;
 	uint64_t *pte;
 	int total = 0;
 	char buf[128];
 
-	host = get_guest(HOST_VMID);
-	if (!host)
-		HYP_ABORT();
-
-	LOG("EL2 mappings %p - %p\n", (void *)vaddr, host->ramend);
+	LOG("EL2 mappings %p - %p\n", (void *)vaddr, iend);
 	LOG("vaddr\t\tpaddr\t\tsize\t\tattributes         %s\n",
 	    parse_attrs(0, 0, STAGE1));
 
-	while (vaddr < host->ramend) {
+	while (vaddr < iend) {
 		pte = NULL;
 		addr = pt_walk_el2(vaddr, &pte);
 
@@ -346,6 +341,22 @@ int print_mappings_el2(void)
 	size = end_vaddr - start_vaddr;
 	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n", start_vaddr,
 	    start_addr, size, attrs, parse_attrs(buf, attrs, STAGE1));
+
+	return total;
+}
+
+int print_mappings_el2()
+{
+	int total = 0;
+	kvm_guest_t *host;
+
+	host = get_guest(HOST_VMID);
+	if (!host)
+		HYP_ABORT();
+	/* HYP mappings */
+	total += __print_mappings_el2(0, host->ramend);
+	/* Generic KVM HYP mappings */
+	total += __print_mappings_el2(KERNEL_BASE, KERNEL_BASE + (KERNEL_BASE-1));
 
 	return total;
 }
