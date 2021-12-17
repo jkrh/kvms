@@ -42,3 +42,10 @@ endif
 #
 ifeq ($(QEMUDEBUG),1)
 endif
+
+#
+# Use to turn on the graphics for the virt host emulation
+#
+ifeq ($(GRAPHICS),1)
+export GRAPHICS=1
+endif

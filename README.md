@@ -71,9 +71,7 @@ Building and running on QEMU:
 - Run 'make tools'. This will build all the tools required with right versions
   and install them into the 'buildtools' directory. This will also build the
   patched kernel under oss/linux.
-- Download or assemble QEMU compatible arm64 linux image you wish to boot up.
-  Script named 'scripts/make-bootimg.sh' may work as an example, it should work
-  directly if you invoke it with superuser permissions.
+- Download or assemble QEMU compatible arm64 linux image you wish to boot up
 - Set environment variable BOOTIMG to point to the image. Set PLATFORM=virt
   as well to tell the build system which target you are going for.
 - Run 'make DEBUG=1' to build the hypervisor against the kernel under oss/linux
@@ -82,6 +80,8 @@ Building and running on QEMU:
   anywhere in the kernel and in the hypervisor. This implies that that 'run'
   target was invoked with 'make DEBUGGER=1 run' such that the QEMU was waiting
   for the debugger connection.
+- 'make GRAPHICS=1 ... run' will enable a spice display for the host. The
+  invocation will echo the correct connection endpoint to connect to.
 - Install more kvm virtual machines inside your host system emulation to see
   some more work the hypervisor is doing.
 - Work with the kernel under oss/linux, hyp
