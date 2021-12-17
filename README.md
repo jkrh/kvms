@@ -162,3 +162,7 @@ SHORT TERM TODO
 5) Finish android hardware support (32bit environment goes SIGILL)
 6) Translation code unit test: make sure 'at' and 'pt_walk' agree about the
    system state
+7) Add locking mechanism for guest specific EL2 mappings that are not allowed
+   to be changed after VM has been initialized. At the moment the protection
+   is for all EL2 mappings which prevents from creating new VMs after the lock
+   has been set
