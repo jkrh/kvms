@@ -45,8 +45,8 @@ bool machine_init_ready(void);
  * platform_init_host_pgd - Initialize host platform pgd.
  *
  * This function should populate the host mapping table (Page Global Directory)
- * base addresses for 1) the EL2 (stage1 only) mapping host->s1_pgd and 2) the
- * stage 2 mapping for the host virtual machine mapping host->s2_pgd.
+ * base addresses for 1) the EL2 (stage1 only) mapping host->EL2S1_pgd and 2) the
+ * stage 2 mapping for the host virtual machine mapping host->EL1S2_pgd.
  *
  * @host: Virtual machine (kvm) structure for the host.
  * @return zero if succesfully initialized,

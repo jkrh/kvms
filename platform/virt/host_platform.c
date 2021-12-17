@@ -83,7 +83,6 @@ int machine_virt(kvm_guest_t *host)
 {
 	int stage = STAGE1, res = 0, i;
 	uint64_t perms, type;
-	struct ptable *pgd;
 
 	host->s2_host_access = true;
 
@@ -93,14 +92,12 @@ nextmap:
 		if (stage == STAGE2) {
 			perms = ((SH_INN<<8) | PAGE_HYP_RW);
 			type = S2_DEV_NGNRE;
-			pgd = host->EL1S2_pgd;
 		} else {
 			perms = PAGE_KERNEL_RW;
 			type = DEVICE_MEMORY;
-			pgd = host->EL2S1_pgd;
 		}
 
-		res = mmap_range(pgd, stage, base_memmap[i].addr,
+		res = mmap_range(host, stage, base_memmap[i].addr,
 				 base_memmap[i].addr, base_memmap[i].len,
 				 perms, type);
 		if (res)
@@ -112,13 +109,13 @@ nextmap:
 		goto nextmap;
 	}
 	perms = PAGE_KERNEL_RWX;
-	res = mmap_range(host->EL2S1_pgd, STAGE1, PHYS_OFFSET, PHYS_OFFSET,
+	res = mmap_range(host, STAGE1, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 4, perms, NORMAL_MEMORY);
 	if (res)
 		goto error;
 
 	perms = ((SH_INN<<8) | PAGE_HYP_RWX);
-	res = mmap_range(host->EL1S2_pgd, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
+	res = mmap_range(host, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 3, perms, S2_NORMAL_MEMORY);
 	if (res)
 		goto error;
