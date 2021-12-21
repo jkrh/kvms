@@ -1,4 +1,4 @@
-From 4544c3569ece6d11d17df49c01b558152be70f4d Mon Sep 17 00:00:00 2001
+From eef272e9e1bb6151c8a03e1b311593d0ac642dea Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -6,7 +6,7 @@ Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 ---
- arch/arm64/configs/defconfig      |  12 +-
+ arch/arm64/configs/defconfig      |  26 +-
  arch/arm64/include/asm/kvm_asm.h  |  24 ++
  arch/arm64/include/asm/kvm_host.h |  27 +-
  arch/arm64/include/asm/kvm_hyp.h  |  13 +
@@ -29,16 +29,42 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kvm/mmu.c              | 133 ++++++---
  arch/arm64/kvm/reset.c            |   7 +-
  virt/kvm/kvm_main.c               |   2 +-
- 23 files changed, 858 insertions(+), 134 deletions(-)
+ 23 files changed, 865 insertions(+), 141 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
  create mode 100644 arch/arm64/kvm/hyp/kvms-hvci.S
 
 diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
-index 5cfe3cf6f2ac..44fc9131eafc 100644
+index 5cfe3cf6f2ac..8df22e1a6f6b 100644
 --- a/arch/arm64/configs/defconfig
 +++ b/arch/arm64/configs/defconfig
+@@ -139,18 +139,18 @@ CONFIG_IP_PNP_DHCP=y
+ CONFIG_IP_PNP_BOOTP=y
+ CONFIG_IPV6=m
+ CONFIG_NETFILTER=y
+-CONFIG_NF_CONNTRACK=m
++CONFIG_NF_CONNTRACK=y
+ CONFIG_NF_CONNTRACK_EVENTS=y
+ CONFIG_NETFILTER_XT_TARGET_CHECKSUM=m
+ CONFIG_NETFILTER_XT_TARGET_LOG=m
+ CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=m
+ CONFIG_NETFILTER_XT_MATCH_CONNTRACK=m
+-CONFIG_IP_NF_IPTABLES=m
+-CONFIG_IP_NF_FILTER=m
+-CONFIG_IP_NF_TARGET_REJECT=m
+-CONFIG_IP_NF_NAT=m
+-CONFIG_IP_NF_TARGET_MASQUERADE=m
+-CONFIG_IP_NF_MANGLE=m
++CONFIG_IP_NF_IPTABLES=y
++CONFIG_IP_NF_FILTER=y
++CONFIG_IP_NF_TARGET_REJECT=y
++CONFIG_IP_NF_NAT=y
++CONFIG_IP_NF_TARGET_MASQUERADE=y
++CONFIG_IP_NF_MANGLE=y
+ CONFIG_IP6_NF_IPTABLES=m
+ CONFIG_IP6_NF_FILTER=m
+ CONFIG_IP6_NF_TARGET_REJECT=m
 @@ -629,7 +629,7 @@ CONFIG_VIDEO_RCAR_DRIF=m
  CONFIG_VIDEO_IMX219=m
  CONFIG_VIDEO_OV5645=m

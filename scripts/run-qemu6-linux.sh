@@ -117,7 +117,7 @@ SPICEOPTS="$SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migrat
 [ -z "$MEM" ] && MEM=3096
 [ -z "$SMP" ] && SMP="-smp 4"
 [ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice -soundhw hda"
-CPU="-enable-kvm -cpu host"
+CPU="-enable-kvm -cpu host,pmu=off"
 USB="-device qemu-xhci -device usb-kbd -device usb-tablet"
 RNG="-device virtio-rng-pci,id=rng0,max-bytes=1024,period=2000"
 BALLOON="-device virtio-balloon-pci,id=balloon0"
