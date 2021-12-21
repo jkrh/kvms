@@ -52,10 +52,10 @@ typedef struct {
 } sys_context_t;
 
 typedef enum {
-	guest_invalid = 0x0,
-	guest_stopped = 0x1,
-	guest_running = 0x2,
-	guest_sleeping = 0x3,
+	GUEST_INVALID = 0x0,
+	GUEST_STOPPED = 0x1,
+	GUEST_RUNNING = 0x2,
+	GUEST_SLEEPING = 0x3,
 } guest_state_t;
 
 typedef struct {

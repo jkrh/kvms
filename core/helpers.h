@@ -226,7 +226,7 @@ static inline void hexdump(const char *token, uint8_t *data, int len)
 
 #define tlbivmall() __asm__ __volatile__("tlbi	vmalls12e1\n" : : : "memory");
 
-#define tlbivmallis() __asm__ __volatile__("tlbi	vmalls12e1is\n" : : : "memory");
+#define tlbivmalls12e1is() __asm__ __volatile__("tlbi	vmalls12e1is\n" : : : "memory");
 
 #define dmb() __asm__ __volatile__("dmb	sy\n" : : : "memory");
 

@@ -572,6 +572,26 @@ int free_pgd(struct tablepool *tpool, struct ptable *pgd_base)
 		isb();
 	}
 
+	if (tpool == &tpool->guest->s2_tablepool) {
+		if (tpool->guest->vmid != HOST_VMID) {
+			load_guest_s2(tpool->guest->vmid);
+			isb();
+		}
+		dsb();
+		tlbivmalls12e1is();
+		dsb();
+		isb();
+		if (tpool->guest->vmid != HOST_VMID) {
+			load_host_s2();
+			isb();
+		}
+	}
+
+	memset(tpool, 0, sizeof(struct tablepool));
+
+	tpool->firstchunk = GUEST_MEMCHUNKS_MAX;
+	tpool->currentchunk = GUEST_MEMCHUNKS_MAX;
+
 	return 0;
 }
 
@@ -1553,5 +1573,5 @@ void enable_mmu(void)
 	isb();
 
 	invalidate = 1;
-	update_guest_state(guest_running);
+	update_guest_state(GUEST_RUNNING);
 }

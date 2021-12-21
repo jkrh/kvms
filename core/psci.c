@@ -39,7 +39,7 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 	case PSCI_VERSION:
 		if (vmid != HOST_VMID) {
 			LOG("VMID %lu running core: %lu\n", vmid, cpuid);
-			update_guest_state(guest_running);
+			update_guest_state(GUEST_RUNNING);
 		}
 		set_lockflags(HOST_KVM_TRAMPOLINE_LOCK, 0, 0, 0);
 		break;
@@ -74,13 +74,13 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 	case PSCI_SYSTEM_OFF:
 		if (vmid != HOST_VMID) {
 			LOG("VMID %lu stopped\n", vmid);
-			update_guest_state(guest_stopped);
+			update_guest_state(GUEST_STOPPED);
 		}
 		break;
 	case PSCI_SYSTEM_RESET:
 		if (vmid != HOST_VMID) {
 			LOG("VMID %lu reset\n", vmid);
-			update_guest_state(guest_stopped);
+			update_guest_state(GUEST_STOPPED);
 		}
 		break;
 	default:

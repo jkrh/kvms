@@ -197,7 +197,7 @@ guest_state_t get_guest_state(uint64_t vmid)
 
 	guest = get_guest(vmid);
 	if (!guest)
-		return guest_invalid;
+		return GUEST_INVALID;
 
 	return guest->state;
 }
@@ -671,6 +671,81 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	return res;
 }
 
+/**
+ * Release guest stage 2 mappings.
+ *
+ * Unmap the whole guest stage 2 if the requested range covers the entire guest
+ * RAM area. This function can be used to optimize guest reboot and shutdown
+ * times. Function requires the guest RAM to be contiguous IPA range - return
+ * error if this is not the case and let the default logic to handle the unmap
+ * request.
+ *
+ * @param guest the guest for which the stage 2 is released
+ * @param rangestart unmap range start
+ * @param rangeend unmap range end
+ * @return zero on success or error code if unmap was not done
+ */
+static int release_guest_s2(kvm_guest_t *guest, uint64_t rangestart, uint64_t rangeend)
+{
+	int res;
+	uint64_t ram_start = ~0UL, ram_end = ~0UL;
+	kvm_memslots *slots = guest->slots;
+	int i;
+
+	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
+		if (!slots[i].slot.npages)
+			continue;
+
+		if (slots[i].slot.flags & KVM_MEM_READONLY)
+			continue;
+
+		/*
+		 * We can continue if RAM slots are in ascending order
+		 * and contiguous.
+		 */
+		if (ram_start < ~0UL) {
+			if (slots[i].region.guest_phys_addr != ram_end)
+				return -ERANGE;
+
+			ram_end = ram_end + slots[i].region.memory_size;
+
+		} else {
+			ram_start = slots[i].region.guest_phys_addr;
+			ram_end = ram_start + slots[i].region.memory_size;
+		}
+	}
+
+	if (ram_start == ~0UL)
+		return -ERANGE;
+
+	/*
+	 * If the range does not cover the whole guest RAM we can not
+	 * release the whole guest stage 2 map here.
+	 */
+	if ((rangestart > ram_start) || (rangeend < ram_end))
+		return -ERANGE;
+
+	memset(guest->hyp_page_data, 0, sizeof(guest->hyp_page_data));
+	res = restore_host_mappings(guest);
+	if (res)
+		HYP_ABORT();
+
+	/* Trash pgd */
+	res = free_pgd(&guest->s2_tablepool, NULL);
+	if (res)
+		HYP_ABORT();
+
+	/* Get new one in to prepare for possible reboot */
+	guest->EL1S2_pgd = alloc_pgd(guest, &guest->s2_tablepool);
+	if (res)
+		HYP_ABORT();
+
+	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
+				    ((uint64_t)guest->vmid << 48));
+
+	return 0;
+}
+
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		    uint64_t len, uint64_t prot)
 {
@@ -784,13 +859,16 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 	if (range_end > guest->ramend)
 		range_end = guest->ramend;
 
+	if (!sec && !release_guest_s2(guest, vaddr, range_end))
+		return 0;
+
 	map_addr = vaddr;
 	while (map_addr < range_end) {
 		paddr = pt_walk(guest, STAGE2, map_addr, &pte);
 		if (paddr == ~0UL)
 			goto do_loop;
 
-		if ((guest->state == guest_running) && sec) {
+		if ((guest->state == GUEST_RUNNING) && sec) {
 			/*
 			 * This is a mmu notifier chain call and the
 			 * blob may get swapped out and freed. Take
@@ -897,7 +975,7 @@ int free_guest(void *kvm)
 		}
 	}
 
-	guest->state = guest_invalid;
+	guest->state = GUEST_INVALID;
 	guest_mempool_free(guest);
 
 	gi = guest->index;
