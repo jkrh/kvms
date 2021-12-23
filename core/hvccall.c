@@ -372,8 +372,9 @@ void hyp_abort(const char *func, const char *file, int line)
 {
 	ERROR("Aborted: %s:%lu func %s\n", file, line, func);
 
-#ifdef CRASHDUMP
-	print_tables(get_current_vmid());
+#if defined(CRASHDUMP) && defined(DEBUG)
+	print_mappings(get_current_vmid(), STAGE2);
+	print_mappings_el2();
 #endif
 	while (1)
 		wfi();
@@ -424,8 +425,9 @@ void dump_state(uint64_t level, void *sp)
 	ERROR("x28(0x%012lx):x29(0x%012lx):x30(0x%012lx)\n",
 		__frame[28], __frame[29], __frame[30]);
 
-#ifdef CRASHDUMP
-	print_tables(get_current_vmid());
+#if defined(CRASHDUMP) && defined(DEBUG)
+	print_mappings(get_current_vmid(), STAGE2);
+	print_mappings_el2();
 #endif
 	spin_unlock(&crash_lock);
 	while (1)

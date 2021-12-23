@@ -166,3 +166,5 @@ SHORT TERM TODO
    to be changed after VM has been initialized. At the moment the protection
    is for all EL2 mappings which prevents from creating new VMs after the lock
    has been set
+8) QEMU protected guest support to give the madvise() hint to KSM not to scan
+   the guest memory: -cpu=host,protected-guest-support=kvms

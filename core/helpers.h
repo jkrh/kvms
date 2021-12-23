@@ -51,10 +51,10 @@
 	})
 
 /* Perform stage 1 and stage 2 address translation */
-#define s12e1r(va)                                                            \
+#define s12e1r(va)                                                             \
 	({                                                                     \
 		uint64_t value;                                                \
-		__asm__ __volatile__("at	s12e1r, %[vaddr]\n"             \
+		__asm__ __volatile__("at	s12e1r, %[vaddr]\n"            \
 				     "mrs	%[paddr], PAR_EL1\n"           \
 				     : [paddr] "=r"(value)                     \
 				     : [vaddr] "r"(va)                         \
