@@ -16,6 +16,7 @@
 #include "guest.h"
 #include "hvccall.h"
 #include "kentry.h"
+#include "tables.h"
 
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"

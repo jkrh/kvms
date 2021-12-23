@@ -10,6 +10,7 @@
 #include "mhelpers.h"
 #include "mm.h"
 #include "bits.h"
+#include "tables.h"
 
 #include "platform_api.h"
 #include "host_platform.h"

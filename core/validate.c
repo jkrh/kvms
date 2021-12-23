@@ -7,6 +7,7 @@
 #include "spinlock.h"
 #include "bits.h"
 #include "imath.h"
+#include "tables.h"
 
 bool at_debugstop = false;
 extern uint64_t core_lock;
