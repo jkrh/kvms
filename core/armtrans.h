@@ -44,10 +44,8 @@ struct ptable
 #define ATTR_MASK		0xFFFC0000000003FCUL
 
 /*
- * FIXME: we need more human readable permission bits.
+ * Permissions, stage 1:
  */
-
-/* Stage 1 */
 #define S1_PXN_SHIFT		53
 #define S1_PXN			(1UL << S1_PXN_SHIFT)
 
@@ -66,6 +64,7 @@ struct ptable
 #define PAGE_KERNEL_RWX		0x00000000000000
 #define PAGE_KERNEL_RO		(S1_UXN | S1_AP_RO_N) //0x40000000000080
 #define PAGE_KERNEL_EXEC	S1_AP_RO_N          //0x00000000000080
+
 /* Stage 2 */
 #define S2_XN_SHIFT		53
 #define S2_XN_MASK		(0x3UL << S2_XN_SHIFT)
@@ -81,16 +80,14 @@ struct ptable
 #define S2AP_WRITE		(2UL << S2AP_SHIFT)
 #define S2AP_RW			(3UL << S2AP_SHIFT)
 
-
-#define S2_MEM_ATTR_SHIFT	2
-#define S2_MEM_ATTR_MASK	(0x0fUL << S2_MEM_ATTR_SHIFT)
-
-#define S2_MEMTYPE_DEVICE	0
-
 #define PAGE_HYP_RW		(S2_EXEC_NONE | S2AP_RW)     //0x400000000000c0
 #define PAGE_HYP_RWX		(S2_EXEC_EL1EL0 | S2AP_RW)   //0x000000000000c0
 #define PAGE_HYP_RO		(S2_EXEC_NONE | S2AP_READ)   //0x40000000000040
 #define PAGE_HYP_EXEC		(S2_EXEC_EL1EL0 | S2AP_READ) //0x00000000000040
+
+#define S2_MEM_ATTR_SHIFT	2
+#define S2_MEM_ATTR_MASK	(0x0fUL << S2_MEM_ATTR_SHIFT)
+#define S2_MEMTYPE_DEVICE	0
 
 #define STAGE1 0
 #define STAGE2 1

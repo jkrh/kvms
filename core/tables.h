@@ -7,6 +7,23 @@
 #include <stdbool.h>
 
 #include "guest.h"
+#include "host_defs.h"
+
+#ifndef GUEST_MEMCHUNKS_MAX
+#define GUEST_MEMCHUNKS_MAX 	256
+#endif
+
+#define DESCRIPTOR_SIZE		8
+#define TABLE_SIZE_4KGRANULE	(512 * DESCRIPTOR_SIZE)
+
+#define GUEST_MAX_PAGES		(GUEST_MEM_MAX / PAGE_SIZE)
+#define GUEST_MAX_TABLESIZE	(GUEST_MAX_PAGES * DESCRIPTOR_SIZE)
+#define GUEST_TABLES		(GUEST_MAX_TABLESIZE / TABLE_SIZE_4KGRANULE)
+
+#define GUEST_MAX_TABLES	GUEST_TABLES
+#define MAX_VM			(MAX_GUESTS + 1)
+#define PGD_PER_VM		2
+#define TTBL_POOLS		(MAX_VM * PGD_PER_VM)
 
 /* Granule size constants as defined in VTCR_EL2.TG0 */
 #define GRANULE_SIZE_4KB	0
@@ -37,6 +54,31 @@ typedef struct tdinfo_t
 	uint64_t l2_blk_size;
 	uint64_t table_oa_mask;
 } tdinfo_t ALIGN(16);
+
+typedef enum {
+	GUEST_MEMCHUNK_FREE = 0,
+	GUEST_MEMCHUNK_TTBL,
+	GUEST_MEMCHUNK_UNDEFINED,
+} guest_memchunk_user_t;
+
+typedef struct {
+	uint64_t start;
+	size_t size;
+	guest_memchunk_user_t type;
+	uint16_t next;
+	uint16_t previous;
+} guest_memchunk_t;
+
+struct tablepool {
+	struct kvm_guest *guest;
+	struct ptable *pool;
+	uint64_t num_tables;
+	uint16_t firstchunk;
+	uint16_t currentchunk;
+	uint16_t hint;
+	uint8_t *used;
+	uint8_t props[GUEST_MAX_TABLES];
+};
 
 /**
  * Reset current host page tables.
@@ -79,7 +121,7 @@ struct ptable *alloc_table(struct tablepool *tpool);
  * @param tpool table pool to be associated with the pgd
  * @return pgd address on success or NULL on failure
  */
-struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool);
+struct ptable *alloc_pgd(struct kvm_guest *guest, struct tablepool *tpool);
 
 /**
  * Free a page global directory

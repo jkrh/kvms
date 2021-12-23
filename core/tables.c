@@ -181,10 +181,8 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 
 	tpool->pool = NULL;
 
-
 	c = guest_memchunk_alloc(tpool->guest, PAGE_SIZE,
 				GUEST_MEMCHUNK_TTBL);
-
 	if (c < 0)
 		c = alloc_static_ttbl_chunk(tpool->guest);
 
@@ -200,7 +198,6 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 	}
 
 	tpool->currentchunk = c;
-
 	tpool->pool = (struct ptable *)tpool->guest->mempool[c].start;
 	tpool->num_tables = tpool->guest->mempool[c].size / sizeof(struct ptable);
 
@@ -412,7 +409,7 @@ static int clean_parentpgd(struct tablepool *tpool, struct ptable *ppgd)
 	return res;
 }
 
-struct ptable *alloc_pgd(kvm_guest_t *guest, struct tablepool *tpool)
+struct ptable *alloc_pgd(struct kvm_guest *guest, struct tablepool *tpool)
 {
 	struct ptable *pgd, *check;
 

@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+
 #ifndef __KVM_GUEST_H__
 #define __KVM_GUEST_H__
 
@@ -8,6 +9,7 @@
 #include "hvccall-defines.h"
 #include "mm.h"
 #include "host_defs.h"
+#include "tables.h"
 
 #include "mbedtls/aes.h"
 
@@ -19,27 +21,12 @@
 #endif
 #define MAX_SHARES 128
 
-#ifndef GUEST_MEMCHUNKS_MAX
-#define GUEST_MEMCHUNKS_MAX 256
-#endif
-
 #define KVM_USER_MEM_SLOTS 512
 #define KVM_PRIVATE_MEM_SLOTS 0
 #ifndef KVM_MEM_SLOTS_NUM
 #define KVM_MEM_SLOTS_NUM (KVM_USER_MEM_SLOTS + KVM_PRIVATE_MEM_SLOTS)
 #endif
 
-#define DESCRIPTOR_SIZE		8
-#define TABLE_SIZE_4KGRANULE	(512 * DESCRIPTOR_SIZE)
-
-#define GUEST_MAX_PAGES		(GUEST_MEM_MAX / PAGE_SIZE)
-#define GUEST_MAX_TABLESIZE	(GUEST_MAX_PAGES * DESCRIPTOR_SIZE)
-#define GUEST_TABLES		(GUEST_MAX_TABLESIZE / TABLE_SIZE_4KGRANULE)
-
-#define GUEST_MAX_TABLES	GUEST_TABLES
-#define MAX_VM			(MAX_GUESTS + 1)
-#define PGD_PER_VM		2
-#define TTBL_POOLS	(MAX_VM * PGD_PER_VM)
 typedef int kernel_func_t(uint64_t, ...);
 
 typedef struct {
@@ -63,34 +50,7 @@ typedef struct {
 	size_t len;
 } share_t;
 
-typedef struct kvm_guest_t kvm_guest_t;
-struct tablepool
-{
-	kvm_guest_t *guest;
-	struct ptable *pool;
-	uint64_t num_tables;
-	uint16_t firstchunk;
-	uint16_t currentchunk;
-	uint16_t hint;
-	uint8_t *used;
-	uint8_t props[GUEST_MAX_TABLES];
-};
-
-typedef enum {
-	GUEST_MEMCHUNK_FREE = 0,
-	GUEST_MEMCHUNK_TTBL,
-	GUEST_MEMCHUNK_UNDEFINED,
-} guest_memchunk_user_t;
-
-typedef struct {
-	uint64_t start;
-	size_t size;
-	guest_memchunk_user_t type;
-	uint16_t next;
-	uint16_t previous;
-} guest_memchunk_t;
-
-struct kvm_guest_t {
+struct kvm_guest {
 	uint32_t vmid;
 	guest_state_t state;
 	kernel_func_t *cpu_map[NUM_VCPUS];
@@ -115,6 +75,8 @@ struct kvm_guest_t {
 	mbedtls_aes_context aes_ctx;
 	bool s2_host_access;
 };
+
+typedef struct kvm_guest kvm_guest_t;
 
 /**
  * Set a guest memory area as shared. If we ever trap on this
