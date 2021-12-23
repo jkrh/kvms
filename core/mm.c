@@ -367,7 +367,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		return -EINVAL;
 
 	guest = (kvm_guest_t *)g;
-	if (guest->s2_host_access)
+	if (!guest->s2_host_access)
 		return 0;
 
 	host = get_guest(HOST_VMID);
@@ -415,8 +415,9 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		return -EINVAL;
 
 	guest = (kvm_guest_t *)g;
-	if (guest->s2_host_access)
+	if (!guest->s2_host_access)
 		return 0;
+
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();

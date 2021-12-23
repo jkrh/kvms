@@ -329,9 +329,9 @@ int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk);
 static inline void set_blinding_default(kvm_guest_t *guest)
 {
 #ifdef HOSTBLINDING
-	guest->s2_host_access = false;
-#else
 	guest->s2_host_access = true;
+#else
+	guest->s2_host_access = false;
 #endif // HOSTBLINDING
 }
 
