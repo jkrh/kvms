@@ -20,7 +20,7 @@ export CFLAGS := -march=armv8-a+nofp --sysroot=$(TOOLDIR) --no-sysroot-suffix \
 		-fno-hosted -std=c99 -mgeneral-regs-only -mno-omit-leaf-frame-pointer \
 		$(DEFINES) $(OPTS) $(INCLUDES) $(WARNINGS)
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
-export LDFLAGS := -O1 -nostdlib \
+export LDFLAGS := -nostdlib \
 		-L$(BASE_DIR)/mbedtls/library \
 		-L$(BASE_DIR)/.objs
 export SUBMAKETOOLS := CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC) LD=$(LD) \
