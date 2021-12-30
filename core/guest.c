@@ -24,6 +24,7 @@
 extern struct mbedtls_entropy_context mbedtls_entropy_ctx;
 
 #define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
+#define ARMV8_PMU_USERENR_MASK 0xf
 
 extern struct mbedtls_ctr_drbg_context ctr_drbg;
 
@@ -136,8 +137,9 @@ void restore_host_traps(void)
 	write_reg(HCR_EL2, host_ctxt->hcr_el2);
 	write_reg(CPTR_EL2, host_ctxt->cptr_el2);
 	write_reg(MDCR_EL2, host_ctxt->mdcr_el2);
-	write_reg(HSTR_EL2, host_ctxt->hstr_el2);
-	write_reg(PMUSERENR_EL0, 0);
+	write_reg(HSTR_EL2, host_ctxt->hstr_el2 | (1 << 15));
+	write_reg(PMUSERENR_EL0, ARMV8_PMU_USERENR_MASK);
+	write_reg(PMSELR_EL0, 0);
 }
 
 kvm_guest_t *get_free_guest(uint64_t vmid)

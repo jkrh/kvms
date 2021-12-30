@@ -167,18 +167,22 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		 */
 		break;
 	case HYP_HOST_UNMAP_STAGE1:
+		/*
+		 * We currently do automatic guest residue cleaning from the
+		 * EL2, so this function is obsolete. Leaving the code here
+		 * anyway should the need for it arise later on.
+
 		host = get_guest(HOST_VMID);
 		if (!a3)
 			guest = host;
 		else
 			guest = get_guest_by_kvm((void *)a3);
-		/*
-		 * This is a hyp mode mapping.
-		 * Validate the requested range for the host.
-		 */
+		 *
 		res = guest_validate_range(host, a1, a1, a2);
 		if (!res)
 			res = unmap_range(guest, STAGE1, a1, a2);
+		 */
+		res = -EINVAL;
 		break;
 	/*
 	 * HYP_HOST_PREPARE_STAGE2 prepares a range of memory with an existing

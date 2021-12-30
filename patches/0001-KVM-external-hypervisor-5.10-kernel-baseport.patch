@@ -1,4 +1,4 @@
-From eef272e9e1bb6151c8a03e1b311593d0ac642dea Mon Sep 17 00:00:00 2001
+From 18fa0b25c771e0291a2c552b7de414bfe16b058c Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -7,6 +7,7 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 ---
  arch/arm64/configs/defconfig      |  26 +-
+ arch/arm64/include/asm/kvm_arm.h  |   2 +-
  arch/arm64/include/asm/kvm_asm.h  |  24 ++
  arch/arm64/include/asm/kvm_host.h |  27 +-
  arch/arm64/include/asm/kvm_hyp.h  |  13 +
@@ -29,7 +30,7 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kvm/mmu.c              | 133 ++++++---
  arch/arm64/kvm/reset.c            |   7 +-
  virt/kvm/kvm_main.c               |   2 +-
- 23 files changed, 865 insertions(+), 141 deletions(-)
+ 24 files changed, 866 insertions(+), 142 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -88,6 +89,19 @@ index 5cfe3cf6f2ac..8df22e1a6f6b 100644
 +CONFIG_VIRTIO_VSOCKETS_COMMON=y
 +CONFIG_VIRTIO_VSOCKETS=y
 +CONFIG_ARM64_PTR_AUTH=n
+diff --git a/arch/arm64/include/asm/kvm_arm.h b/arch/arm64/include/asm/kvm_arm.h
+index 395cb22d9f7d..b103158d5df3 100644
+--- a/arch/arm64/include/asm/kvm_arm.h
++++ b/arch/arm64/include/asm/kvm_arm.h
+@@ -79,7 +79,7 @@
+ 			 HCR_AMO | HCR_SWIO | HCR_TIDCP | HCR_RW | HCR_TLOR | \
+ 			 HCR_FMO | HCR_IMO | HCR_PTW )
+ #define HCR_VIRT_EXCP_MASK (HCR_VSE | HCR_VI | HCR_VF)
+-#define HCR_HOST_NVHE_FLAGS (HCR_RW | HCR_API | HCR_APK | HCR_ATA)
++#define HCR_HOST_NVHE_FLAGS (HCR_RW | HCR_TVM | HCR_API | HCR_APK | HCR_ATA)
+ #define HCR_HOST_VHE_FLAGS (HCR_RW | HCR_TGE | HCR_E2H)
+ 
+ /* TCR_EL2 Registers bits */
 diff --git a/arch/arm64/include/asm/kvm_asm.h b/arch/arm64/include/asm/kvm_asm.h
 index 044bb9e2cd74..db5eec9c4ebc 100644
 --- a/arch/arm64/include/asm/kvm_asm.h
