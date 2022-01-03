@@ -1,4 +1,4 @@
-From 18fa0b25c771e0291a2c552b7de414bfe16b058c Mon Sep 17 00:00:00 2001
+From 4e709d4cd567714a1b0617c49f4a00a5a6dfdbe9 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -16,10 +16,10 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kernel/head.S          |  16 +-
  arch/arm64/kvm/Makefile           |   2 +-
  arch/arm64/kvm/arm.c              |  56 ++--
- arch/arm64/kvm/ext-guest.c        | 445 ++++++++++++++++++++++++++++++
+ arch/arm64/kvm/ext-guest.c        | 439 ++++++++++++++++++++++++++++++
  arch/arm64/kvm/ext-guest.h        |  31 +++
  arch/arm64/kvm/fpsimd.c           |   4 +-
- arch/arm64/kvm/hvccall-defines.h  |  61 ++++
+ arch/arm64/kvm/hvccall-defines.h  |  72 +++++
  arch/arm64/kvm/hyp/Makefile       |   2 +-
  arch/arm64/kvm/hyp/entry.S        |  13 +-
  arch/arm64/kvm/hyp/kvms-hvci.S    |  11 +
@@ -30,7 +30,7 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/kvm/mmu.c              | 133 ++++++---
  arch/arm64/kvm/reset.c            |   7 +-
  virt/kvm/kvm_main.c               |   2 +-
- 24 files changed, 866 insertions(+), 142 deletions(-)
+ 24 files changed, 871 insertions(+), 142 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -626,10 +626,10 @@ index 5bc978be8043..b3cd52794987 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..2497015fa8d8
+index 000000000000..9e6c3a0b1084
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,445 @@
+@@ -0,0 +1,439 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -1034,6 +1034,7 @@ index 000000000000..2497015fa8d8
 +		kvm_err("Cannot map bss section\n");
 +		goto out_err;
 +	}
++
 +	/*
 +	 * Map Hyp percpu pages
 +	 */
@@ -1053,14 +1054,7 @@ index 000000000000..2497015fa8d8
 +	return 0;
 +
 +out_err:
-+	clean_hyp_mappings(kvm_ksym_ref(__hyp_text_start),
-+			   kvm_ksym_ref(__hyp_text_end), NULL);
-+	clean_hyp_mappings(kvm_ksym_ref(__start_rodata),
-+			   kvm_ksym_ref(__end_rodata), NULL);
-+	clean_hyp_mappings(kvm_ksym_ref(__bss_start),
-+			   kvm_ksym_ref(__bss_stop), NULL);
-+
-+	kvm_err("error initializing Hyp mode: %d\n", err);
++	panic("error initializing Hyp mode: %d\n", err);
 +	return err;
 +}
 +
@@ -1132,10 +1126,10 @@ index 3e081d556e81..bd74c6419f8a 100644
  
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..6b16696ea27a
+index 000000000000..4f77da6d759f
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,72 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef __HYP_API__
 +#define __HYP_API__
@@ -1146,6 +1140,15 @@ index 000000000000..6b16696ea27a
 +#define KERN_VA_MASK	0x0000000FFFFFFFFF
 +#define CALL_MASK	KERN_VA_MASK
 +#define KERNEL_BASE	0x4000000000
++
++/*
++ * Kernel lock flags
++ */
++#define HOST_STAGE1_LOCK		0x1
++#define HOST_STAGE2_LOCK		0x2
++#define HOST_KVM_CALL_LOCK		0x4
++#define HOST_PT_LOCK			0x8
++#define HOST_KVM_TRAMPOLINE_LOCK	0x10
 +
 +/*
 + * Host protection support
@@ -1160,7 +1163,7 @@ index 000000000000..6b16696ea27a
 +#define HYP_HOST_SET_LOCKFLAGS		0x8006
 +#define HYP_HOST_PREPARE_STAGE1		0x8007
 +#define HYP_HOST_PREPARE_STAGE2		0x8008
-+#define HYP_LAST_HOSTCALL		HYP_HOST_SET_LOCKFLAGS
++#define HYP_LAST_HOSTCALL		HYP_HOST_PREPARE_STAGE2
 +
 +/*
 + * KVM guest support
@@ -1174,14 +1177,16 @@ index 000000000000..6b16696ea27a
 +#define HYP_UPDATE_GUEST_MEMSLOT	0x9005
 +#define HYP_GUEST_MAP_STAGE2		0x9006
 +#define HYP_GUEST_UNMAP_STAGE2		0x9007
-+#define HYP_SET_WORKMEM			0x9008
 +#define HYP_USER_COPY			0x9009
 +#define HYP_MKYOUNG			0x900A
 +#define HYP_SET_GUEST_MEMORY_OPEN	0x900B
 +#define HYP_SET_GUEST_MEMORY_BLINDED	0x900C
 +#define HYP_MKOLD			0x900D
 +#define HYP_ISYOUNG			0x900E
-+#define HYP_LAST_GUESTCALL		HYP_ISYOUNG
++#define HYP_TRANSLATE			0x900F
++#define HYP_SET_MEMCHUNK		0x9010
++#define HYP_RELEASE_MEMCHUNK		0x9011
++#define HYP_LAST_GUESTCALL		HYP_RELEASE_MEMCHUNK
 +
 +/*
 + * Misc

@@ -21,6 +21,7 @@
 #include "kjump.h"
 #include "validate.h"
 #include "platform_api.h"
+#include "gic.h"
 
 #define ISS_MASK		0x1FFFFFFUL
 #define ISS_RT_MASK		0x3E0UL
@@ -410,7 +411,8 @@ void dump_state(uint64_t level, void *sp)
 	}
 	ERROR("VTTBR_EL2 (0x%012x) ESR_EL2 (0x%012lx) FAR_EL2 (0x%012lx)\n",
 	      read_reg(VTTBR_EL2), read_reg(ESR_EL2), read_reg(FAR_EL2));
-	ERROR("HPFAR_EL2 (0x%012lx)\n", read_reg(HPFAR_EL2));
+	ERROR("HPFAR_EL2 (0x%012lx) GICD_STATUSR(0x%012lx)\n",
+	      read_reg(HPFAR_EL2), read_gicdreg(GICD_STATUSR));
 
 	ERROR("x00(0x%012lx):x01(0x%012lx):x02(0x%012lx):x03(0x%012lx)\n",
 		__frame[0], __frame[1], __frame[2], __frame[3]);

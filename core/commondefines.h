@@ -9,6 +9,7 @@ typedef uint64_t u_register_t;
 #define PAGE_SIZE 0x1000UL
 #define PAGE_SHIFT 12
 #define PAGE_MASK 0xFFFFFFFFFFFFF000
+#define USED __attribute__((used))
 #define UNUSED __attribute__((unused))
 #define WEAK_SYM __attribute__((weak))
 #define ALIGN(N) __attribute__((aligned(N)))

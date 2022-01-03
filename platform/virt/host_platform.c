@@ -13,9 +13,7 @@
 #include "hvccall.h"
 #include "validate.h"
 #include "tables.h"
-
-#define PHYS_OFFSET 0x40000000UL
-#define VIRT_UART 0x09000000UL
+#include "gic.h"
 
 #define UART01x_FR_BUSY 0x008
 #define UART01x_FR 0x18 /* Flag register (Read only). */
@@ -35,7 +33,7 @@ typedef struct {
 
 static const memmap base_memmap[] = {
 	{ 0, 0x08000000UL },
-	{ 0x08000000UL, 0x00010000UL },
+	{ GIC_DIST_ADDR, GIC_DIST_SZ },
 	{ 0x08010000UL, 0x00010000UL },
 	{ 0x08020000UL, 0x00001000UL },
 	{ 0x08030000UL, 0x00010000UL },

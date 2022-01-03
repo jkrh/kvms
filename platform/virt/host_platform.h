@@ -47,4 +47,10 @@
 
 int console_putc(unsigned char);
 
+#define GIC_DIST_ADDR 0x08000000UL
+#define GIC_DIST_SZ 0x10000
+
+#define PHYS_OFFSET 0x40000000UL
+#define VIRT_UART 0x09000000UL
+
 #endif

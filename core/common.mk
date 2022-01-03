@@ -3,10 +3,12 @@ AS_OBJ := $(patsubst $(notdir %.S),$(OBJDIR)/%.o,$(notdir $(AS_SOURCES)))
 C_OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(C_SOURCES)))
 OBJS := $(C_OBJ) $(AS_OBJ)
 
+COMMONLIBS := -lcore -lmbedcrypto -lmbedx509 -lmbedtls -lstdlib -u print_gicd_reg
+
 ifeq ($(PLATFORM),virt)
-LDLIBS := -l$(PLATFORM) -lcore -lmbedcrypto -lmbedx509 -lmbedtls -lstdlib
+LDLIBS := -l$(PLATFORM) $(COMMONLIBS)
 else
-LDLIBS := -l$(PLATFORM) -l$(PRODUCT) -lcore -lmbedcrypto -lmbedx509 -lmbedtls -lstdlib
+LDLIBS := -l$(PLATFORM) -l$(PRODUCT) $(COMMONLIBS)
 endif
 
 .PHONY: clean run gdb
