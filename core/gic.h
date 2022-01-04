@@ -13,6 +13,6 @@
 #define read_gicdreg(reg) (*(gdreg_addr(reg)))
 #define write_gicdreg(reg, val) (*gdreg_addr(reg) = val)
 
-uint32_t print_gicd_reg(uint32_t reg);
+uint32_t print_gicdreg(uint32_t reg);
 
 #endif // __GIC_H__
