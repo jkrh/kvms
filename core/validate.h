@@ -44,6 +44,14 @@ int print_mappings(uint32_t vmid, uint64_t stage);
 int print_mappings_el2(void);
 
 /**
+ * Print shared areas to console/log
+ *
+ * @param vmid to dump
+ * @return total number of mapped shares or -errno
+ */
+int print_shares(uint32_t vmid);
+
+/**
  * Validate host mappings
  *
  * Run all kernel stage 1 and hyp generated stage 2 host mappings via

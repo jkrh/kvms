@@ -76,6 +76,49 @@ int count_shared(uint32_t vmid, bool lock)
 	return shared;
 }
 
+int print_shares(uint32_t vmid)
+{
+	kvm_guest_t *guest;
+	int i, c = 0, t = 0;
+
+	guest = get_guest(vmid);
+	if (!guest) {
+		ERROR("No such guest %u?\n", vmid);
+		return -ENOENT;
+	}
+
+	for (i=0; i < MAX_SHARES; i++) {
+		if (guest->shares[i].len) {
+			uint64_t phys, s = ~0UL;
+			size_t p = 0;
+			size_t l = 0;
+
+			while (l < guest->shares[i].len) {
+				phys = pt_walk(guest, STAGE2,
+					       guest->shares[i].gpa + l, 0);
+				if (phys != ~0UL)
+					p++;
+
+				if (l == 0)
+					s = phys;
+
+				l += PAGE_SIZE;
+			}
+			t++;
+			if (p)
+				c++;
+
+			LOG("Guest share at gpa %p -> %p, len %d/%d\n",
+			    guest->shares[i].gpa, s, p,
+			    guest->shares[i].len / PAGE_SIZE);
+		}
+	}
+	LOG("Total of %d guest declared shares of which %d are mapped\n",
+	     t, c);
+
+	return c;
+}
+
 char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 {
 	const char *pv_access = "R-";
