@@ -534,16 +534,6 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 		goto map_back_out;
 	}
 
-#ifndef HOSTBLINDING_DEV
-	/*
-	 * Data abort from the owning process of VM.
-	 * Feature under development. Do not allow
-	 * mapping back the host page unless
-	 * HOSTBLINDING_DEV is defined.
-	 */
-	HYP_ABORT();
-#endif //HOSTBLINDING_DEV
-
 	/*
 	 * Stage 1 pgd of the process that owns the VM.
 	 * We should be able to find the IPA from there.
@@ -554,6 +544,19 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 		goto map_back_out;
 	}
 
+	/*
+	 * Inform whether the area was already shared.
+	 */
+	if (!is_share(guest, ipa, PAGE_SIZE)) {
+		LOG("%s 0x%lx NOT SHARED\n", __func__, ipa);
+	} else {
+		/*
+		 * We enter here if the guest accessed the
+		 * page before setting the share.
+		 */
+		LOG("%s 0x%lx SHARED\n", __func__, ipa);
+	}
+
 	host = get_guest(vmid);
 	if (host == NULL) {
 		res = false;
@@ -561,8 +564,6 @@ bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	}
 
 	ipa = ipa & PAGE_MASK;
-
-	LOG("%s 0x%lx\n", __func__, ipa);
 
 	/* 1:1 mapping - TODO the parameters from platform map */
 	if (mmap_range(host, STAGE2, ipa, ipa,

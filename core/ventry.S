@@ -192,7 +192,36 @@ data_abort:
 	b	guest_data_abort
 
 host_data_abort:
+#ifdef DEBUG
+	save_all_regs
+	/*
+	 * Debug host data abort
+	 *
+	 * If we arrive here from the process that "owns" the guest that's an
+	 * indication we may have blinded a page used for data sharing between
+	 * the host and the guest. Print out the page address and make it
+	 * visible again to the host to enable the guest to continue running.
+	 * .
+	 */
+	mrs	x1, TTBR0_EL1
+	mrs	x2, FAR_EL2
+	bl	map_back_host_page
+	cmp	x0, #1
+	b.ne	1f
+	/*
+	 * Now since it indeed was an abort from the owning process and we
+	 * mapped back the needed memory let's get us back to where we came
+	 * from.
+	 */
+	load_all_regs
+	ldr	x0, [sp, #(8 * 0)]
+	add	sp, sp, #(PT_REGS_SIZE)
+	eret
+1:	load_all_regs
+	b	forward_aarch64sync
+#else
 	b	host_fastforward
+#endif
 
 guest_data_abort:
 	save_all_regs
@@ -247,44 +276,10 @@ forward_aarch64sync:
 
 el1_trap:
 	cmp	x0, #GUEST_VMID_START
-	bge	3f
-	save_all_regs
-	/*
-	 * Check if came here to serve host data
-	 * abort in verbose debug mode.
-	 */
-	cmp	x1, #0x24
-	b.ne	2f
-	bl	print_abort
+	bge	1f
 	load_all_regs
-
-	/*
-	 * If we arrive here from the process
-	 * that owns the guest that's an
-	 * indication we may need to make this
-	 * address visible again to the host
-	 * to enable the required data sharing
-	 * between the host and guest.
-	 */
-	mrs	x1, TTBR0_EL1
-	mrs	x2, FAR_EL2
-	bl	map_back_host_page
-	cmp	x0, #1
-	b.ne	2f
-	/*
-	 * Now since it indeed was an
-	 * abort from the owning process
-	 * and we mapped back the needed
-	 * memory let's get us back where
-	 * we came from.
-	 */
-	load_all_regs
-	ldr	x0, [sp, #(8 * 0)]
-	add	sp, sp, #(PT_REGS_SIZE)
-	eret
-2:	load_all_regs
 	b	forward_aarch64sync
-3:	get_kern_exit	x3, x0
+1:	get_kern_exit	x3, x0
 	get_vcpu_ptr	x1, x0
 	mov	x0, #ARM_EXCEPTION_TRAP
 	br	x3
