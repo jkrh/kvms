@@ -36,6 +36,24 @@ int count_shared(uint32_t vmid, bool lock);
 int print_mappings(uint32_t vmid, uint64_t stage);
 
 /**
+ * Print one address mapping for given guest to console/log
+ *
+ * @param vmid vmid of the guest to dump
+ * @param stage STAGE1 or STAGE2 of the address translation
+ * @param addr address to print mapping for
+ * @return 1 if mapping found 0 otherwise
+ */
+int print_addr(uint32_t vmid, uint64_t stage, uint64_t addr);
+
+/**
+ * Attempt to translate one virtual address with 2 stage at translation command
+ *
+ * @param vaddr address to translate
+ * @return the physical address if translation was successfull ~0UL otherwise
+ */
+uint64_t translate_addr(uint64_t vaddr);
+
+/**
  * Print EL2 mode memory mappings to console/log
  *
  * @param void

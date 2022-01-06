@@ -316,6 +316,34 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 	return total;
 }
 
+int print_addr(uint32_t vmid, uint64_t stage, uint64_t addr)
+{
+	uint64_t vaddr = 0;
+	kvm_guest_t *guest;
+
+	guest = get_guest(vmid);
+	if (!guest) {
+		ERROR("No such guest %u?\n", vmid);
+		return -EINVAL;
+	}
+
+	vaddr = (addr & PAGE_MASK);
+
+	return print_range(guest, stage, vaddr, vaddr + PAGE_SIZE);
+}
+
+uint64_t translate_addr(uint64_t vaddr)
+{
+	uint64_t paddr;
+
+	paddr = (uint64_t)virt_to_phys((void *)vaddr);
+
+	LOG("vaddr\t\t\tpaddr\n");
+	LOG("0x%016lx\t0x%012lx\n", vaddr, paddr);
+
+	return paddr;
+}
+
 int __print_mappings_el2(uint64_t ivaddr, uint64_t iend)
 {
 	uint64_t start_vaddr = 0, end_vaddr = 0;
