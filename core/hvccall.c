@@ -158,7 +158,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		 */
 		res = guest_validate_range(host, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest, STAGE1, a1, a2, a3, a4,
+			res = mmap_range(guest, EL2_STAGE1, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		/*
 		 * kern_hyp_va: MSB WATCH
@@ -181,7 +181,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		 *
 		res = guest_validate_range(host, a1, a1, a2);
 		if (!res)
-			res = unmap_range(guest, STAGE1, a1, a2);
+			res = unmap_range(guest, EL2_STAGE1, a1, a2);
 		 */
 		res = -EINVAL;
 		break;
@@ -356,7 +356,7 @@ void print_abort(void)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		while(1)
+		while (1)
 			wfi();
 
 	far = read_reg(FAR_EL2);
@@ -531,7 +531,7 @@ void memctrl_exec(uint64_t *sp)
 		ERROR("https://armconverter.com/?disasm&code=%x\n", inst);
 		HYP_ABORT();
 		break;
-        }
+	}
 
 #ifdef SYSREG_PRINT
 	spin_unlock(&crash_lock);

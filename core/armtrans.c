@@ -370,22 +370,23 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 	if (!block->guest)
 		HYP_ABORT();
 
-	if (block->stage == STAGE1)
-		block->level = block->guest->table_levels_s1;
-	else
+	if (block->stage == STAGE2)
 		block->level = block->guest->table_levels_s2;
+	else
+		block->level = block->guest->table_levels_s1;
+
 	paddr = __pt_walk(block->pgd, addr, &block->ptep, &block->level, &einfo);
 	if (paddr == ~0UL) {
 		block->type = INVALID_MEMORY;
 		return false;
 	}
 
-	if (block->stage == STAGE1) {
-		block->prot = *block->ptep & PROT_MASK_STAGE1;
-		block->type = (*block->ptep & TYPE_MASK_STAGE1);
-	} else {
+	if (block->stage == STAGE2) {
 		block->prot = *block->ptep & PROT_MASK_STAGE2;
 		block->type = (*block->ptep & TYPE_MASK_STAGE2);
+	} else {
+		block->prot = *block->ptep & PROT_MASK_STAGE1;
+		block->type = (*block->ptep & TYPE_MASK_STAGE1);
 	}
 
 	if (bit_raised(*block->ptep, CONTIGUOUS_BIT)) {
@@ -577,7 +578,7 @@ static void invalidate_va(uint64_t stage, uint64_t vaddr)
 		return;
 
 	dsb();
-	if (stage == STAGE1)
+	if (stage == EL2_STAGE1)
 		tlbi_el2_va(vaddr);
 	if (stage == STAGE2)
 		tlbi_el1_ipa(vaddr);
@@ -928,12 +929,12 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (attr != nattr)
 			return -EPERM;
 		break;
-	case STAGE1:
+	case EL2_STAGE1:
 		/*
 		 * This can be  either hosts own pool or a guest
 		 * specific EL2 table pool.
 		 */
-		if (!guest->s1_tablepool.pool)
+		if (!guest->el2_tablepool.pool)
 			return -ENOENT;
 
 		/* Page global directory base address for EL2 is owned by host */
@@ -949,7 +950,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
 
-		block.tpool = &guest->s1_tablepool;
+		block.tpool = &guest->el2_tablepool;
 
 		break;
 	default:
@@ -985,12 +986,12 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (hostflags & HOST_STAGE2_LOCK)
 			return -EPERM;
 		break;
-	case STAGE1:
+	case EL2_STAGE1:
 		block.guest = host;
 		block.pgd = host->EL2S1_pgd;
 		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
-		block.tpool = &guest->s1_tablepool;
+		block.tpool = &guest->el2_tablepool;
 		break;
 	default:
 		return -EINVAL;

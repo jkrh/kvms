@@ -58,7 +58,7 @@ struct kvm_guest {
 	struct ptable *EL1S1_1_pgd; /* ttbr1_el1 */
 	struct ptable *EL1S2_pgd;   /* vttbr_el2 */
 	struct ptable *EL2S1_pgd;   /* ttbr0_el2 */
-	struct tablepool s1_tablepool;
+	struct tablepool el2_tablepool;
 	struct tablepool s2_tablepool;
 	void *kvm;	/* struct kvm */
 	kvm_memslots slots[KVM_MEM_SLOTS_NUM];

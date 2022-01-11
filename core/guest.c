@@ -62,9 +62,9 @@ void format_guest(int i)
 	int c;
 
 	guests[i].vmid = INVALID_VMID;
-	guests[i].s1_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
+	guests[i].el2_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
 	guests[i].s2_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
-	guests[i].s1_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
+	guests[i].el2_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
 	guests[i].s2_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
 	_zeromem16(guests[i].mempool, sizeof(guests[i].mempool));
 	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
@@ -254,8 +254,8 @@ kvm_guest_t *alloc_guest(void *kvm)
 		/*
 		 * Allocate the tablepool for creating guest specific EL2 mappings.
 		 */
-		alloc_pgd(guest, &guest->s1_tablepool);
-		if (!guest->s1_tablepool.pool) {
+		alloc_pgd(guest, &guest->el2_tablepool);
+		if (!guest->el2_tablepool.pool) {
 			free_guest(kvm);
 			return NULL;
 		}
@@ -588,7 +588,7 @@ int is_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 	if (!guest || !len)
 		return -EINVAL;
 
-	while(i < MAX_SHARES) {
+	while (i < MAX_SHARES) {
 		if ((gpa >= guest->shares[i].gpa) &&
 		    (gpa < (guest->shares[i].gpa + guest->shares[i].len))) {
 			return 1;
@@ -605,7 +605,7 @@ int clear_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 	if (!guest || !len)
 		return -EINVAL;
 
-	while(i < MAX_SHARES) {
+	while (i < MAX_SHARES) {
 		if ((gpa >= guest->shares[i].gpa) &&
 		    (gpa < (guest->shares[i].gpa + guest->shares[i].len))) {
 			guest->shares[i].gpa = 0;
@@ -627,7 +627,7 @@ int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 
 	clear_share(guest, gpa, len);
 
-	while((guest->shares[i].len != 0) && (i < MAX_SHARES))
+	while ((guest->shares[i].len != 0) && (i < MAX_SHARES))
 		i++;
 
 	if (guest->shares[i].len != 0)
@@ -960,7 +960,7 @@ int free_guest(void *kvm)
 		return res;
 
 	free_pgd(&guest->s2_tablepool, NULL);
-	free_pgd(&guest->s1_tablepool, host->EL2S1_pgd);
+	free_pgd(&guest->el2_tablepool, host->EL2S1_pgd);
 	/*
 	 * Handle VMID zero as a special case since it is used
 	 * for early init purposes and there may exist another

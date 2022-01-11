@@ -80,7 +80,7 @@ void platform_init_slots(kvm_guest_t *host)
 
 int machine_virt(kvm_guest_t *host)
 {
-	int stage = STAGE1, res = 0, i;
+	int stage = EL2_STAGE1, res = 0, i;
 	uint64_t perms, type;
 
 	host->s2_host_access = true;
@@ -103,12 +103,12 @@ nextmap:
 			goto error;
 		i++;
 	}
-	if (stage == STAGE1) {
+	if (stage == EL2_STAGE1) {
 		stage = STAGE2;
 		goto nextmap;
 	}
 	perms = PAGE_KERNEL_RWX;
-	res = mmap_range(host, STAGE1, PHYS_OFFSET, PHYS_OFFSET,
+	res = mmap_range(host, EL2_STAGE1, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 4, perms, NORMAL_MEMORY);
 	if (res)
 		goto error;
@@ -204,7 +204,7 @@ int platform_init_host_pgd(kvm_guest_t *host)
 	if (!host)
 		return -EINVAL;
 
-	host->EL2S1_pgd = alloc_pgd(host, &host->s1_tablepool);
+	host->EL2S1_pgd = alloc_pgd(host, &host->el2_tablepool);
 	host->EL1S2_pgd = alloc_pgd(host, &host->s2_tablepool);
 
 	if (!host->EL2S1_pgd || !host->EL1S2_pgd)

@@ -457,7 +457,7 @@ int free_pgd(struct tablepool *tpool, struct ptable *pgd_base)
 		free_static_ttbl_chunk(tpool);
 	}
 
-	if (tpool == &tpool->guest->s1_tablepool) {
+	if (tpool == &tpool->guest->el2_tablepool) {
 		dsb();
 		tlbialle2is();
 		dsb();

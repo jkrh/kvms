@@ -89,9 +89,10 @@ struct ptable
 #define S2_MEM_ATTR_MASK	(0x0fUL << S2_MEM_ATTR_SHIFT)
 #define S2_MEMTYPE_DEVICE	0
 
-#define STAGE1 0
-#define STAGE2 1
-#define STAGEA 3
+#define EL2_STAGE1	0
+#define STAGE1		1
+#define STAGE2		2
+#define STAGEA		3
 
 /*
  * Stage 1 MAIR_EL2 slot. Standard linux allocation on
@@ -219,7 +220,7 @@ int lock_host_kernel_area(uint64_t addr, size_t size, uint64_t depth);
  * Generic stage-1 and -2 map function
  *
  * @param guest to map into.
- * @param stage STAGE1 or STAGE2
+ * @param stage EL2_STAGE1 or STAGE2
  * @param vaddr virtual address to map
  * @param paddr physical address to map to
  * @param length page aligned length of the mapping
@@ -235,7 +236,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
  * Generic stage-1 and -2 unmap function
  *
  * @param guest to unmap from.
- * @param stage STAGE1 or STAGE2
+ * @param stage EL2_STAGE1 or STAGE2
  * @param vaddr virtual address to unmap
  * @param length page aligned length to unmap
  * @return zero or success or negative error code on failure

@@ -128,13 +128,13 @@ char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)
 	const char *mtype = "";
 
 	if (p == 0) {
-		if (stage == STAGE1)
-			return "prv usr";
-		else
+		if (stage == STAGE2)
 			return "prv usr type";
+		else
+			return "prv usr";
 	}
 
-	if (stage == STAGE1) {
+	if ((stage == STAGE1) || (stage == EL2_STAGE1)) {
 		pv_perm = (attrs & S1_PXN) ? '-' : 'X';
 		upv_perm = (attrs & S1_UXN) ? '-' : 'X';
 
@@ -298,7 +298,6 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 	case STAGEA:
 	case STAGE2:
 		return print_range(guest, stage, vaddr, guest->ramend);
-		break;
 	case STAGE1:
 		/* Kernel logical map */
 		vaddr = el1_fill();
@@ -356,7 +355,7 @@ int __print_mappings_el2(uint64_t ivaddr, uint64_t iend)
 
 	LOG("EL2 mappings %p - %p\n", (void *)vaddr, iend);
 	LOG("vaddr\t\tpaddr\t\tsize\t\tattributes         %s\n",
-	    parse_attrs(0, 0, STAGE1));
+	    parse_attrs(0, 0, EL2_STAGE1));
 
 	while (vaddr < iend) {
 		pte = NULL;
@@ -393,7 +392,7 @@ int __print_mappings_el2(uint64_t ivaddr, uint64_t iend)
 			size = end_vaddr - start_vaddr;
 			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
 			    start_vaddr, start_addr, size, oattrs,
-			    parse_attrs(buf, oattrs, STAGE1));
+			    parse_attrs(buf, oattrs, EL2_STAGE1));
 		}
 		/*
 		 * Move along
@@ -412,7 +411,7 @@ int __print_mappings_el2(uint64_t ivaddr, uint64_t iend)
 
 	size = end_vaddr - start_vaddr;
 	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n", start_vaddr,
-	    start_addr, size, attrs, parse_attrs(buf, attrs, STAGE1));
+	    start_addr, size, attrs, parse_attrs(buf, attrs, EL2_STAGE1));
 
 	return total;
 }
