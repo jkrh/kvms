@@ -74,8 +74,9 @@ extract IMAGE $IMAGE
 #
 # Detect network
 #
-ip route get 8.8.8.8 2>&1 > /dev/null
-if [ $? -eq 0 ]; then
+status=0
+ip route get 8.8.8.8 2>&1  > /dev/null || status=$?
+if [ $status -eq 0 ]; then
 	LOCALIF=$(ip route get 8.8.8.8 |awk '{print $5}')
 	LOCALIP=$(ip route get 8.8.8.8 |awk '{print $7}')
 else
