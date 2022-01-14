@@ -87,7 +87,10 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		return -EINVAL;
 
 	spin_lock(&core_lock);
-	switch(cn) {
+
+	load_host_s2();
+
+	switch (cn) {
 	case HYP_SET_GUEST_MEMORY_BLINDED:
 		res = remove_host_range(guest, a1, a2, false);
 		if (!res)
@@ -109,6 +112,9 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	default:
 		break;
 	}
+
+	load_guest_s2(guest->vmid);
+
 	spin_unlock(&core_lock);
 
 	return res;
