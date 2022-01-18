@@ -1151,7 +1151,7 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 	}
 	return 0;
 out_error:
-	ERROR("guest %lx access to area 0x%lx - 0x%lx denied. err %d\n",
-	       guest, paddr, paddr + len, ret);
+	ERROR("%s failed gpa:0x%lx hpa:0x%lx len:%d err:%d\n",
+	       __func__, addr, paddr, len, ret);
 	return ret;
 }
