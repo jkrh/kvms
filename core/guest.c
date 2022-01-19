@@ -1108,13 +1108,13 @@ int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
 		bit_set(*pte, AF_BIT);
 		break;
 	case HYP_MKOLD:
-		res = !!(*pte & AF_BIT);
+		res = !!(*pte & bit_to_mask(AF_BIT));
 		if (res) {
 			bit_drop(*pte, AF_BIT);
 		}
 		break;
 	case HYP_ISYOUNG:
-		res = !!(*pte & AF_BIT);
+		res = !!(*pte & bit_to_mask(AF_BIT));
 		break;
 	default:
 		HYP_ABORT();
