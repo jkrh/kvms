@@ -1129,16 +1129,14 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 {
 	int ret;
 
+	if (!guest)
+		return -EINVAL;
+
 	/*
 	 * Get clearance for the range from the platform implementation.
 	 */
 	if (!platform_range_permitted(paddr, len)) {
 		ret = -EPERM;
-		goto out_error;
-	}
-
-	if (!guest) {
-		ret = -ENOENT;
 		goto out_error;
 	}
 	/*
@@ -1150,6 +1148,7 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 		goto out_error;
 	}
 	return 0;
+
 out_error:
 	ERROR("%s failed gpa:0x%lx hpa:0x%lx len:%d err:%d\n",
 	       __func__, addr, paddr, len, ret);

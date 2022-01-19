@@ -33,8 +33,8 @@ void *kern_hyp_va(void *a)
 {
 	uint64_t p = (uint64_t)a;
 
-	p = (p & ~KERNEL_MAP);
-	p = KERNEL_BASE | p;
+	p &= CALL_MASK;
+	p |= KERNEL_BASE;
 
 	return (void *)p;
 }
