@@ -11,6 +11,7 @@
 #include "mm.h"
 #include "bits.h"
 #include "tables.h"
+#include "cache.h"
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -749,6 +750,19 @@ static int release_guest_s2(kvm_guest_t *guest, uint64_t rangestart, uint64_t ra
 	return 0;
 }
 
+static int page_is_exec(uint64_t prot)
+{
+	switch (prot & S2_XN_MASK) {
+	case S2_EXEC_EL1EL0:
+		return 1;
+	case S2_EXEC_EL0:
+		return 1;
+	case S2_EXEC_EL1:
+		return 1;
+	}
+	return 0;
+}
+
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		    uint64_t len, uint64_t prot)
 {
@@ -801,12 +815,22 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		if (pte) {
 			maptype = (*pte & TYPE_MASK_STAGE2);
 			mapprot = (*pte & PROT_MASK_STAGE2);
+
 			if ((taddr == page_paddr) && (maptype == newtype) &&
 			    (mapprot == prot)) {
 				mc++;
-				continue;
+				goto cont;
 			}
 		}
+		/*
+		 * This is a new mapping; flush the data out prior to creating
+		 * the mapping or changing its permissions.
+		 */
+		if (page_is_exec(prot)) {
+			__flush_icache_area((void *)paddr, PAGE_SIZE);
+		} else
+			__flush_dcache_area((void *)paddr, PAGE_SIZE);
+
 		/*
 		 * If it wasn't mapped and we are mapping it back, verify
 		 * that the content is still the same. If the page was
@@ -817,6 +841,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		if (res)
 			goto out_error;
 
+cont:
 		page_vaddr += PAGE_SIZE;
 		page_paddr += PAGE_SIZE;
 	}
@@ -906,6 +931,16 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		res = unmap_range(guest, STAGE2, map_addr, PAGE_SIZE);
 		if (res)
 			HYP_ABORT();
+
+		/*
+		 * We may have changed the page contents, flush the page just
+		 * in case before changing the permissions.
+		 */
+		if (page_is_exec(*pte))
+			__flush_icache_area((void *)paddr, PAGE_SIZE);
+		else
+			__flush_dcache_area((void *)paddr, PAGE_SIZE);
+
 		/*
 		 * Give it back to the host
 		 */
