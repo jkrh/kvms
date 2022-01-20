@@ -123,6 +123,7 @@ VCPU protection
 ---------------
 KVM stores the VCPU context (i.e. registers) in the architecture specific part
 of the kvm_vcpu struct. The context is
+
 - Used by the KVM itself in HW, MMIO and instruction emulation, specifically
   mrs, msr, hvc and smc instructions
 - Accessible by userspace via KVM_SET_ONE_REG and KVM_GET_ONE_REG ioctls,
@@ -130,20 +131,20 @@ of the kvm_vcpu struct. The context is
 
 The project attempts to limit the exposure of the context outside the guest
 once the guest initialization phase is done. To do this, the context is moved
-to hypervisor. New hypervisor calls are needed for:
-- Direct register access for guest initialization, disabled per guest when the
-  initialization phase is complete. Access to some system registers is still
-  permitted.
-- Instruction emulation; in essence this means that register updates, including
-  pc, is moved to hypervisor, and passing necessary data from/to KVM. For
-  example, MMIO store instruction emulation needs to figure out figure out
-  which GPR was stored, update pc to point to next instruction and return the
-  value of the GPR so KVM can write it to its proper location.
-- 32/64-bit mode tests
-The KVM code is updated to use the hypervisor calls instead of direct access.
-In addition, guest entry and exit are updated to use different storage.
+to hypervisor. KVM MMIO and instruction emulation still work on the existing
+VCPU context. This is selectively synchronized with the hypervisor VCPU
+context. On guest exit, the hypervisor updates the KVM context, and on guest
+entry, the hypervisor updates the hypervisor context as follows:
 
-TBC: Floating point registers
+|              | Copy hyp -> KVM    | Copy KVM -> hyp      |
+|--------------|--------------------|----------------------|
+| hvc          | hvc args (x0...x3) | hvc return code (x0) |
+| MMIO read    | -                  | load target reg      |
+| MMIO write   | store source reg   | -                    |
+| sysreg read  | -                  | mrs target reg       |
+| sysreg write | msr source reg     | -                    |
+
+TBC: Floating point registers, QEMU state sync breakage
 
 
 Migration support TODO

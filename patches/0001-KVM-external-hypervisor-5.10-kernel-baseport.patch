@@ -1,36 +1,37 @@
-From 4e709d4cd567714a1b0617c49f4a00a5a6dfdbe9 Mon Sep 17 00:00:00 2001
+From d2bf546ec6daa019bbb609d71acf60965d7081c0 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
+Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
 ---
- arch/arm64/configs/defconfig      |  26 +-
- arch/arm64/include/asm/kvm_arm.h  |   2 +-
- arch/arm64/include/asm/kvm_asm.h  |  24 ++
- arch/arm64/include/asm/kvm_host.h |  27 +-
- arch/arm64/include/asm/kvm_hyp.h  |  13 +
- arch/arm64/include/asm/kvm_mmu.h  |  64 +++--
- arch/arm64/kernel/asm-offsets.c   |   9 +
- arch/arm64/kernel/head.S          |  16 +-
- arch/arm64/kvm/Makefile           |   2 +-
- arch/arm64/kvm/arm.c              |  56 ++--
- arch/arm64/kvm/ext-guest.c        | 439 ++++++++++++++++++++++++++++++
- arch/arm64/kvm/ext-guest.h        |  31 +++
- arch/arm64/kvm/fpsimd.c           |   4 +-
- arch/arm64/kvm/hvccall-defines.h  |  72 +++++
- arch/arm64/kvm/hyp/Makefile       |   2 +-
- arch/arm64/kvm/hyp/entry.S        |  13 +-
- arch/arm64/kvm/hyp/kvms-hvci.S    |  11 +
- arch/arm64/kvm/hyp/nvhe/switch.c  |  13 +-
- arch/arm64/kvm/hyp/nvhe/tlb.c     |  17 +-
- arch/arm64/kvm/hyp/pgtable.c      |  24 +-
- arch/arm64/kvm/hyp/vgic-v3-sr.c   |   6 +
- arch/arm64/kvm/mmu.c              | 133 ++++++---
- arch/arm64/kvm/reset.c            |   7 +-
- virt/kvm/kvm_main.c               |   2 +-
- 24 files changed, 871 insertions(+), 142 deletions(-)
+ arch/arm64/configs/defconfig         |  26 +-
+ arch/arm64/include/asm/kvm_arm.h     |   2 +-
+ arch/arm64/include/asm/kvm_asm.h     |  21 ++
+ arch/arm64/include/asm/kvm_emulate.h |  12 +
+ arch/arm64/include/asm/kvm_host.h    |  29 +-
+ arch/arm64/include/asm/kvm_hyp.h     |  15 +-
+ arch/arm64/include/asm/kvm_mmu.h     |  79 +++--
+ arch/arm64/kernel/asm-offsets.c      |  10 +
+ arch/arm64/kernel/head.S             |  16 +-
+ arch/arm64/kvm/Makefile              |   2 +-
+ arch/arm64/kvm/arm.c                 |  56 ++--
+ arch/arm64/kvm/ext-guest.c           | 437 +++++++++++++++++++++++++++
+ arch/arm64/kvm/ext-guest.h           |  31 ++
+ arch/arm64/kvm/fpsimd.c              |   4 +-
+ arch/arm64/kvm/hvccall-defines.h     |  73 +++++
+ arch/arm64/kvm/hyp/Makefile          |   2 +-
+ arch/arm64/kvm/hyp/kvms-hvci.S       |  11 +
+ arch/arm64/kvm/hyp/nvhe/switch.c     |  13 +-
+ arch/arm64/kvm/hyp/nvhe/tlb.c        |  17 +-
+ arch/arm64/kvm/hyp/pgtable.c         |  24 +-
+ arch/arm64/kvm/hyp/vgic-v3-sr.c      |   6 +
+ arch/arm64/kvm/mmu.c                 | 133 +++++---
+ arch/arm64/kvm/reset.c               |   8 +-
+ virt/kvm/kvm_main.c                  |   2 +-
+ 24 files changed, 887 insertions(+), 142 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -103,10 +104,10 @@ index 395cb22d9f7d..b103158d5df3 100644
  
  /* TCR_EL2 Registers bits */
 diff --git a/arch/arm64/include/asm/kvm_asm.h b/arch/arm64/include/asm/kvm_asm.h
-index 044bb9e2cd74..db5eec9c4ebc 100644
+index 044bb9e2cd74..5e2c5dc028da 100644
 --- a/arch/arm64/include/asm/kvm_asm.h
 +++ b/arch/arm64/include/asm/kvm_asm.h
-@@ -180,23 +180,47 @@ DECLARE_KVM_HYP_SYM(__bp_harden_hyp_vecs);
+@@ -180,23 +180,44 @@ DECLARE_KVM_HYP_SYM(__bp_harden_hyp_vecs);
  #define __bp_harden_hyp_vecs	CHOOSE_HYP_SYM(__bp_harden_hyp_vecs)
  
  extern void __kvm_flush_vm_context(void);
@@ -148,17 +149,52 @@ index 044bb9e2cd74..db5eec9c4ebc 100644
  
  extern u32 __kvm_get_mdcr_el2(void);
 +DECLARE_KVM_NVHE_SYM(__kvm_get_mdcr_el2);
-+
-+int __guest_exit(void);
-+DECLARE_KVM_NVHE_SYM(__guest_exit);
  
  extern char __smccc_workaround_1_smc[__SMCCC_WORKAROUND_1_SMC_SZ];
  
+diff --git a/arch/arm64/include/asm/kvm_emulate.h b/arch/arm64/include/asm/kvm_emulate.h
+index 472122d731b0..c856f4dde9b6 100644
+--- a/arch/arm64/include/asm/kvm_emulate.h
++++ b/arch/arm64/include/asm/kvm_emulate.h
+@@ -17,6 +17,7 @@
+ #include <asm/esr.h>
+ #include <asm/kvm_arm.h>
+ #include <asm/kvm_hyp.h>
++#include <asm/kvm_mmu.h>
+ #include <asm/ptrace.h>
+ #include <asm/cputype.h>
+ #include <asm/virt.h>
+@@ -158,14 +159,25 @@ static inline void vcpu_set_thumb(struct kvm_vcpu *vcpu)
+ static __always_inline unsigned long vcpu_get_reg(const struct kvm_vcpu *vcpu,
+ 					 u8 reg_num)
+ {
++#ifdef __KVM_NVHE_HYPERVISOR__
++	struct user_pt_regs *regs = __hyp_vcpu_regs(vcpu);
++	return (reg_num == 31) ? 0 : regs->regs[reg_num];
++#else
+ 	return (reg_num == 31) ? 0 : vcpu_gp_regs(vcpu)->regs[reg_num];
++#endif
+ }
+ 
+ static __always_inline void vcpu_set_reg(struct kvm_vcpu *vcpu, u8 reg_num,
+ 				unsigned long val)
+ {
++#ifdef __KVM_NVHE_HYPERVISOR__
++	struct user_pt_regs *regs = __hyp_vcpu_regs(vcpu);
++	if (reg_num != 31)
++		regs->regs[reg_num] = val;
++#else
+ 	if (reg_num != 31)
+ 		vcpu_gp_regs(vcpu)->regs[reg_num] = val;
++#endif
+ }
+ 
+ static inline unsigned long vcpu_read_spsr(const struct kvm_vcpu *vcpu)
 diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
-index 912b83e784bb..1b2baa99f8eb 100644
+index 912b83e784bb..0867e460eb53 100644
 --- a/arch/arm64/include/asm/kvm_host.h
 +++ b/arch/arm64/include/asm/kvm_host.h
-@@ -67,6 +67,13 @@ struct kvm_vmid {
+@@ -67,6 +67,15 @@ struct kvm_vmid {
  	u32    vmid;
  };
  
@@ -167,12 +203,14 @@ index 912b83e784bb..1b2baa99f8eb 100644
 +	int (*load_guest_stage2)(u64 vmid);
 +	void (*save_host_traps)(void);
 +	void (*restore_host_traps)(void);
++	void *(*hyp_vcpu_regs)(uint64_t vmid, uint64_t vcpuid);
++	uint64_t (*guest_enter)(void *vcpu);
 +};
 +
  struct kvm_s2_mmu {
  	struct kvm_vmid vmid;
  
-@@ -87,6 +94,9 @@ struct kvm_s2_mmu {
+@@ -87,6 +96,9 @@ struct kvm_s2_mmu {
  	int __percpu *last_vcpu_ran;
  
  	struct kvm *kvm;
@@ -182,7 +220,7 @@ index 912b83e784bb..1b2baa99f8eb 100644
  };
  
  struct kvm_arch {
-@@ -262,6 +272,7 @@ struct kvm_cpu_context {
+@@ -262,6 +274,7 @@ struct kvm_cpu_context {
  	};
  
  	struct kvm_vcpu *__hyp_running_vcpu;
@@ -190,7 +228,7 @@ index 912b83e784bb..1b2baa99f8eb 100644
  };
  
  struct kvm_pmu_events {
-@@ -489,8 +500,10 @@ int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
+@@ -489,8 +502,10 @@ int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
  
  void kvm_arm_halt_guest(struct kvm *kvm);
  void kvm_arm_resume_guest(struct kvm *kvm);
@@ -202,7 +240,7 @@ index 912b83e784bb..1b2baa99f8eb 100644
  	({								\
  		struct arm_smccc_res res;				\
  									\
-@@ -500,7 +513,17 @@ void kvm_arm_resume_guest(struct kvm *kvm);
+@@ -500,7 +515,17 @@ void kvm_arm_resume_guest(struct kvm *kvm);
  									\
  		res.a1;							\
  	})
@@ -222,7 +260,7 @@ index 912b83e784bb..1b2baa99f8eb 100644
   * The couple of isb() below are there to guarantee the same behaviour
   * on VHE as on !VHE, where the eret to EL1 acts as a context
 diff --git a/arch/arm64/include/asm/kvm_hyp.h b/arch/arm64/include/asm/kvm_hyp.h
-index 123e67cb8505..fa057c50ee6f 100644
+index 123e67cb8505..598501251341 100644
 --- a/arch/arm64/include/asm/kvm_hyp.h
 +++ b/arch/arm64/include/asm/kvm_hyp.h
 @@ -57,12 +57,25 @@ DECLARE_PER_CPU(unsigned long, kvm_hyp_vector);
@@ -251,8 +289,17 @@ index 123e67cb8505..fa057c50ee6f 100644
  
  #ifdef __KVM_NVHE_HYPERVISOR__
  void __timer_enable_traps(struct kvm_vcpu *vcpu);
+@@ -95,8 +108,6 @@ void activate_traps_vhe_load(struct kvm_vcpu *vcpu);
+ void deactivate_traps_vhe_put(void);
+ #endif
+ 
+-u64 __guest_enter(struct kvm_vcpu *vcpu);
+-
+ void __noreturn hyp_panic(void);
+ #ifdef __KVM_NVHE_HYPERVISOR__
+ void __noreturn __hyp_do_panic(struct kvm_cpu_context *host_ctxt, u64 spsr,
 diff --git a/arch/arm64/include/asm/kvm_mmu.h b/arch/arm64/include/asm/kvm_mmu.h
-index 331394306cce..75fb0846522e 100644
+index 331394306cce..9782edc8e372 100644
 --- a/arch/arm64/include/asm/kvm_mmu.h
 +++ b/arch/arm64/include/asm/kvm_mmu.h
 @@ -49,6 +49,8 @@
@@ -356,7 +403,7 @@ index 331394306cce..75fb0846522e 100644
  
  	/*
  	 * ARM errata 1165522 and 1530923 require the actual execution of the
-@@ -284,5 +297,12 @@ static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
+@@ -284,5 +297,27 @@ static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
  	asm(ALTERNATIVE("nop", "isb", ARM64_WORKAROUND_SPECULATIVE_AT));
  }
  
@@ -366,14 +413,37 @@ index 331394306cce..75fb0846522e 100644
 +		mmu->hyp_ext_ops.load_host_stage2();
 +}
 +
++static __always_inline void *__hyp_vcpu_regs(const struct kvm_vcpu *vcpu)
++{
++	struct kvm_s2_mmu *mmu = kern_hyp_va(vcpu->arch.hw_mmu);
++	if (mmu->hyp_ext_ops.hyp_vcpu_regs)
++		return mmu->hyp_ext_ops.hyp_vcpu_regs(mmu->vmid.vmid, vcpu->vcpu_idx);
++	return NULL;
++}
++
++static __always_inline u64 __guest_enter(struct kvm_vcpu *vcpu)
++{
++	struct kvm_s2_mmu *mmu = kern_hyp_va(vcpu->arch.hw_mmu);
++	if (mmu->hyp_ext_ops.guest_enter)
++		return mmu->hyp_ext_ops.guest_enter(vcpu);
++	return ARM_EXCEPTION_HYP_GONE;
++}
 +
  #endif /* __ASSEMBLY__ */
  #endif /* __ARM64_KVM_MMU_H__ */
 diff --git a/arch/arm64/kernel/asm-offsets.c b/arch/arm64/kernel/asm-offsets.c
-index 7d32fc959b1a..91a2fdd3b20c 100644
+index 7d32fc959b1a..95bbbe8b29b9 100644
 --- a/arch/arm64/kernel/asm-offsets.c
 +++ b/arch/arm64/kernel/asm-offsets.c
-@@ -110,6 +110,15 @@ int main(void)
+@@ -99,6 +99,7 @@ int main(void)
+   BLANK();
+ #ifdef CONFIG_KVM
+   DEFINE(VCPU_CONTEXT,		offsetof(struct kvm_vcpu, arch.ctxt));
++  DEFINE(VCPU_VCPUIDX,		offsetof(struct kvm_vcpu, vcpu_idx));
+   DEFINE(VCPU_FAULT_DISR,	offsetof(struct kvm_vcpu, arch.fault.disr_el1));
+   DEFINE(VCPU_WORKAROUND_FLAGS,	offsetof(struct kvm_vcpu, arch.workaround_flags));
+   DEFINE(VCPU_HCR_EL2,		offsetof(struct kvm_vcpu, arch.hcr_el2));
+@@ -110,6 +111,15 @@ int main(void)
    DEFINE(CPU_APGAKEYLO_EL1,	offsetof(struct kvm_cpu_context, sys_regs[APGAKEYLO_EL1]));
    DEFINE(HOST_CONTEXT_VCPU,	offsetof(struct kvm_cpu_context, __hyp_running_vcpu));
    DEFINE(HOST_DATA_CONTEXT,	offsetof(struct kvm_host_data, host_ctxt));
@@ -626,10 +696,10 @@ index 5bc978be8043..b3cd52794987 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..9e6c3a0b1084
+index 000000000000..aff5f7fd7048
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,439 @@
+@@ -0,0 +1,437 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -858,11 +928,9 @@ index 000000000000..9e6c3a0b1084
 +{
 +	unsigned long start = kern_hyp_va((unsigned long)__ts);
 +	unsigned long end = kern_hyp_va((unsigned long)__te);
-+	unsigned long *guest_exit = kvm_ksym_ref_nvhe(__guest_exit);
 +	int err;
 +
-+	err = __kvms_hvc_cmd(HYP_SET_HYP_TXT, start, end,
-+			     guest_exit, NULL);
++	err = __kvms_hvc_cmd(HYP_SET_HYP_TXT, start, end, NULL);
 +	if (err)
 +		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
@@ -1126,10 +1194,10 @@ index 3e081d556e81..bd74c6419f8a 100644
  
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..4f77da6d759f
+index 000000000000..3337944f691b
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,73 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef __HYP_API__
 +#define __HYP_API__
@@ -1186,7 +1254,8 @@ index 000000000000..4f77da6d759f
 +#define HYP_TRANSLATE			0x900F
 +#define HYP_SET_MEMCHUNK		0x9010
 +#define HYP_RELEASE_MEMCHUNK		0x9011
-+#define HYP_LAST_GUESTCALL		HYP_RELEASE_MEMCHUNK
++#define HYP_GUEST_VCPU_REG_RESET	0x9012
++#define HYP_LAST_GUESTCALL		HYP_GUEST_VCPU_REG_RESET
 +
 +/*
 + * Misc
@@ -1212,50 +1281,6 @@ index 4a81eddabcd8..d9bde57dc08c 100644
  
 -obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o smccc_wa.o
 +obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o smccc_wa.o kvms-hvci.o
-diff --git a/arch/arm64/kvm/hyp/entry.S b/arch/arm64/kvm/hyp/entry.S
-index 0c66a1d408fd..129c75a7e1b0 100644
---- a/arch/arm64/kvm/hyp/entry.S
-+++ b/arch/arm64/kvm/hyp/entry.S
-@@ -30,6 +30,10 @@ SYM_FUNC_START(__guest_enter)
- 	// Store the hyp regs
- 	save_callee_saved_regs x1
- 
-+	// Save host sp
-+	mov	x2, sp
-+	str	x2, [x1, #CPU_HOST_SP]
-+
- 	// Save hyp's sp_el0
- 	save_sp_el0	x1, x2
- 
-@@ -102,14 +106,16 @@ SYM_INNER_LABEL(__guest_exit_panic, SYM_L_GLOBAL)
- SYM_INNER_LABEL(__guest_exit, SYM_L_GLOBAL)
- 	// x0: return code
- 	// x1: vcpu
--	// x2-x29,lr: vcpu regs
--	// vcpu x0-x1 on the stack
-+	// x2-3: clobbered
-+	// x4-x29,lr: vcpu regs
-+	// vcpu x0-x4 on the stack
- 
- 	add	x1, x1, #VCPU_CONTEXT
- 
- 	ALTERNATIVE(nop, SET_PSTATE_PAN(1), ARM64_HAS_PAN, CONFIG_ARM64_PAN)
- 
- 	// Store the guest regs x2 and x3
-+	ldp	x2, x3,	[sp, #(8 * 2)]
- 	stp	x2, x3,   [x1, #CPU_XREG_OFFSET(2)]
- 
- 	// Retrieve the guest regs x0-x1 from the stack
-@@ -145,6 +151,9 @@ SYM_INNER_LABEL(__guest_exit, SYM_L_GLOBAL)
- 
- 	// Now restore the hyp regs
- 	restore_callee_saved_regs x2
-+	// Restore host sp
-+	ldr	x3, [x2, #CPU_HOST_SP]
-+	mov	sp, x3
- 
- 	set_loaded_vcpu xzr, x2, x3
- 
 diff --git a/arch/arm64/kvm/hyp/kvms-hvci.S b/arch/arm64/kvm/hyp/kvms-hvci.S
 new file mode 100644
 index 000000000000..4339c8f6fcb6
@@ -1844,10 +1869,18 @@ index 26068456ec0f..d377a1c5b24d 100644
  
  void kvm_arch_flush_shadow_memslot(struct kvm *kvm,
 diff --git a/arch/arm64/kvm/reset.c b/arch/arm64/kvm/reset.c
-index 204c62debf06..723937cac6ab 100644
+index 204c62debf06..b548b33bbf15 100644
 --- a/arch/arm64/kvm/reset.c
 +++ b/arch/arm64/kvm/reset.c
-@@ -457,12 +457,9 @@ int kvm_arm_setup_stage2(struct kvm *kvm, unsigned long type)
+@@ -323,6 +323,7 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu)
+ 	vcpu->arch.ctxt.spsr_irq = 0;
+ 	vcpu->arch.ctxt.spsr_fiq = 0;
+ 	vcpu_gp_regs(vcpu)->pstate = pstate;
++	__kvms_hvc_cmd(HYP_GUEST_VCPU_REG_RESET, vcpu->kvm, vcpu->vcpu_idx);
+ 
+ 	/* Reset system registers */
+ 	kvm_reset_sys_regs(vcpu);
+@@ -457,12 +458,9 @@ int kvm_arm_setup_stage2(struct kvm *kvm, unsigned long type)
  
  	vtcr |= VTCR_EL2_T0SZ(phys_shift);
  	/*
@@ -1876,5 +1909,5 @@ index 57c0c3b18bde..fc4ca442087f 100644
  					   offsetof(struct kvm_vcpu, arch),
  					   sizeof_field(struct kvm_vcpu, arch),
 -- 
-2.25.1
+2.17.1
 

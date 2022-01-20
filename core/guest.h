@@ -10,6 +10,7 @@
 #include "mm.h"
 #include "host_defs.h"
 #include "tables.h"
+#include "pt_regs.h"
 
 #include "mbedtls/aes.h"
 
@@ -50,6 +51,12 @@ typedef struct {
 	size_t len;
 } share_t;
 
+struct vcpu_context {
+	struct user_pt_regs regs;
+	struct user_pt_regs *kvm_regs;
+	uint32_t gpreg_sync_from_kvm;
+};
+
 struct kvm_guest {
 	uint32_t vmid;
 	guest_state_t state;
@@ -74,6 +81,7 @@ struct kvm_guest {
 	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
 	mbedtls_aes_context aes_ctx;
 	bool s2_host_access;
+	struct vcpu_context vcpu_ctxt[NUM_VCPUS];
 };
 
 typedef struct kvm_guest kvm_guest_t;
@@ -334,5 +342,15 @@ static inline void set_blinding_default(kvm_guest_t *guest)
 	guest->s2_host_access = false;
 #endif // HOSTBLINDING
 }
+
+/**
+ * Reset guest VCPU registers to initial values, and permit register access
+ * from lower ELs.
+ *
+ * @param kvm    the guest to reset registers
+ * @param vcpuid guest VCPU identifier
+ * @return zero in case of success, negative error code otherwise
+ */
+int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid);
 
 #endif // __KVM_GUEST_H__

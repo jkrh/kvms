@@ -6,6 +6,8 @@
 #include "linuxmacros.h"
 #include <psci.h>
 
+	.global	guest_exit
+
 .macro ventry target
 	b	\target
 	.balign 128
@@ -279,10 +281,9 @@ el1_trap:
 	bge	1f
 	load_all_regs
 	b	forward_aarch64sync
-1:	get_kern_exit	x3, x0
-	get_vcpu_ptr	x1, x0
-	mov	x0, #ARM_EXCEPTION_TRAP
-	br	x3
+1:	mrs	x18, ESR_EL2
+	mov	x19, #ARM_EXCEPTION_TRAP
+	b	guest_exit
 
 fpsimd_trap:
 	cmp	x0, #GUEST_VMID_START
@@ -297,13 +298,13 @@ fpsimd_trap:
 	get_vcpu_ptr	x1, x0
 	mov	x0, #0x7
 	br	x3
-5:	get_kern_exit	x3, x0
-	get_vcpu_ptr	x1, x0
-	mov	x0, #ARM_EXCEPTION_TRAP
-	br	x3
+5:	mrs	x18, ESR_EL2
+	mov	x19, #ARM_EXCEPTION_TRAP
+	b	guest_exit
 
 el1_irq:
 	msr	SPSel, #1
+	sub	sp, sp, #PT_REGS_SIZE
 	save_clobber_regs
 
 	mrs	x0, VTTBR_EL2
@@ -311,10 +312,11 @@ el1_irq:
 	cmp	x0, #GUEST_VMID_START
 	blt	dumpcall
 
-	get_kern_exit	x3, x0
-	get_vcpu_ptr	x1, x0
-	mov	x0, #ARM_EXCEPTION_IRQ
-	br	x3
+	save_all_regs
+
+	mov	x18, xzr
+	mov	x19, #ARM_EXCEPTION_IRQ
+	b	guest_exit
 
 guest_hvc_trap:
 	ldp	x0, x1, [sp, #(8 * 0)]
@@ -324,11 +326,9 @@ guest_hvc_trap:
 	ldp	x0, x1, [sp, #(8 * 0)]
 	load_all_regs
 	bl	psci_reg
-	load_all_regs
-	get_kern_exit	x3, x0
-	get_vcpu_ptr	x1, x0
-	mov	x0, #ARM_EXCEPTION_TRAP
-	br	x3
+	mrs	x18, ESR_EL2
+	mov	x19, #ARM_EXCEPTION_TRAP
+	b	guest_exit
 6:	ldp	x0, x1, [sp, #(8 * 0)]
 	load_all_regs
 	bl	hvccall
@@ -338,17 +338,18 @@ guest_hvc_trap:
 
 el1_error:
 	msr	SPSel, #1
-	save_clobber_regs
+	sub	sp, sp, #(PT_REGS_SIZE)
+	stp	x0, x1, [sp, #(8 * 0)]
+	save_all_regs
 
 	mrs	x0, VTTBR_EL2
 	lsr	x0, x0, #48
 	cmp	x0, #GUEST_VMID_START
 	blt	dumpcall
 
-	get_kern_exit	x3, x0
-	get_vcpu_ptr	x1, x0
-	mov	x0, #ARM_EXCEPTION_EL1_SERROR
-	br	x3
+	mov	x18, xzr
+	mov	x19, #ARM_EXCEPTION_EL1_SERROR
+	b	guest_exit
 
 dumpcall:
 	msr	SPSel, #1

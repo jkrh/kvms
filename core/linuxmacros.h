@@ -29,7 +29,6 @@
 .endm
 
 .macro save_clobber_regs
-	sub	sp, sp, #(8 * 4)
 	stp	x0, x1, [sp, #(8 * 0)]
 	stp	x2, x3, [sp, #(8 * 2)]
 .endm
@@ -71,14 +70,24 @@
 	ldr	x30, [sp, #(8 * 30)]
 .endm
 
-/*
- * Locate the guest exit from the kernel
- */
-.macro get_kern_exit reg, tmp
-	mov	\reg, #KERNEL_BASE
-	adr	\tmp, __guest_exit
-	ldr	\tmp, [\tmp]
-	add     \reg, \reg, \tmp
+.macro	save_callee_saved_regs ctxt
+	str	x18, [\ctxt, #(8 * 18)]
+	stp	x19, x20, [\ctxt, #(8 * 19)]
+	stp	x21, x22, [\ctxt, #(8 * 21)]
+	stp	x23, x24, [\ctxt, #(8 * 23)]
+	stp	x25, x26, [\ctxt, #(8 * 25)]
+	stp	x27, x28, [\ctxt, #(8 * 27)]
+	stp	x29, x30, [\ctxt, #(8 * 29)]
+.endm
+
+.macro	restore_callee_saved_regs ctxt
+	ldr	x18, [\ctxt, #(8 * 18)]
+	ldp	x19, x20, [\ctxt, #(8 * 19)]
+	ldp	x21, x22, [\ctxt, #(8 * 21)]
+	ldp	x23, x24, [\ctxt, #(8 * 23)]
+	ldp	x25, x26, [\ctxt, #(8 * 25)]
+	ldp	x27, x28, [\ctxt, #(8 * 27)]
+	ldp	x29, x30, [\ctxt, #(8 * 29)]
 .endm
 
 /*

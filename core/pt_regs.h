@@ -1,3 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#ifndef __PT_REGS_H__
+#define __PT_REGS_H__
+
 #ifndef __ASSEMBLY__
 #include <stdint.h>
 
@@ -26,7 +30,9 @@ struct pt_regs {
 			uint64_t pstate;
 		};
 	};
-}
+};
 #endif // __ASSEMBLY__
 
 #define PT_REGS_SIZE (8 * 36)
+
+#endif /* !__PT_REGS_H__ */

@@ -25,8 +25,3 @@ _start:
 .align	8
 entrylock:
 	.quad	0x000000000000
-
-.data
-.global __guest_exit
-__guest_exit:
-	.quad   0x000000000000

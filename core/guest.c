@@ -12,6 +12,7 @@
 #include "bits.h"
 #include "tables.h"
 #include "cache.h"
+#include "pt_regs.h"
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -34,6 +35,8 @@ struct hyp_extension_ops {
 	int (*load_guest_stage2)(uint64_t vmid);
 	void (*save_host_traps)(void);
 	void (*restore_host_traps)(void);
+	void *(*hyp_vcpu_regs)(uint64_t vmid, uint64_t vcpuid);
+	uint64_t (*guest_enter)(void *vcpu);
 };
 
 /*
@@ -54,6 +57,26 @@ struct hyp_extension_ops {
 
 #define INVALID_VMID	PRODUCT_VMID_MAX
 #define INVALID_GUEST	MAX_VM
+
+#define VCPU_GET_KVM(vcpu) kern_hyp_va(*(void **)((char *)(vcpu) + 0))
+#define VCPU_GET_VMID(vcpu) KVM_GET_VMID(VCPU_GET_KVM(vcpu))
+#define VCPU_GET_VCPUID(vcpu) (*(int *)((char *)(vcpu) + VCPU_VCPUIDX))
+#define VCPU_GET_REGS(vcpu) ((struct user_pt_regs *) \
+			     ((char *)(vcpu) + VCPU_CONTEXT))
+
+#define ARM_EXCEPTION_HYP_GONE 0xbadca11
+
+extern uint64_t hyp_guest_enter(void *vcpu, struct user_pt_regs *regs);
+
+/*
+ * Error Syndrome Register decoding
+ */
+#define ESR_EC(esr)          ((esr) >> 26)
+#define ISS_SYSREG_RT(esr)   (((esr) & 0x3e0) >> 5)
+#define ISS_SYSREG_DIR(esr)  (!!((esr) & 0x1))
+#define ISS_DABT_ISV(esr)    (!!((esr) & 0x1000000))
+#define ISS_DABT_SRT(esr)    (((esr) & 0x1f0000) >> 16)
+#define ISS_DABT_WNR(esr)    (!!((esr) & 0x40))
 
 static uint16_t guest_index[PRODUCT_VMID_MAX] ALIGN(16);
 static kvm_guest_t guests[MAX_VM] ALIGN(16);
@@ -141,6 +164,43 @@ void restore_host_traps(void)
 	write_reg(HSTR_EL2, host_ctxt->hstr_el2 | (1 << 15));
 	write_reg(PMUSERENR_EL0, ARMV8_PMU_USERENR_MASK);
 	write_reg(PMSELR_EL0, 0);
+}
+
+void *hyp_vcpu_regs(uint64_t vmid, uint64_t vcpuid)
+{
+	struct vcpu_context *ctxt;
+	kvm_guest_t *guest = get_guest(vmid);
+
+	if (!guest || vcpuid >= NUM_VCPUS)
+		return NULL;
+
+	ctxt = &guest->vcpu_ctxt[vcpuid];
+	return &ctxt->regs;
+}
+
+uint64_t guest_enter(void *vcpu)
+{
+	uint64_t vmid;
+	uint64_t vcpuid;
+	kvm_guest_t *guest;
+	struct user_pt_regs *kvm_regs;
+	int reg;
+	struct vcpu_context *ctxt;
+
+	vmid = VCPU_GET_VMID(vcpu);
+	vcpuid = VCPU_GET_VCPUID(vcpu);
+	guest = get_guest(vmid);
+	if (!guest || vcpuid >= NUM_VCPUS)
+		return ARM_EXCEPTION_HYP_GONE; /* 0xbadca11 */
+	kvm_regs = VCPU_GET_REGS(vcpu);
+	ctxt = &guest->vcpu_ctxt[vcpuid];
+	ctxt->kvm_regs = kvm_regs;
+
+	for (reg = 0; reg < 31; reg++)
+		if (bit_raised(ctxt->gpreg_sync_from_kvm, reg))
+			ctxt->regs.regs[reg] = kvm_regs->regs[reg];
+	ctxt->gpreg_sync_from_kvm = 0;
+	return hyp_guest_enter(vcpu, &ctxt->regs);
 }
 
 kvm_guest_t *get_free_guest(uint64_t vmid)
@@ -541,6 +601,8 @@ int init_guest(void *kvm)
 	eops->load_guest_stage2 = load_guest_s2;
 	eops->save_host_traps = save_host_traps;
 	eops->restore_host_traps = restore_host_traps;
+	eops->hyp_vcpu_regs = hyp_vcpu_regs;
+	eops->guest_enter = guest_enter;
 
 	/* Save the current VM process stage1 PGDs */
 	guest->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
@@ -1188,4 +1250,81 @@ out_error:
 	ERROR("%s failed gpa:0x%lx hpa:0x%lx len:%d err:%d\n",
 	       __func__, addr, paddr, len, ret);
 	return ret;
+}
+
+int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid)
+{
+	kvm_guest_t *guest = __get_guest_by_kvm(&kvm, NULL);
+
+	if (!guest) {
+		LOG("%s: bad kvm %p\n", __func__, kvm);
+		return -ENOENT;
+	}
+	if (vcpuid >= NUM_VCPUS)
+		return -EINVAL;
+	guest->vcpu_ctxt[vcpuid].gpreg_sync_from_kvm = ~0;
+	return 0;
+}
+
+/*
+ * Note that this may bypass core_lock. This is acceptable as long as
+ * we only access static guest data or VCPU registers which won't be
+ * concurrently accessed by other cores.
+ */
+void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_pt_regs *regs)
+{
+	struct vcpu_context *ctxt;
+	uint32_t reg;
+	uint64_t ipa;
+	kvm_memslot *slot;
+	kvm_guest_t *guest = get_guest(vmid);
+
+	if (!guest || vcpuid >= NUM_VCPUS) {
+		ERROR("%s: invalid vmid %u or vcpuid %u\n",
+		      __func__,  vmid, vcpuid);
+		return;
+	}
+	ctxt = &guest->vcpu_ctxt[vcpuid];
+
+	memcpy(&ctxt->regs.regs, &regs->regs, sizeof(ctxt->regs.regs));
+
+	switch (ESR_EC(esr)) {
+	case 0x16:	/* HVC */
+		ctxt->kvm_regs->regs[0] = ctxt->regs.regs[0];
+		ctxt->kvm_regs->regs[1] = ctxt->regs.regs[1];
+		ctxt->kvm_regs->regs[2] = ctxt->regs.regs[2];
+		ctxt->kvm_regs->regs[3] = ctxt->regs.regs[3];
+		bit_set(ctxt->gpreg_sync_from_kvm, 0);
+		break;
+	case 0x18:	/* sysreg access */
+		reg = ISS_SYSREG_RT(esr);
+		if (reg == 31)
+			break;
+		if (ISS_SYSREG_DIR(esr))
+			/* mrs -> write to gpr */
+			bit_set(ctxt->gpreg_sync_from_kvm, reg);
+		else
+			/* msr -> read from gpr */
+			ctxt->kvm_regs->regs[reg] = ctxt->regs.regs[reg];
+		break;
+	case 0x24:	/* data abort */
+		if (!ISS_DABT_ISV(esr))
+			break;
+		ipa = read_reg(HPFAR_EL2) << 8;
+		slot = gfn_to_memslot(guest, addr_to_fn(ipa));
+		if (slot && !(slot->flags & KVM_MEM_READONLY))
+			break;
+		reg = ISS_DABT_SRT(esr);
+		if (reg == 31)
+			break;
+		if (ISS_DABT_WNR(esr))
+			/* write to memory -> read from gpr */
+			ctxt->kvm_regs->regs[reg] = ctxt->regs.regs[reg];
+		else
+			/* read from memory -> write to gpr */
+			bit_set(ctxt->gpreg_sync_from_kvm, reg);
+		break;
+	default:
+		break;
+	}
 }
