@@ -936,15 +936,17 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 	kvm_guest_t *host;
 	uint64_t paddr, map_addr, range_end, pc = 0;
 	uint64_t *pte;
-	int res = -EINVAL;
+	int res = 0;
 
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
 
 	range_end = vaddr + len;
-	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr))
+	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr)) {
+		res = -EINVAL;
 		goto out_error;
+	}
 
 	if (range_end > guest->ramend)
 		range_end = guest->ramend;
