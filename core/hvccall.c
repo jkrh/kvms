@@ -365,15 +365,15 @@ void print_abort(void)
 
 	far = read_reg(FAR_EL2);
 
-	ERROR("VTTBR_EL2 (0x%012x) ESR_EL2 (0x%012lx) FAR_EL2 (0x%012lx)\n",
+	ERROR("VTTBR_EL2 (0x%016x) ESR_EL2 (0x%016lx) FAR_EL2 (0x%016lx)\n",
 	      read_reg(VTTBR_EL2), read_reg(ESR_EL2), read_reg(FAR_EL2));
-	ERROR("HPFAR_EL2 (0x%012lx)\n", read_reg(HPFAR_EL2));
+	ERROR("HPFAR_EL2 (0x%016lx)\n", read_reg(HPFAR_EL2));
 
-	ERROR("HOST STAGE1 (0x%012lx), STAGE2 (0x%012lx)\n", host->EL1S1_1_pgd,
+	ERROR("HOST STAGE1 (0x%016lx), STAGE2 (0x%016lx)\n", host->EL1S1_1_pgd,
 	      host->EL1S2_pgd);
 
 	pa = pt_walk(host, STAGEA, far, NULL);
-	ERROR("FAR: (0x%012lx) PA: (0x%012lx)\n", far, pa);
+	ERROR("FAR: (0x%016lx) PA: (0x%016lx)\n", far, pa);
 }
 
 NORETURN
@@ -401,38 +401,38 @@ void dump_state(uint64_t level, void *sp)
 	faddr = read_reg(ELR_EL2);
 	switch (level) {
 	case 1:
-		ERROR("Unhandled exception in EL1 at 0x%012lx\n", faddr);
+		ERROR("UNHANDLED EXCEPTION IN EL1 AT 0x%016lx\n", faddr);
 		break;
 	case 2:
-		ERROR("Unhandled exception in EL2 at 0x%012lx\n", faddr);
+		ERROR("UNHANDLED EXCEPTION IN EL2 AT 0x%016lx\n", faddr);
 		break;
 	case 3:
-		ERROR("Unhandled SMC trap at 0x%012lx\n", faddr);
+		ERROR("UNHANDLED SMC TRAP AT 0x%016lx\n", faddr);
 		break;
 	default:
-		ERROR("Unhandled exception\n");
+		ERROR("UNHANDLED UNKNOWN EXCEPTION\n");
 		break;
 	}
-	ERROR("VTTBR_EL2 (0x%012lx) ESR_EL2 (0x%012lx) FAR_EL2 (0x%012lx)\n",
+	ERROR("VTTBR_EL2 (0x%016lx)    ESR_EL2 (0x%016lx)     FAR_EL2 (0x%016lx)\n",
 	      read_reg(VTTBR_EL2), read_reg(ESR_EL2), read_reg(FAR_EL2));
-	ERROR("HPFAR_EL2 (0x%012lx) GICD_STATUSR(0x%012lx)\n",
-	      read_reg(HPFAR_EL2), read_gicdreg(GICD_STATUSR));
-
-	ERROR("x00(0x%012lx):x01(0x%012lx):x02(0x%012lx):x03(0x%012lx)\n",
+	ERROR("HPFAR_EL2 (0x%016lx)  GICD_STATUSR (0x%016lx)  SPSR_EL2(0x%016lx)\n",
+	      read_reg(HPFAR_EL2), read_gicdreg(GICD_STATUSR), read_reg(SPSR_EL2));
+	ERROR("\n");
+	ERROR("x00(0x%016lx):x01(0x%016lx):x02(0x%016lx):x03(0x%016lx)\n",
 		__frame[0], __frame[1], __frame[2], __frame[3]);
-	ERROR("x04(0x%012lx):x05(0x%012lx):x06(0x%012lx):x07(0x%012lx)\n",
+	ERROR("x04(0x%016lx):x05(0x%016lx):x06(0x%016lx):x07(0x%016lx)\n",
 		__frame[4], __frame[5], __frame[6], __frame[7]);
-	ERROR("x08(0x%012lx):x09(0x%012lx):x10(0x%012lx):x11(0x%012lx)\n",
+	ERROR("x08(0x%016lx):x09(0x%016lx):x10(0x%016lx):x11(0x%016lx)\n",
 		__frame[8], __frame[9], __frame[10], __frame[11]);
-	ERROR("x12(0x%012lx):x13(0x%012lx):x14(0x%012lx):x15(0x%012lx)\n",
+	ERROR("x12(0x%016lx):x13(0x%016lx):x14(0x%016lx):x15(0x%016lx)\n",
 		__frame[12], __frame[13], __frame[14], __frame[15]);
-	ERROR("x16(0x%012lx):x17(0x%012lx):x18(0x%012lx):x19(0x%012lx)\n",
+	ERROR("x16(0x%016lx):x17(0x%016lx):x18(0x%016lx):x19(0x%016lx)\n",
 		__frame[16], __frame[17], __frame[18], __frame[19]);
-	ERROR("x20(0x%012lx):x21(0x%012lx):x22(0x%012lx):x23(0x%012lx)\n",
+	ERROR("x20(0x%016lx):x21(0x%016lx):x22(0x%016lx):x23(0x%016lx)\n",
 		__frame[20], __frame[21], __frame[22], __frame[23]);
-	ERROR("x24(0x%012lx):x25(0x%012lx):x26(0x%012lx):x27(0x%012lx)\n",
+	ERROR("x24(0x%016lx):x25(0x%016lx):x26(0x%016lx):x27(0x%016lx)\n",
 		__frame[24], __frame[25], __frame[26], __frame[27]);
-	ERROR("x28(0x%012lx):x29(0x%012lx):x30(0x%012lx)\n",
+	ERROR("x28(0x%016lx):x29(0x%016lx):x30(0x%016lx)\n",
 		__frame[28], __frame[29], __frame[30]);
 
 #if defined(CRASHDUMP) && defined(DEBUG)
@@ -528,7 +528,7 @@ void memctrl_exec(uint64_t *sp)
 		ipa = pt_walk(guest, STAGE2, elr, 0);
 
 		ERROR("UNHANDLED TRAP AT %p, ipa %p\n", elr, ipa);
-		ERROR("VMID %u CORE %u ESR 0x%012lx ISS 0x%08X\n", vmid, cid,
+		ERROR("VMID %u CORE %u ESR 0x%016lx ISS 0x%08X\n", vmid, cid,
 		      esr_el2, iss);
 		inst = (uint32_t)*(uint64_t *)ipa;
 		ERROR("Failing instruction was 0x%x\t'n", inst);
