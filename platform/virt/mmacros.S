@@ -1,8 +1,14 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+#include "linuxmacros.h"
+#include "pt_regs.h"
+
 .macro platform_aarch64sync
-	str	x0, [sp, #-8]!
-	mrs	x0, elr_el2
-	add	x0, x0, #4
-	msr	elr_el2, x0
-	ldr	x0, [sp], #8
-	eret
+	sub	sp, sp, #(PT_REGS_SIZE)
+	stp	x0, x1, [sp, #(8 * 0)]
+	save_all_regs
+
+	mov	x0, #1
+	mov	x1, sp
+	bl	dump_state
 .endm

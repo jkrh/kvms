@@ -151,21 +151,20 @@ Migration support TODO
 -----------------------
 - Dirty bitmask handling (partly done)
 - Key export / import
+- QEMU register get/set support
 - ??
 
 
 SHORT TERM TODO
 ----------------
 1) Memory pressure testing
-2) VCPU register save in the hyp
+2) Make quest system registers immutable
 3) Hardened guest config
 4) Migration support
 5) Finish android hardware support (32bit environment goes SIGILL)
-6) Translation code unit test: make sure 'at' and 'pt_walk' agree about the
-   system state
-7) Add locking mechanism for guest specific EL2 mappings that are not allowed
+6) Add locking mechanism for guest specific EL2 mappings that are not allowed
    to be changed after VM has been initialized. At the moment the protection
    is for all EL2 mappings which prevents from creating new VMs after the lock
    has been set
-8) QEMU protected guest support to give the madvise() hint to KSM not to scan
+7) QEMU protected guest support to give the madvise() hint to KSM not to scan
    the guest memory: -cpu=host,protected-guest-support=kvms
