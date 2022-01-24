@@ -548,7 +548,7 @@ int guest_memchunk_alloc(kvm_guest_t *guest,
 	}
 
 	if (c >= GUEST_MEMCHUNKS_MAX)
-		c = -ENOSPC;
+		return -ENOSPC;
 
 	guest->mempool[c].type = type;
 
