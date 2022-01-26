@@ -632,7 +632,8 @@ kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd)
 
 	/* Look for the actual guests first.. */
 	for (i = 0; i < MAX_VM; i++) {
-		if (guests[i].EL1S1_0_pgd == pgd)
+		if ((guests[i].vmid != HOST_VMID) &&
+		    (guests[i].EL1S1_0_pgd == pgd))
 			return &guests[i];
 	}
 	/* And if it wasn't any, the host..  */
