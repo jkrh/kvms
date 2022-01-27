@@ -26,6 +26,15 @@
 #ifndef HOST_CONTEXT_VCPU
 #error HOST_CONTEXT_VCPU not defined, check your config!
 #endif
+#ifndef VCPU_VCPUIDX
+#error VCPU_VCPUIDX not defined, check your config!
+#endif
+#ifndef VCPU_CONTEXT
+#error VCPU_CONTEXT not defined, check your config!
+#endif
+#ifndef CPU_HOST_SP
+#error CPU_HOST_SP not defined, check your config!
+#endif
 #else
 #define	KVM_ARCH		0
 #define	KVM_ARCH_VMID		0
@@ -33,6 +42,9 @@
 #define	KVM_EXT_OPS		0
 #define	HOST_DATA_CONTEXT	0
 #define	HOST_CONTEXT_VCPU	0
+#define	VCPU_VCPUIDX		0
+#define	VCPU_CONTEXT		0
+#define	CPU_HOST_SP		0
 #endif // STANDALONE
 
 
