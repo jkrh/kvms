@@ -777,8 +777,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 					   pgd_levels, vmid);
 			if (res)
 				HYP_ABORT();
-			LOG("head v:0x%lx p:0x%lx l:%lu\n",
-			    block->vaddr, block->paddr, tlen);
+
 			block->vaddr += tlen;
 			block->paddr += tlen;
 
@@ -807,7 +806,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 						   pgd_levels, vmid);
 			if (res)
 				HYP_ABORT();
-			LOG("map v:0x%lx l:%lu\n", tvaddr, mlen);
+
 			tvaddr += mlen;
 			tpaddr += mlen;
 			block->vaddr += mlen;
@@ -822,9 +821,6 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 					   pgd_levels, vmid);
 			if (res)
 				HYP_ABORT();
-
-			LOG("tail v:0x%lx p:0x%lx l:%lu\n",
-			    block->vaddr, block->paddr, tlen);
 		} else {
 			if (mlen == 0)
 				mlen = bsize;
@@ -837,7 +833,6 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			if (res)
 				HYP_ABORT();
 
-			/*LOG("map nohit v:0x%lx l:%lu\n", tvaddr, mlen);*/
 			tvaddr += mlen;
 			tpaddr += mlen;
 			rlen -= mlen;

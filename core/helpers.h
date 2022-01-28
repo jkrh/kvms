@@ -57,9 +57,10 @@ static inline void *at_s1e1r(void *s1addr)
 
 	ipa = ats1e1r(s1addr);
 
-	if ((ipa & 1) == 0)
+	if ((ipa & 1) == 0) {
 		ipa = (ipa & PAR_EL1_PAMASK);
-	else
+		ipa |= (((uint64_t)s1addr) & (PAGE_SIZE - 1));
+	} else
 		ipa = ~0UL;
 
 	return (void *)ipa;
@@ -100,9 +101,10 @@ static inline void *at_s12e1r(void *s1addr)
 
 	paddr = s12e1r(s1addr);
 
-	if ((paddr & 1) == 0)
+	if ((paddr & 1) == 0) {
 		paddr = (paddr & PAR_EL1_PAMASK);
-	else
+		paddr |= (((uint64_t)s1addr) & (PAGE_SIZE - 1));
+	} else
 		paddr = ~0UL;
 
 	return (void *)paddr;
