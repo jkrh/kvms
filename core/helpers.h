@@ -50,6 +50,26 @@
 		value;                                                         \
 	})
 
+static inline void *at_s1e1r(void *s1addr)
+{
+
+	uint64_t ipa;
+
+	ipa = ats1e1r(s1addr);
+
+	if ((ipa & 1) == 0)
+		ipa = (ipa & PAR_EL1_PAMASK);
+	else
+		ipa = ~0UL;
+
+	return (void *)ipa;
+}
+
+static inline void *virt_to_ipa(void *s1addr)
+{
+	return at_s1e1r(s1addr);
+}
+
 /* Perform stage 1 and stage 2 address translation */
 #define s12e1r(va)                                                             \
 	({                                                                     \

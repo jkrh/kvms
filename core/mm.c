@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <sys/time.h>
 
 #include "mtree.h"
 #include "mm.h"
@@ -466,30 +467,60 @@ int restore_host_mappings(void *gp)
 {
 	kvm_guest_t *host, *guest = (kvm_guest_t *)gp;
 	uint64_t slot_start, slot_end, size;
-	uint64_t slot_addr, *pte;
+	uint64_t slot_addr, phy_addr, rcount, *pte;
 	int i, res;
+	bool use_at = false;
+	struct timeval tv1;
+	struct timeval tv2;
 
 	if (!guest)
 		return -EINVAL;
+
+	if ((uint64_t)guest->EL1S1_0_pgd ==
+	    (read_reg(TTBR0_EL1) & TTBR_BADDR_MASK)) {
+		LOG("HYP: %s using at commands\n", __func__);
+		use_at = true;
+	}
 
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
 
+	gettimeofday(&tv1, NULL);
+	rcount = 0;
 	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
 		if (!guest->slots[i].slot.npages)
 			continue;
 
-		slot_start = fn_to_addr(guest->slots[i].slot.base_gfn);
+		if (guest->slots[i].slot.flags & KVM_MEM_READONLY)
+			continue;
+
+		if (use_at)
+			slot_start = guest->slots[i].slot.userspace_addr;
+		else
+			slot_start = fn_to_addr(guest->slots[i].slot.base_gfn);
+
 		size = guest->slots[i].slot.npages * PAGE_SIZE;
 
 		/* See where the slot is in the memory */
 
 		slot_end = slot_start;
 		while (slot_end <= (slot_start + size)) {
-			slot_addr = pt_walk(guest, STAGE2, slot_end, &pte);
-			if (slot_addr == ~0UL)
-				goto cont;
+			if (use_at) {
+				/* Is it mapped ? */
+				slot_addr = (uint64_t)virt_to_ipa((void *)slot_end);
+				if (slot_addr == ~0UL)
+					goto cont;
+				/* Is it blinded ? */
+				phy_addr = (uint64_t)virt_to_phys((void *)slot_end);
+				if (phy_addr != ~0UL)
+					goto cont;
+			} else {
+				slot_addr = pt_walk(guest, STAGE2, slot_end, &pte);
+				if (slot_addr == ~0UL)
+					goto cont;
+			}
+
 			/*
 			 * Now we know that the slot_end points to a page
 			 * at addr that was stolen from the host. Restore
@@ -501,10 +532,15 @@ int restore_host_mappings(void *gp)
 					 PAGE_SIZE, PAGE_HYP_RWX, S2_NORMAL_MEMORY);
 			if (res)
 				HYP_ABORT();
+			rcount++;
 cont:
 			slot_end += PAGE_SIZE;
 		}
 	}
+	gettimeofday(&tv2, NULL);
+	LOG("HYP: %s %ld pages. Latency was %ldms\n",
+	     __func__, rcount, (tv2.tv_usec - tv1.tv_usec) / 1000);
+
 	return 0;
 }
 
