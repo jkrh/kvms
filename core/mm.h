@@ -222,6 +222,11 @@ int remove_host_range(void *guest, uint64_t gpa, size_t len, bool contiguous);
  */
 int restore_host_range(void *guest, uint64_t gpa, uint64_t len, bool contiguous);
 
+/*
+ * Internal use only
+ */
+bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2);
+
 #ifdef HOSTBLINDING
 /**
  * Restore host mappings after blinded guest exit
@@ -239,5 +244,16 @@ static inline int restore_host_mappings(void *guest)
 }
 
 #endif // HOSTBLINDING
+
+#ifdef DEBUG
+static inline void clean_guest_page(void *addr)
+{
+}
+#else
+static inline void clean_guest_page(void *addr)
+{
+	memset((void *)addr, 0, PAGE_SIZE);
+}
+#endif
 
 #endif // __MM_H__

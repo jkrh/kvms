@@ -190,30 +190,29 @@ handle_abort:
 
 data_abort:
 	cmp	x0, #GUEST_VMID_START
-	blt	host_data_abort
-	b	guest_data_abort
+	blt	_host_data_abort
+	b	_guest_data_abort
 
-host_data_abort:
-#ifdef DEBUG
+_host_data_abort:
+#ifndef STANDALONE
 	save_all_regs
 	/*
-	 * Debug host data abort
+	 * Host data abort
 	 *
 	 * If we arrive here from the process that "owns" the guest that's an
 	 * indication we may have blinded a page used for data sharing between
-	 * the host and the guest. Print out the page address and make it
-	 * visible again to the host to enable the guest to continue running.
-	 * .
+	 * the host and the guest. Handle it by crashing the user process or the
+	 * calling kernel or map the data back in depending on the config.
+	 *
 	 */
 	mrs	x1, TTBR0_EL1
 	mrs	x2, FAR_EL2
-	bl	map_back_host_page
+	bl	host_data_abort
 	cmp	x0, #1
 	b.ne	1f
 	/*
 	 * Now since it indeed was an abort from the owning process and we
-	 * mapped back the needed memory let's get us back to where we came
-	 * from.
+	 * handled it, return.
 	 */
 	load_all_regs
 	ldr	x0, [sp, #(8 * 0)]
@@ -225,7 +224,7 @@ host_data_abort:
 	b	host_fastforward
 #endif
 
-guest_data_abort:
+_guest_data_abort:
 	save_all_regs
 	b	el1_trap
 

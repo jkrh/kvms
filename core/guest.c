@@ -13,6 +13,7 @@
 #include "tables.h"
 #include "cache.h"
 #include "pt_regs.h"
+#include "spinlock.h"
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -24,6 +25,7 @@
 #include "mbedtls/platform.h"
 
 extern struct mbedtls_entropy_context mbedtls_entropy_ctx;
+extern uint64_t core_lock;
 
 #define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
 #define ARMV8_PMU_USERENR_MASK 0xf
@@ -841,6 +843,9 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		goto out_error;
 	}
 
+	if (guest->state == GUEST_CRASHING)
+		return -EFAULT;
+
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
@@ -928,6 +933,11 @@ cont:
 	if (!res && !is_share(guest, vaddr, len))
 		res = remove_host_range(guest, vaddr, len, false);
 
+	/*
+	 * FIXME: we may leak executable permissions on data shares
+	 *        that were not mapped in the guest during the OPEN
+	 *        HVC and were not removed above.
+	 */
 out_error:
 	return res;
 }
@@ -942,6 +952,9 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 	host = get_guest(HOST_VMID);
 	if (!host)
 		HYP_ABORT();
+
+	if (guest->state == GUEST_CRASHING)
+		return -EFAULT;
 
 	range_end = vaddr + len;
 	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr)) {
@@ -1330,4 +1343,77 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 	default:
 		break;
 	}
+}
+
+bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
+{
+	kvm_guest_t *guest;
+	uint64_t spsr_el2, elr_el2;
+	int iival = 0xbadc0de;
+	bool res = false;
+	void *phys;
+
+	if (vmid != HOST_VMID)
+		HYP_ABORT();
+
+	spsr_el2 = read_reg(SPSR_EL2);
+	switch(spsr_el2 & 0xF) {
+	case 0x0:
+		spin_lock(&core_lock);
+
+		guest = get_guest_by_s1pgd((struct ptable *)(ttbr0_el1 &
+					   TTBR_BADDR_MASK));
+		if (!guest) {
+			ERROR("unable to find crashing userspace process\n");
+			goto out_done;
+		}
+		if (guest->state != GUEST_RUNNING) {
+			res = true;
+			goto out_done;
+		}
+		guest->state = GUEST_CRASHING;
+
+		/*
+		 * Userspace abort, crash only the process at hand
+		 */
+		elr_el2 = read_reg(ELR_EL2);
+		phys = virt_to_ipa((void *)elr_el2);
+		if (phys == (void *)~0UL)
+			HYP_ABORT();
+
+		LOG("host data abort at %p/%p\n", (void *)elr_el2, phys);
+
+		/* Feed invalid instruction */
+		phys += 4;
+		memcpy(phys, &iival, 4);
+
+		/* And return to it */
+		elr_el2 += 4;
+		write_reg(ELR_EL2, elr_el2);
+
+		/*
+		 * Make the core dump region readable immediately, either
+		 * as zeroes or data.
+		 */
+		set_memory_readable(guest);
+		res = true;
+out_done:
+		spin_unlock(&core_lock);
+		break;
+	case 0x4:
+	case 0x5:
+		/* EL1 abort, map the page back when needed or crash */
+		return __map_back_host_page(vmid, ttbr0_el1, far_el2);
+	}
+	return res;
+}
+
+void set_memory_readable(kvm_guest_t *guest)
+{
+	if (!guest)
+		return;
+
+	LOG("Restoring pages for guest %u..\n", guest->vmid);
+	restore_host_mappings(guest);
+	dsb(); isb();
 }

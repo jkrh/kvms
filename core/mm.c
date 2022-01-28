@@ -467,7 +467,7 @@ int restore_host_mappings(void *gp)
 {
 	kvm_guest_t *host, *guest = (kvm_guest_t *)gp;
 	uint64_t slot_start, slot_end, size;
-	uint64_t slot_addr, phy_addr, rcount, *pte;
+	uint64_t slot_addr, phy_addr, rcount;
 	int i, res;
 	bool use_at = false;
 	struct timeval tv1;
@@ -492,9 +492,6 @@ int restore_host_mappings(void *gp)
 		if (!guest->slots[i].slot.npages)
 			continue;
 
-		if (guest->slots[i].slot.flags & KVM_MEM_READONLY)
-			continue;
-
 		if (use_at)
 			slot_start = guest->slots[i].slot.userspace_addr;
 		else
@@ -511,25 +508,33 @@ int restore_host_mappings(void *gp)
 				slot_addr = (uint64_t)virt_to_ipa((void *)slot_end);
 				if (slot_addr == ~0UL)
 					goto cont;
+
 				/* Is it blinded ? */
 				phy_addr = (uint64_t)virt_to_phys((void *)slot_end);
-				if (phy_addr != ~0UL)
-					goto cont;
 			} else {
-				slot_addr = pt_walk(guest, STAGE2, slot_end, &pte);
+				/* And the same as above */
+				slot_addr = pt_walk(guest, STAGE2, slot_end, NULL);
 				if (slot_addr == ~0UL)
 					goto cont;
-			}
 
+				phy_addr = pt_walk(host, STAGE2, slot_addr, NULL);
+			}
 			/*
-			 * Now we know that the slot_end points to a page
-			 * at addr that was stolen from the host. Restore
-			 * it and make sure there is no information leak
-			 * on it.
+			 * Now we know that the slot_end points to a page at
+			 * addr that was stolen from the host. Restore it and
+			 * make sure there is no information leak on it if this
+			 * a release build.
+			 *
+			 * Shared communication channel data is always left
+			 * intact, even in the core dumps.
 			 */
-			memset((void *)slot_addr, 0, PAGE_SIZE);
+			if (phy_addr != ~0UL)
+				clean_guest_page((void *)slot_addr);
+
 			res = mmap_range(host, STAGE2, slot_addr, slot_addr,
-					 PAGE_SIZE, PAGE_HYP_RWX, S2_NORMAL_MEMORY);
+					 PAGE_SIZE,
+					 ((SH_INN << 8) | PAGE_HYP_RWX),
+					 S2_NORMAL_MEMORY);
 			if (res)
 				HYP_ABORT();
 			rcount++;
@@ -544,7 +549,7 @@ cont:
 	return 0;
 }
 
-bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
+bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 {
 	bool res;
 	kvm_guest_t *guest = NULL;

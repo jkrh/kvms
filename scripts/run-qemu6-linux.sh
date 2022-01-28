@@ -11,11 +11,12 @@ USER=$(whoami)
 [ -z "$IMAGE" ] && IMAGE="ubuntu20.qcow2"
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICEPORT=$(($PORT+1)) && SPICESOCK="port=$SPICEPORT"
+[ -z "$CORE" ] && CORE="off"
 
 export TMPDIR=$SPICEMNT
 
 usage() {
-	echo "$0 -tcp|-unix -image <disk image> -kernel <kernel file>"
+	echo "$0 -tcp|-unix|-core -image <disk image> -kernel <kernel file>"
 	rm -f $SPICESOCK
 	exit 1
 }
@@ -44,6 +45,10 @@ for i in "$@"; do
 		-tcp)
 			SPICEPORT=$(($PORT+1))
 			SPICESOCK="port=$SPICEPORT"
+			shift
+		;;
+		-core)
+			CORE="on"
 			shift
 		;;
 		-unix)
@@ -97,6 +102,11 @@ if [ "$USER" = "root" ]; then
 	[ -z "$(mount | grep $SPICEMNT)" ] && mount -t tmpfs -o size=1g tmpfs $SPICEMNT
 	[ ! -d $SPICEMNT/sock ] && mkdir -p $SPICEMNT/sock && chmod 0777 $SPICEMNT/sock
 	[ -d /dev/dri ] && chmod 0666 /dev/dri/render*
+
+	if [ "$CORE" = "on" ]; then
+		echo "%e.core.%p" > /proc/sys/kernel/core_pattern
+		ulimit -c unlimited
+	fi
 
 	echo 1 > /proc/sys/net/ipv4/ip_forward
 	iptables -t nat -A POSTROUTING -o $LOCALIF -j MASQUERADE

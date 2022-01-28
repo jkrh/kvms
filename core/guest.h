@@ -20,7 +20,7 @@
 #ifndef MAX_GUESTS
 #define MAX_GUESTS 8
 #endif
-#define MAX_SHARES 128
+#define MAX_SHARES 512
 
 #define KVM_USER_MEM_SLOTS 512
 #define KVM_PRIVATE_MEM_SLOTS 0
@@ -44,6 +44,7 @@ typedef enum {
 	GUEST_STOPPED = 0x1,
 	GUEST_RUNNING = 0x2,
 	GUEST_SLEEPING = 0x3,
+	GUEST_CRASHING = 0x4,
 } guest_state_t;
 
 typedef struct {
@@ -322,6 +323,16 @@ int guest_memchunk_alloc(kvm_guest_t *guest,
  */
 int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk);
 
+/*
+ * Process host data abort
+ *
+ * @param vmid, the host vmid
+ * @param uint64_t ttbr0_el1
+ * @param uint64_t far_el2
+ * @return true if the abort was correctly handled
+ */
+bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2);
+
 /**
  * Remove a chunk of memory from guest memory pool
  *
@@ -352,5 +363,10 @@ static inline void set_blinding_default(kvm_guest_t *guest)
  * @return zero in case of success, negative error code otherwise
  */
 int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid);
+
+/*
+ * Internal use only.
+ */
+void set_memory_readable(kvm_guest_t *guest);
 
 #endif // __KVM_GUEST_H__
