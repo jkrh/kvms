@@ -201,7 +201,20 @@ uint64_t guest_enter(void *vcpu)
 	for (reg = 0; reg < 31; reg++)
 		if (bit_raised(ctxt->gpreg_sync_from_kvm, reg))
 			ctxt->regs.regs[reg] = kvm_regs->regs[reg];
+	switch (ctxt->pc_sync_from_kvm) {
+	case PC_SYNC_SKIP:
+		if (kvm_regs->pc == 4)
+			ctxt->regs.pc += 4;
+		break;
+	case PC_SYNC_COPY:
+		ctxt->regs.pc = kvm_regs->pc;
+		break;
+	default:
+		break;
+	}
 	ctxt->gpreg_sync_from_kvm = 0;
+	ctxt->pc_sync_from_kvm = PC_SYNC_NONE;
+	write_reg(ELR_EL2, ctxt->regs.pc);
 	return hyp_guest_enter(vcpu, &ctxt->regs);
 }
 
@@ -1279,6 +1292,7 @@ int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid)
 	if (vcpuid >= NUM_VCPUS)
 		return -EINVAL;
 	guest->vcpu_ctxt[vcpuid].gpreg_sync_from_kvm = ~0;
+	guest->vcpu_ctxt[vcpuid].pc_sync_from_kvm = PC_SYNC_COPY;
 	return 0;
 }
 
@@ -1303,8 +1317,14 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 	ctxt = &guest->vcpu_ctxt[vcpuid];
 
 	memcpy(&ctxt->regs.regs, &regs->regs, sizeof(ctxt->regs.regs));
+	ctxt->regs.sp = read_reg(SP_EL0);
+	ctxt->regs.pc = read_reg(ELR_EL2);
+	write_reg(ELR_EL2, 0);
 
 	switch (ESR_EC(esr)) {
+	case 0x01:	/* WFx */
+		ctxt->pc_sync_from_kvm = PC_SYNC_SKIP;
+		break;
 	case 0x16:	/* HVC */
 		ctxt->kvm_regs->regs[0] = ctxt->regs.regs[0];
 		ctxt->kvm_regs->regs[1] = ctxt->regs.regs[1];
@@ -1313,6 +1333,7 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 		bit_set(ctxt->gpreg_sync_from_kvm, 0);
 		break;
 	case 0x18:	/* sysreg access */
+		ctxt->pc_sync_from_kvm = PC_SYNC_SKIP;
 		reg = ISS_SYSREG_RT(esr);
 		if (reg == 31)
 			break;
@@ -1330,6 +1351,7 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 		slot = gfn_to_memslot(guest, addr_to_fn(ipa));
 		if (slot && !(slot->flags & KVM_MEM_READONLY))
 			break;
+		ctxt->pc_sync_from_kvm = PC_SYNC_SKIP;
 		reg = ISS_DABT_SRT(esr);
 		if (reg == 31)
 			break;

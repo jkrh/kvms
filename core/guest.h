@@ -52,10 +52,17 @@ typedef struct {
 	size_t len;
 } share_t;
 
+enum pc_sync {
+	PC_SYNC_NONE = 0,
+	PC_SYNC_SKIP = 1,
+	PC_SYNC_COPY = 2,
+};
+
 struct vcpu_context {
 	struct user_pt_regs regs;
 	struct user_pt_regs *kvm_regs;
 	uint32_t gpreg_sync_from_kvm;
+	enum pc_sync pc_sync_from_kvm;
 };
 
 struct kvm_guest {

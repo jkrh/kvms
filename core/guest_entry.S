@@ -27,10 +27,9 @@ hyp_guest_enter:
 	ret
 
 1:	str	x0, [x2, #HOST_CONTEXT_VCPU]
-	add	x0, x0, #VCPU_CONTEXT
-	ldr	x2, [x0, #(8 * 31)]
-	msr	sp_el0, x2
 	mov	x29, x1
+	ldr	x2, [x29, #(8 * 31)]
+	msr	SP_EL0, x2
 	ldp	x0, x1,   [x29, #(8 * 0)]
 	ldp	x2, x3,   [x29, #(8 * 2)]
 	ldp	x4, x5,   [x29, #(8 * 4)]
@@ -56,10 +55,6 @@ guest_exit:
 	bl	guest_exit_prep
 	add	sp, sp, #(PT_REGS_SIZE)
 
-	get_vcpu_ptr	x1, x0
-	add	x1, x1, #VCPU_CONTEXT
-	mrs	x0, sp_el0
-	str	x0, [x1, #(8 * 31)]
 	get_host_ctxt	x2, x3
 	kern_hyp_va	x2
 	ldr	x3, [x2, #(8 * 31)]
