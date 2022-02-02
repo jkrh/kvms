@@ -158,8 +158,10 @@ Migration support TODO
 SHORT TERM TODO
 ----------------
 1) Memory pressure testing
-2) Make quest system registers immutable
-3) Hardened guest config
+2) Make guest system registers immutable
+3) Hardened / versatile guest config and patches. We need guest configs and
+   patches for various use cases. XHCI USB emulation support currently is one
+   big hack (works but is insecure).
 4) Migration support
 5) Finish android hardware support (32bit environment goes SIGILL)
 6) Add locking mechanism for guest specific EL2 mappings that are not allowed
@@ -168,3 +170,6 @@ SHORT TERM TODO
    has been set
 7) QEMU protected guest support to give the madvise() hint to KSM not to scan
    the guest memory: -cpu=host,protected-guest-support=kvms
+8) Move SHA-256 operations to hardware via the arm crypto-extension (mbedtls)
+9) IPI based debug stops, backtraces, tlb flushes when needed
+10) Libhybris based GPU access for QEMU

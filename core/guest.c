@@ -863,6 +863,12 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	if (!host)
 		HYP_ABORT();
 
+	/*
+	 * Permission(s) are integrity verified, so always disable the
+	 * dirty state
+	*/
+	bit_drop(prot, DBM_BIT);
+
 	end = vaddr + len - 1;
 	slot1 = gfn_to_memslot(guest, addr_to_fn(vaddr));
 	slot2 = gfn_to_memslot(guest, addr_to_fn(end));
@@ -936,21 +942,27 @@ cont:
 		return 0;
 
 	/*
-	 * Since we track the permission integrity, make sure the MMU does
-	 * not go about changing bits behind our backs.
+	 * Attach the page to the guest
 	 */
-	bit_drop(prot, DBM_BIT);
-
 	res = mmap_range(guest, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
-	if (!res && !is_share(guest, vaddr, len))
-		res = remove_host_range(guest, vaddr, len, false);
+	if (res)
+		HYP_ABORT();
 
 	/*
-	 * FIXME: we may leak executable permissions on data shares
-	 *        that were not mapped in the guest during the OPEN
-	 *        HVC and were not removed above.
+	 * If it's a normal region that is mapped on the host, remove it.
+	 * If it's a share, let it be but make sure the share area does
+	 * not have execute permissions.
 	 */
+	if (is_share(guest, vaddr, len)) {
+		res = mmap_range(host, STAGE2, paddr, paddr, len,
+				 ((SH_INN << 8) | PAGE_HYP_RW),
+				 S2_NORMAL_MEMORY);
+	} else
+		res = remove_host_range(guest, vaddr, len, false);
+	if (res)
+		HYP_ABORT();
+
 out_error:
 	return res;
 }
@@ -1371,7 +1383,7 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 {
 	kvm_guest_t *guest;
 	uint64_t spsr_el2, elr_el2;
-	int iival = 0xbadc0de;
+	int iival = UNDEFINED;
 	bool res = false;
 	void *phys;
 
@@ -1399,18 +1411,18 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 		 * Userspace abort, crash only the process at hand
 		 */
 		elr_el2 = read_reg(ELR_EL2);
+		LOG("host data abort at host virtual address %p(%p)\n",
+		   (void *)elr_el2, virt_to_phys((void *)elr_el2));
+
+		elr_el2 += 4;
 		phys = virt_to_ipa((void *)elr_el2);
 		if (phys == (void *)~0UL)
 			HYP_ABORT();
 
-		LOG("host data abort at %p/%p\n", (void *)elr_el2, phys);
-
 		/* Feed invalid instruction */
-		phys += 4;
 		memcpy(phys, &iival, 4);
 
 		/* And return to it */
-		elr_el2 += 4;
 		write_reg(ELR_EL2, elr_el2);
 
 		/*

@@ -6,6 +6,7 @@
 
 typedef uint64_t u_register_t;
 
+#define UNDEFINED 0x00000000
 #define PAGE_SIZE 0x1000UL
 #define PAGE_SHIFT 12
 #define PAGE_MASK 0xFFFFFFFFFFFFF000
