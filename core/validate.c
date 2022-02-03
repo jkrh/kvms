@@ -79,7 +79,10 @@ int count_shared(uint32_t vmid, bool lock)
 int print_shares(uint32_t vmid)
 {
 	kvm_guest_t *guest;
-	int i, c = 0, t = 0;
+	uint64_t slot_start, slot_end, size;
+	uint64_t phys;
+	size_t p = 0, t = 0;
+	int i;
 
 	guest = get_guest(vmid);
 	if (!guest) {
@@ -87,36 +90,33 @@ int print_shares(uint32_t vmid)
 		return -ENOENT;
 	}
 
-	for (i=0; i < MAX_SHARES; i++) {
-		if (guest->shares[i].len) {
-			uint64_t phys, s = ~0UL;
-			size_t p = 0;
-			size_t l = 0;
+	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
+		if (!guest->slots[i].slot.npages)
+			continue;
 
-			while (l < guest->shares[i].len) {
-				phys = pt_walk(guest, STAGE2,
-					       guest->shares[i].gpa + l, 0);
+		slot_start = fn_to_addr(guest->slots[i].slot.base_gfn);
+		slot_end = slot_start;
+		size = guest->slots[i].slot.npages * PAGE_SIZE;
+
+		while (slot_end <= (slot_start + size)) {
+			if (is_share(guest, slot_end, PAGE_SIZE)) {
+
+				phys = pt_walk(guest, STAGE2, slot_end, 0);
 				if (phys != ~0UL)
 					p++;
 
-				if (l == 0)
-					s = phys;
+				t++;
 
-				l += PAGE_SIZE;
+				LOG("Guest share at gpa 0x%016llx -> 0x%016llx, len %d\n",
+					slot_end, phys, PAGE_SIZE);
 			}
-			t++;
-			if (p)
-				c++;
-
-			LOG("Guest share at gpa %p -> %p, len %d/%d\n",
-			    guest->shares[i].gpa, s, p,
-			    guest->shares[i].len / PAGE_SIZE);
+		slot_end += PAGE_SIZE;
 		}
 	}
 	LOG("Total of %d guest declared shares of which %d are mapped\n",
-	     t, c);
+	     t, p);
 
-	return c;
+	return p;
 }
 
 char *parse_attrs(char *p, uint64_t attrs, uint64_t stage)

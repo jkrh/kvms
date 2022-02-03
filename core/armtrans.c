@@ -237,6 +237,10 @@ uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		lvl = guest->table_levels_s1;
 		addr = __pt_walk(tbl, vaddr, ptep, &lvl, NULL);
 		break;
+	case PATRACK_STAGE1:
+		lvl = guest->table_levels_s1;
+		addr = __pt_walk(guest->patrack.EL1S1_0_pgd, vaddr, ptep, &lvl, NULL);
+		break;
 	default:
 		addr = ~0UL;
 		break;
@@ -578,10 +582,20 @@ static void invalidate_va(uint64_t stage, uint64_t vaddr)
 		return;
 
 	dsb();
-	if (stage == EL2_STAGE1)
+
+	switch (stage) {
+	case EL2_STAGE1:
 		tlbi_el2_va(vaddr);
-	if (stage == STAGE2)
+		break;
+	case PATRACK_STAGE1:
+		tlbi_el1_va(vaddr);
+		break;
+	case STAGE2:
 		tlbi_el1_ipa(vaddr);
+		break;
+	default:
+		break;
+	}
 	dsb();
 	isb();
 }
@@ -948,6 +962,14 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		block.tpool = &guest->el2_tablepool;
 
 		break;
+	case PATRACK_STAGE1:
+		if (!guest->patrack.EL1S1_0_pgd)
+			return -ENOENT;
+
+		block.guest = guest;
+		block.pgd = guest->patrack.EL1S1_0_pgd;
+		block.tpool = &guest->patrack.trailpool;
+		break;
 	default:
 		return -EINVAL;
 	}
@@ -987,6 +1009,14 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
 		block.tpool = &guest->el2_tablepool;
+		break;
+	case PATRACK_STAGE1:
+		if (!guest->patrack.EL1S1_0_pgd)
+			return -ENOENT;
+
+		block.guest = guest;
+		block.pgd = guest->patrack.EL1S1_0_pgd;
+		block.tpool = &guest->patrack.trailpool;
 		break;
 	default:
 		return -EINVAL;

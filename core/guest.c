@@ -89,9 +89,11 @@ void format_guest(int i)
 
 	guests[i].vmid = INVALID_VMID;
 	guests[i].el2_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
-	guests[i].s2_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
 	guests[i].el2_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
+	guests[i].s2_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
 	guests[i].s2_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
+	guests[i].patrack.trailpool.currentchunk = GUEST_MEMCHUNKS_MAX;
+	guests[i].patrack.trailpool.firstchunk = GUEST_MEMCHUNKS_MAX;
 	_zeromem16(guests[i].mempool, sizeof(guests[i].mempool));
 	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
 		guests[i].mempool[c].type = GUEST_MEMCHUNK_UNDEFINED;
@@ -166,6 +168,17 @@ void restore_host_traps(void)
 	write_reg(HSTR_EL2, host_ctxt->hstr_el2 | (1 << 15));
 	write_reg(PMUSERENR_EL0, ARMV8_PMU_USERENR_MASK);
 	write_reg(PMSELR_EL0, 0);
+}
+
+sys_context_t *get_guest_context(uint32_t vmid, uint32_t cpuid)
+{
+	if (vmid >= PRODUCT_VMID_MAX || cpuid >= PLATFORM_CORE_COUNT)
+		return NULL;
+
+	if (guest_index[vmid] == INVALID_GUEST)
+		return NULL;
+
+	return &guests[guest_index[vmid]].ctxt[cpuid];
 }
 
 void *hyp_vcpu_regs(uint64_t vmid, uint64_t vcpuid)
@@ -662,61 +675,17 @@ kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd)
 
 int is_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 {
-	int i = 0;
-
-	if (!guest || !len)
-		return -EINVAL;
-
-	while (i < MAX_SHARES) {
-		if ((gpa >= guest->shares[i].gpa) &&
-		    (gpa < (guest->shares[i].gpa + guest->shares[i].len))) {
-			return 1;
-		}
-		i++;
-	}
-	return 0;
+	return patrack_gpa_is_share(guest, gpa, len);
 }
 
 int clear_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 {
-	int i = 0;
-
-	if (!guest || !len)
-		return -EINVAL;
-
-	while (i < MAX_SHARES) {
-		if ((gpa >= guest->shares[i].gpa) &&
-		    (gpa < (guest->shares[i].gpa + guest->shares[i].len))) {
-			guest->shares[i].gpa = 0;
-			guest->shares[i].len = 0;
-			dsb();
-			return 0;
-		}
-		i++;
-	}
-	return 1;
+	return patrack_gpa_clear_share(guest, gpa, len);
 }
 
 int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 {
-	int i = 0;
-
-	if (!len || !guest || (gpa > guest->ramend))
-		return -EINVAL;
-
-	clear_share(guest, gpa, len);
-
-	while ((guest->shares[i].len != 0) && (i < MAX_SHARES))
-		i++;
-
-	if (guest->shares[i].len != 0)
-		return -ENOSPC;
-
-	guest->shares[i].gpa = gpa;
-	guest->shares[i].len = len;
-	dsb();
-
-	return 0;
+	return patrack_gpa_set_share(guest, gpa, len);
 }
 
 kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
@@ -747,7 +716,7 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 		guest->vmid = vmid;
 		guest_index[vmid] = i;
 		guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) | (vmid << 48));
-		res = 0;
+		res = patrack_start(guest);
 	}
 
 	return res;
@@ -866,7 +835,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	/*
 	 * Permission(s) are integrity verified, so always disable the
 	 * dirty state
-	*/
+	 */
 	bit_drop(prot, DBM_BIT);
 
 	end = vaddr + len - 1;
@@ -882,6 +851,14 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	page_vaddr = vaddr;
 	page_paddr = paddr;
 	while (page_vaddr < (vaddr + len)) {
+		/*
+		 * Check that the current guest has permission to map the
+		 * physical page i.e a potentially blinded page does not
+		 * belong to any other guest.
+		 */
+		res = patrack_validate_hpa(host, guest, page_paddr);
+		if (res == -EPERM)
+			goto out_error;
 		/*
 		 * If it's already mapped, bail out. This is not secure,
 		 * so for all remaps force a unmap first so that we can
@@ -948,6 +925,10 @@ cont:
 			 KERNEL_MATTR);
 	if (res)
 		HYP_ABORT();
+
+	res = patrack_mmap(guest, paddr, vaddr, len);
+	if (res)
+		ERROR("%s patrack_mmap error %d\n", __func__, res);
 
 	/*
 	 * If it's a normal region that is mapped on the host, remove it.
@@ -1044,6 +1025,10 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		else
 			__flush_dcache_area((void *)paddr, PAGE_SIZE);
 
+		res = patrack_unmap(guest, paddr, PAGE_SIZE);
+		if (res)
+			ERROR("%s patrack_unmap error %d\n", __func__, res);
+
 		/*
 		 * Give it back to the host
 		 */
@@ -1096,6 +1081,10 @@ int free_guest(void *kvm)
 	res = restore_host_mappings(guest);
 	if (res)
 		return res;
+
+	res = patrack_stop(guest);
+	if (res)
+		ERROR("%s patrack_stop error: %d\n", __func__, res);
 
 	free_pgd(&guest->s2_tablepool, NULL);
 	free_pgd(&guest->el2_tablepool, host->EL2S1_pgd);

@@ -554,26 +554,17 @@ bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	bool res;
 	kvm_guest_t *guest = NULL;
 	kvm_guest_t *host = NULL;
-	uint64_t ipa;
-	uint64_t tcr_el1_t0sz, user_space_sz;
+	uint64_t ipa, gpa;
 
 	res = true;
 	/* Check if we have such guest */
+	ttbr0_el1 = (ttbr0_el1 & TTBR_BADDR_MASK);
 	guest = get_guest_by_s1pgd((struct ptable *)ttbr0_el1);
-	if (guest == NULL)
+	host = get_guest(vmid);
+	if ((guest == NULL) || (host == NULL))
 		return false;
 
 	spin_lock(&core_lock);
-
-	/*
-	 * We only deal with user space addresses here.
-	 */
-	tcr_el1_t0sz = TCR_EL1_T0SZ(read_reg(TCR_EL1));
-	user_space_sz = ((uint64_t)1 << (64 - tcr_el1_t0sz)) - 1;
-	if (far_el2 > user_space_sz) {
-		res = false;
-		goto map_back_out;
-	}
 
 	/*
 	 * Stage 1 pgd of the process that owns the VM.
@@ -586,23 +577,16 @@ bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	}
 
 	/*
-	 * Inform whether the area was already shared.
+	 * Host has 1:1 mapping so the IPA we are dealing with
+	 * is actually also physical address. Validate the location.
 	 */
-	if (!is_share(guest, ipa, PAGE_SIZE)) {
-		LOG("%s 0x%lx NOT SHARED\n", __func__, ipa);
-	} else {
-		/*
-		 * We enter here if the guest accessed the
-		 * page before setting the share.
-		 */
-		LOG("%s 0x%lx SHARED\n", __func__, ipa);
-	}
-
-	host = get_guest(vmid);
-	if (host == NULL) {
+	if (!platform_range_permitted(ipa, PAGE_SIZE)) {
 		res = false;
 		goto map_back_out;
 	}
+
+	gpa = patrack_hpa2gpa(guest, ipa);
+	LOG("%s (hva: 0x%lx) gpa: 0x%lx hpa: 0x%lx\n", __func__, far_el2, gpa, ipa);
 
 	ipa = ipa & PAGE_MASK;
 
@@ -619,7 +603,7 @@ map_back_out:
 #else
 
 bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1,
-		        uint64_t far_el2)
+			uint64_t far_el2)
 {
 	return false;
 }

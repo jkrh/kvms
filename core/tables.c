@@ -14,6 +14,7 @@
 #include "hvccall.h"
 #include "bits.h"
 #include "tables.h"
+#include "patrack.h"
 
 typedef enum {
 	PTE_FOUND = 0,
@@ -264,6 +265,8 @@ struct ptable *alloc_table(struct tablepool *tpool)
 			tpool->hint = i + 1;
 	}
 
+	table = patrack_set_table_offt(tpool, table);
+
 	return table;
 }
 
@@ -411,15 +414,17 @@ static int clean_parentpgd(struct tablepool *tpool, struct ptable *ppgd)
 
 struct ptable *alloc_pgd(struct kvm_guest *guest, struct tablepool *tpool)
 {
-	struct ptable *pgd, *check;
+	struct ptable *pgd, *check, *pgd_check;
 
 	check = NULL;
 	tpool->guest = guest;
 	pgd = alloc_tablepool(tpool);
+
 	if (pgd != NULL)
 		check = alloc_table(tpool);
 
-	if (pgd != check) {
+	pgd_check = patrack_set_table_offt(tpool, pgd);
+	if (pgd_check != check) {
 		ERROR("%s invalid pgd!\n", __func__);
 		return NULL;
 	}

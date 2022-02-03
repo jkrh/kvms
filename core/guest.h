@@ -11,6 +11,8 @@
 #include "host_defs.h"
 #include "tables.h"
 #include "pt_regs.h"
+#include "sys_context.h"
+#include "patrack.h"
 
 #include "mbedtls/aes.h"
 
@@ -20,7 +22,6 @@
 #ifndef MAX_GUESTS
 #define MAX_GUESTS 8
 #endif
-#define MAX_SHARES 512
 
 #define KVM_USER_MEM_SLOTS 512
 #define KVM_PRIVATE_MEM_SLOTS 0
@@ -29,15 +30,6 @@
 #endif
 
 typedef int kernel_func_t(uint64_t, ...);
-
-typedef struct {
-	uint64_t vttbr_el2;
-	uint64_t vtcr_el2;
-	uint64_t hcr_el2;
-	uint64_t cptr_el2;
-	uint64_t mdcr_el2;
-	uint64_t hstr_el2;
-} sys_context_t;
 
 typedef enum {
 	GUEST_INVALID = 0x0,
@@ -85,9 +77,9 @@ struct kvm_guest {
 	uint8_t table_levels_s2;
 	uint16_t index;
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
-	share_t shares[MAX_SHARES];
 	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
 	mbedtls_aes_context aes_ctx;
+	struct patrack_s patrack;
 	bool s2_host_access;
 	struct vcpu_context vcpu_ctxt[NUM_VCPUS];
 };
@@ -97,9 +89,8 @@ typedef struct kvm_guest kvm_guest_t;
 /**
  * Set a guest memory area as shared. If we ever trap on this
  * area while the guest is executing, we will not remove the
- * corresponding host mapping and the host can keep writing
- * on these pages. If the gpa falls anywhere in the previously
- * shared region, the entire region is reset.
+ * corresponding host mapping and the host can keep accessing
+ * on these pages.
  *
  * @param gpa the guest physical address
  * @param len length of the section in bytes
@@ -108,8 +99,7 @@ typedef struct kvm_guest kvm_guest_t;
 int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
 
 /*
- * Clear a guest share, see above. If the gpa falls anywhere
- * in the shared region, the entire region is void.
+ * Clear a guest share.
  *
  * @param gpa the guest physical address
  * @param len length of the section in bytes
@@ -118,7 +108,7 @@ int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
 int clear_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
 
 /*
- * Query if given area is a share, see above.
+ * Query if given area is a share.
  *
  * @param gpa the guest physical address
  * @param len length of the section in bytes
@@ -275,6 +265,15 @@ int load_host_s2(void);
  * @return 0 if ok, negative error code otherwise
  */
 int load_guest_s2(uint64_t vmid);
+
+/**
+ * Get guest context pointer
+ *
+ * @param vmid the guest virtual machine identifier
+ * @param cpuid CPU for which the context is returned
+ * @return context address if ok, NULL in case of error
+ */
+sys_context_t *get_guest_context(uint32_t vmid, uint32_t cpuid);
 
 /**
  * Add a chunk of memory to guest memory pool

@@ -93,6 +93,7 @@ struct ptable
 #define STAGE1		1
 #define STAGE2		2
 #define STAGEA		3
+#define PATRACK_STAGE1	4
 
 /*
  * Stage 1 MAIR_EL2 slot. Standard linux allocation on
@@ -109,6 +110,8 @@ struct ptable
 #define INVALID_MEMORY		(1 << 6)
 #define KERNEL_MATTR		(1 << 7)
 #define KEEP_MATTR		(1 << 8)
+
+#define NORMAL_WBACK_LINUX	(0x4 << ATTR_INDX_SHIFT)
 
 /* Shareability SH [9:8], Stage 1 and 2 */
 #define SH_SHIFT		0x8
