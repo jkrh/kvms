@@ -41,6 +41,8 @@ struct hyp_extension_ops {
 	void (*restore_host_traps)(void);
 	void *(*hyp_vcpu_regs)(uint64_t vmid, uint64_t vcpuid);
 	uint64_t (*guest_enter)(void *vcpu);
+	void (*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
+	void (*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
 };
 
 #ifndef KVM_ARCH_VMID_OFFT
@@ -78,6 +80,10 @@ extern uint64_t hyp_guest_enter(void *vcpu, struct user_pt_regs *regs);
 #define ISS_DABT_ISV(esr)    (!!((esr) & 0x1000000))
 #define ISS_DABT_SRT(esr)    (((esr) & 0x1f0000) >> 16)
 #define ISS_DABT_WNR(esr)    (!!((esr) & 0x40))
+
+#define MPIDR_LEVEL_BITS_SHIFT  3
+#define MPIDR_LEVEL_SHIFT(level) \
+	(((1 << level) >> 1) << MPIDR_LEVEL_BITS_SHIFT)
 
 static uint16_t guest_index[PRODUCT_VMID_MAX] ALIGN(16);
 kvm_guest_t guests[MAX_VM] ALIGN(16);
@@ -205,7 +211,8 @@ uint64_t guest_enter(void *vcpu)
 	vcpuid = VCPU_GET_VCPUID(vcpu);
 	guest = get_guest(vmid);
 	if (!guest || vcpuid >= NUM_VCPUS)
-		return ARM_EXCEPTION_HYP_GONE; /* 0xbadca11 */
+		return ARM_EXCEPTION_HYP_GONE;
+
 	kvm_regs = VCPU_GET_REGS(vcpu);
 	ctxt = &guest->vcpu_ctxt[vcpuid];
 	ctxt->kvm_regs = kvm_regs;
@@ -228,6 +235,71 @@ uint64_t guest_enter(void *vcpu)
 	ctxt->pc_sync_from_kvm = PC_SYNC_NONE;
 	write_reg(ELR_EL2, ctxt->regs.pc);
 	return hyp_guest_enter(vcpu, &ctxt->regs);
+}
+
+void sysreg_restore_guest(uint64_t vmid, uint64_t vcpuid)
+{
+	kvm_guest_t *guest;
+	struct vcpu_context *ctxt;
+
+	guest = get_guest(vmid);
+	if (!guest || vcpuid >= NUM_VCPUS)
+		return;
+
+	ctxt = &guest->vcpu_ctxt[vcpuid];
+	write_reg(VMPIDR_EL2, ctxt->state.mpidr_el1);
+	write_reg(CSSELR_EL1, ctxt->state.csselr_el1);
+	write_reg(CPACR_EL1, ctxt->state.cpacr_el1);
+	write_reg(ESR_EL1, ctxt->state.esr_el1);
+	write_reg(AFSR0_EL1, ctxt->state.afsr0_el1);
+	write_reg(AFSR1_EL1, ctxt->state.afsr1_el1);
+	write_reg(FAR_EL1, ctxt->state.far_el1);
+	write_reg(VBAR_EL1, ctxt->state.vbar_el1);
+	write_reg(CONTEXTIDR_EL1, ctxt->state.contextidr_el1);
+	write_reg(AMAIR_EL1, ctxt->state.amair_el1);
+	write_reg(CNTKCTL_EL1, ctxt->state.cntkctl_el1);
+	write_reg(PAR_EL1, ctxt->state.par_el1);
+	write_reg(TPIDR_EL1, ctxt->state.tpidr_el1);
+	write_reg(ELR_EL1, ctxt->state.elr_el1);
+	write_reg(SPSR_EL1, ctxt->state.spsr_el1);
+	write_reg(SP_EL1, ctxt->state.sp_el1);
+	write_reg(MDSCR_EL1, ctxt->state.mdscr_el1);
+	write_reg(TPIDR_EL0, ctxt->state.tpidr_el0);
+	write_reg(TPIDRRO_EL0, ctxt->state.tpidrro_el0);
+}
+
+void sysreg_save_guest(uint64_t vmid, uint64_t vcpuid)
+{
+	kvm_guest_t *guest;
+	struct vcpu_context *ctxt;
+
+	guest = get_guest(vmid);
+	if (!guest || vcpuid >= NUM_VCPUS)
+		return;
+
+	ctxt = &guest->vcpu_ctxt[vcpuid];
+	ctxt->state.csselr_el1 = read_reg(CSSELR_EL1);
+	ctxt->state.tcr_el1 = read_reg(TCR_EL1);
+	ctxt->state.cpacr_el1 = read_reg(CPACR_EL1);
+	ctxt->state.ttbr0_el1 = read_reg(TTBR0_EL1);
+	ctxt->state.ttbr1_el1 = read_reg(TTBR1_EL1);
+	ctxt->state.esr_el1 = read_reg(ESR_EL1);
+	ctxt->state.afsr0_el1 = read_reg(AFSR0_EL1);
+	ctxt->state.afsr1_el1 = read_reg(AFSR1_EL1);
+	ctxt->state.far_el1 = read_reg(FAR_EL1);
+	ctxt->state.mair_el1 = read_reg(MAIR_EL1);
+	ctxt->state.vbar_el1 = read_reg(VBAR_EL1);
+	ctxt->state.contextidr_el1 = read_reg(CONTEXTIDR_EL1);
+	ctxt->state.amair_el1 = read_reg(AMAIR_EL1);
+	ctxt->state.cntkctl_el1 = read_reg(CNTKCTL_EL1);
+	ctxt->state.par_el1 = read_reg(PAR_EL1);
+	ctxt->state.tpidr_el1 = read_reg(TPIDR_EL1);
+	ctxt->state.elr_el1 = read_reg(ELR_EL1);
+	ctxt->state.spsr_el1 = read_reg(SPSR_EL1);
+	ctxt->state.sp_el1 = read_reg(SP_EL1);
+	ctxt->state.mdscr_el1 = read_reg(MDSCR_EL1);
+	ctxt->state.tpidr_el0 = read_reg(TPIDR_EL0);
+	ctxt->state.tpidrro_el0 = read_reg(TPIDRRO_EL0);
 }
 
 kvm_guest_t *get_free_guest(uint64_t vmid)
@@ -675,6 +747,8 @@ int init_guest(void *kvm)
 	eops->restore_host_traps = restore_host_traps;
 	eops->hyp_vcpu_regs = hyp_vcpu_regs;
 	eops->guest_enter = guest_enter;
+	eops->sysreg_restore_guest = sysreg_restore_guest;
+	eops->sysreg_save_guest = sysreg_save_guest;
 
 	/* Save the current VM process stage1 PGDs */
 	guest->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
@@ -1369,6 +1443,7 @@ out_error:
 int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid)
 {
 	kvm_guest_t *guest = __get_guest_by_kvm(&kvm, NULL);
+	uint64_t mpidr;
 
 	if (!guest) {
 		LOG("bad kvm %p\n", kvm);
@@ -1378,6 +1453,10 @@ int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid)
 		return -EINVAL;
 	guest->vcpu_ctxt[vcpuid].gpreg_sync_from_kvm = ~0;
 	guest->vcpu_ctxt[vcpuid].pc_sync_from_kvm = PC_SYNC_COPY;
+	mpidr = (vcpuid & 0x0f) << MPIDR_LEVEL_SHIFT(0);
+	mpidr |= ((vcpuid >> 4) & 0xff) << MPIDR_LEVEL_SHIFT(1);
+	mpidr |= ((vcpuid >> 12) & 0xff) << MPIDR_LEVEL_SHIFT(2);
+	guest->vcpu_ctxt[vcpuid].state.mpidr_el1 = (1UL << 31) | mpidr;
 	return 0;
 }
 

@@ -96,6 +96,9 @@ entry, the hypervisor updates the hypervisor context as follows:
 | sysreg read  | -                  | mrs target reg       |
 | sysreg write | msr source reg     | -                    |
 
+Guest system state is stored in both hyp and VCPU context. Several of the
+system registers are emulated and full access from KVM is required.
+
 TBC: Floating point registers, QEMU state sync breakage
 
 
@@ -117,18 +120,17 @@ Migration support TODO
 SHORT TERM TODO
 ----------------
 1) Memory pressure testing
-2) Make guest system registers immutable
-3) Hardened / versatile guest config and patches. We need guest configs and
+2) Hardened / versatile guest config and patches. We need guest configs and
    patches for various use cases. XHCI USB emulation support currently is one
    big hack (works but is insecure).
-4) Migration support
-5) Finish android hardware support (32bit environment goes SIGILL)
-6) Add locking mechanism for guest specific EL2 mappings that are not allowed
+3) Migration support
+4) Finish android hardware support (32bit environment goes SIGILL)
+5) Add locking mechanism for guest specific EL2 mappings that are not allowed
    to be changed after VM has been initialized. At the moment the protection
    is for all EL2 mappings which prevents from creating new VMs after the lock
    has been set
-7) QEMU protected guest support to give the madvise() hint to KSM not to scan
+6) QEMU protected guest support to give the madvise() hint to KSM not to scan
    the guest memory: -cpu=host,protected-guest-support=kvms
-8) Move SHA-256 operations to hardware via the arm crypto-extension (mbedtls)
-9) IPI based debug stops, backtraces, tlb flushes when needed
-10) Libhybris based GPU access for QEMU
+7) Move SHA-256 operations to hardware via the arm crypto-extension (mbedtls)
+8) IPI based debug stops, backtraces, tlb flushes when needed
+9) Libhybris based GPU access for QEMU
