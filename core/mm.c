@@ -411,6 +411,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 {
 	kvm_guest_t *host, *guest;
 	uint64_t phys, gpap = gpa;
+	int res = 0;
 
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
 		return -EINVAL;
@@ -428,17 +429,22 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		 * Range must be checked to be physically contiguous.
 		 * gpa equals to phy.
 		 */
-		if (!contiguous)
-			return -EINVAL;
-		if (mmap_range(host, STAGE2, gpa, gpa,
-			       len, ((SH_INN<<8)|PAGE_HYP_RW),
+		if (!contiguous) {
+			res = -EINVAL;
+			goto out;
+		}
+		if (mmap_range(host, STAGE2, gpa, gpa, len,
+			       ((SH_INN<<8)|PAGE_HYP_RW),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
-		return 0;
+
+		goto out;
 	}
 
-	if ((gpa + len) > guest->ramend)
-		return -EINVAL;
+	if ((gpa + len) > guest->ramend) {
+		res = -EINVAL;
+		goto out;
+	}
 
 	while (gpap < (gpa + len)) {
 		/*
@@ -458,7 +464,8 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 cont:
 		gpap += PAGE_SIZE;
 	}
-	return 0;
+out:
+	return res;
 }
 
 #ifdef HOSTBLINDING

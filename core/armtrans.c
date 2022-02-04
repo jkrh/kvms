@@ -894,19 +894,19 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (block.guest != host)
 			break;
 
-		/* Unmap and 1:1 mapping allowed for the host */
-		if ((vaddr != paddr) && paddr) {
-			ERROR("Invalid host s2 map 0x%lx - 0x%lx\n",
-				vaddr, paddr);
+		/*
+		 * Unmap and 1:1 mapping allowed for the host so the blinded
+		 * VMs also run with the locks on.
+		 */
+		if ((vaddr != paddr) && (type != INVALID_MEMORY))
 			return -EINVAL;
-		}
 
 		if (!(hostflags & HOST_STAGE2_LOCK))
 			break;
+
 		/*
-		 * Reducing permissions allowed for locked
-		 * kernel stage2 mapping. Allow remap for
-		 * one page at a time.
+		 * Reducing permissions allowed for locked kernel stage2
+		 * mapping. Allow remap for one page at a time.
 		 */
 		if (length != PAGE_SIZE)
 			return -EPERM;

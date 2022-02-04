@@ -137,7 +137,6 @@ int patrack_unmap(struct kvm_guest *guest, uint64_t s1_addr, size_t length);
 int patrack_validate_hpa(struct kvm_guest *host, struct kvm_guest *guest,
 			 uint64_t hpa);
 
-
 /*
  * Get the guest physical address (gpa) which maps the given host physical
  * address (hpa)
@@ -192,5 +191,13 @@ int patrack_gpa_clear_share(struct kvm_guest *guest, uint64_t gpa,
  *         one if all pages within the range are shared.
  */
 int patrack_gpa_is_share(struct kvm_guest *guest, uint64_t gpa, size_t length);
+
+/*
+ * Check who owns a page
+ *
+ * @param addr physical memory address
+ * @return owning VM pointer or NULL
+ */
+struct kvm_guest *owner_of(uint64_t addr);
 
 #endif // __PATRACK_H__

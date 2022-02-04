@@ -7,7 +7,9 @@
 #include "hvccall.h"
 #include "patrack.h"
 
-void patrack_context_load(struct kvm_guest *guest)
+extern kvm_guest_t guests[MAX_VM];
+
+static void patrack_context_load(struct kvm_guest *guest)
 {
 	sys_context_t *host_ctxt;
 
@@ -22,7 +24,7 @@ void patrack_context_load(struct kvm_guest *guest)
 	isb();
 }
 
-void patrack_context_unload(void)
+static void patrack_context_unload(void)
 {
 	sys_context_t *host_ctxt;
 
@@ -34,7 +36,7 @@ void patrack_context_unload(void)
 	isb();
 }
 
-uint64_t patrack(struct kvm_guest *guest, uint64_t paddr)
+static uint64_t patrack(struct kvm_guest *guest, uint64_t paddr)
 {
 	uint64_t par_el1;
 
@@ -45,6 +47,25 @@ uint64_t patrack(struct kvm_guest *guest, uint64_t paddr)
 	patrack_context_unload();
 
 	return par_el1;
+}
+
+struct kvm_guest *owner_of(uint64_t addr)
+{
+	uint64_t tmp;
+	int i = 0;
+
+	while (i < MAX_VM) {
+		if (!guests[i].vmid)
+			goto cont;
+
+		tmp = patrack(&guests[i], addr);
+		if (tmp != ~0UL)
+			return &guests[i];
+
+cont:
+		i++;
+	}
+	return NULL;
 }
 
 /*

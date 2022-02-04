@@ -81,7 +81,7 @@ extern uint64_t hyp_guest_enter(void *vcpu, struct user_pt_regs *regs);
 #define ISS_DABT_WNR(esr)    (!!((esr) & 0x40))
 
 static uint16_t guest_index[PRODUCT_VMID_MAX] ALIGN(16);
-static kvm_guest_t guests[MAX_VM] ALIGN(16);
+kvm_guest_t guests[MAX_VM] ALIGN(16);
 
 void format_guest(int i)
 {
@@ -688,6 +688,23 @@ int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 	return patrack_gpa_set_share(guest, gpa, len);
 }
 
+int is_any_share(uint64_t gpa)
+{
+	int i = 0;
+
+	while (i < MAX_VM) {
+		if (!guests[i].vmid)
+			goto cont;
+
+		if (is_share(&guests[i], gpa, PAGE_SIZE))
+			return 1;
+
+cont:
+		i++;
+	}
+	return 0;
+}
+
 kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 {
 	kvm_guest_t *guest = NULL;
@@ -845,6 +862,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		return -EINVAL;
 
 	newtype = (prot & TYPE_MASK_STAGE2);
+
 	/*
 	 * Do we know about this area?
 	 */
@@ -852,49 +870,28 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	page_paddr = paddr;
 	while (page_vaddr < (vaddr + len)) {
 		/*
-		 * Check that the current guest has permission to map the
-		 * physical page i.e a potentially blinded page does not
-		 * belong to any other guest.
-		 */
-		res = patrack_validate_hpa(host, guest, page_paddr);
-		if (res == -EPERM)
-			goto out_error;
-		/*
-		 * If it's already mapped, bail out. This is not secure,
-		 * so for all remaps force a unmap first so that we can
-		 * measure the existing content.
+		 * Verify if the mapping already exists, ie. track identical
+		 * existing mappings and skip the blocks already there.
 		 */
 		pte = NULL;
 		taddr = pt_walk(guest, STAGE2, page_vaddr, &pte);
-		if ((taddr != ~0UL) && (taddr != page_paddr)) {
-			ERROR("vmid %x 0x%lx already mapped: 0x%lx != 0x%lx\n",
-			      guest->vmid, (uint64_t)page_vaddr,
-			      taddr, page_paddr);
-			res = -EPERM;
-			goto out_error;
-		}
-		/*
-		 * Track identical existing mappings
-		 */
-		if (pte) {
-			maptype = (*pte & TYPE_MASK_STAGE2);
-			mapprot = (*pte & PROT_MASK_STAGE2);
 
-			if ((taddr == page_paddr) && (maptype == newtype) &&
-			    (mapprot == prot)) {
-				mc++;
-				goto cont;
-			}
+		maptype = (*pte & TYPE_MASK_STAGE2);
+		mapprot = (*pte & PROT_MASK_STAGE2);
+
+		if ((taddr == page_paddr) && (maptype == newtype) &&
+		    (mapprot == prot)) {
+			mc++;
+			goto cont;
 		}
 		/*
 		 * This is a new mapping; flush the data out prior to creating
 		 * the mapping or changing its permissions.
 		 */
-		if (page_is_exec(prot)) {
-			__flush_icache_area((void *)paddr, PAGE_SIZE);
-		} else
-			__flush_dcache_area((void *)paddr, PAGE_SIZE);
-
+		if (page_is_exec(prot))
+			__flush_icache_area((void *)page_paddr, PAGE_SIZE);
+		else
+			__flush_dcache_area((void *)page_paddr, PAGE_SIZE);
 		/*
 		 * If it wasn't mapped and we are mapping it back, verify
 		 * that the content is still the same. If the page was
@@ -919,13 +916,16 @@ cont:
 		return 0;
 
 	/*
-	 * Attach the page to the guest
+	 * Attach the region to the guest
 	 */
 	res = mmap_range(guest, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
 	if (res)
 		HYP_ABORT();
 
+	/*
+	 * Mark the region ownership
+	 */
 	res = patrack_mmap(guest, paddr, vaddr, len);
 	if (res)
 		ERROR("%s patrack_mmap error %d\n", __func__, res);
@@ -939,10 +939,13 @@ cont:
 		res = mmap_range(host, STAGE2, paddr, paddr, len,
 				 ((SH_INN << 8) | PAGE_HYP_RW),
 				 S2_NORMAL_MEMORY);
-	} else
+		if (res)
+			 HYP_ABORT();
+	} else  {
 		res = remove_host_range(guest, vaddr, len, false);
-	if (res)
-		HYP_ABORT();
+		if (res)
+			 HYP_ABORT();
+	}
 
 out_error:
 	return res;
@@ -1254,6 +1257,8 @@ out_no_entry:
 int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 			 size_t len)
 {
+	kvm_guest_t *host, *powner;
+	uint64_t tmp;
 	int ret;
 
 	if (!guest)
@@ -1274,6 +1279,28 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 		ret = -EPERM;
 		goto out_error;
 	}
+
+	/*
+	 * Check that we actually own this area.
+	 */
+	host = get_guest(HOST_VMID);
+
+	tmp = paddr;
+	while (tmp < (paddr + len)) {
+		powner = owner_of(paddr);
+		if (powner == guest)
+			goto cont;
+
+		if (powner && (powner != host))
+			return -EPERM;
+
+		/* Keep shares as 1:1 communication pipes */
+		if (is_any_share(paddr))
+			return -EPERM;
+cont:
+		tmp += PAGE_SIZE;
+	}
+
 	return 0;
 
 out_error:
