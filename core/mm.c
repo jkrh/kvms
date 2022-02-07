@@ -609,7 +609,7 @@ map_back_out:
 
 #else
 
-bool map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1,
+bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1,
 			uint64_t far_el2)
 {
 	return false;
