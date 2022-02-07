@@ -31,5 +31,5 @@ export SUBMAKEFLAGS := $(SUBMAKETOOLS) CFLAGS='$(CFLAGS)'
 # External
 #
 export MBEDCONFIG := -DMBEDTLS_USER_CONFIG_FILE=\"$(BASE_DIR)/core/mbedconfig.h\"
-export MBEDCFLAGS := '$(MBEDCONFIG) $(CFLAGS) -U_GNU_SOURCE -Wno-implicit-function-declaration'
+export MBEDCFLAGS := '$(MBEDCONFIG) $(CFLAGS) -U_GNU_SOURCE -Wno-implicit-function-declaration -include "config.h"'
 export MBEDFLAGS := $(SUBMAKETOOLS) CFLAGS=$(MBEDCFLAGS)
