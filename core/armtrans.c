@@ -122,7 +122,7 @@ uint64_t __pt_walk(struct ptable *tbl, uint64_t vaddr, uint64_t **ptep,
 	struct ptable *nl = tbl;
 	uint64_t noff, boff, ret, addr = 0, lvl = 0;
 
-	if (!levels || *levels >= 4) {
+	if (!levels || (*levels >= 4)) {
 		/* Level 0 */
 		noff = (vaddr & TABLE_0_MASK) >> L0_SHIFT;
 		if (!bit_raised(nl->entries[noff], VALID_TABLE_BIT))
@@ -133,7 +133,7 @@ uint64_t __pt_walk(struct ptable *tbl, uint64_t vaddr, uint64_t **ptep,
 	}
 	lvl++;
 
-	if (!levels || *levels >= 3) {
+	if (!levels || (*levels >= 3)) {
 		/* Level 1 */
 		noff = (vaddr & TABLE_1_MASK) >> L1_SHIFT;
 		if (!bit_raised(nl->entries[noff], VALID_TABLE_BIT))

@@ -868,24 +868,26 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	page_vaddr = vaddr;
 	page_paddr = paddr;
 	while (page_vaddr < (vaddr + len)) {
+		pte = NULL;
+		taddr = pt_walk(guest, STAGE2, page_vaddr, &pte);
+		if (!pte || (taddr == ~0UL))
+			goto new_map;
 		/*
 		 * Verify if the mapping already exists, ie. track identical
 		 * existing mappings and skip the blocks already there.
 		 */
-		pte = NULL;
-		taddr = pt_walk(guest, STAGE2, page_vaddr, &pte);
-
 		maptype = (*pte & TYPE_MASK_STAGE2);
 		mapprot = (*pte & PROT_MASK_STAGE2);
-
 		if ((taddr == page_paddr) && (maptype == newtype) &&
 		    (mapprot == prot)) {
 			mc++;
 			goto cont;
 		}
+new_map:
 		/*
 		 * This is a new mapping; flush the data out prior to creating
-		 * the mapping or changing its permissions.
+		 * the mapping or changing its permissions. We don't want writes
+		 * from the cache on something that changed permissions.
 		 */
 		if (page_is_exec(prot))
 			__flush_icache_area((void *)page_paddr, PAGE_SIZE);
@@ -894,13 +896,12 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		/*
 		 * If it wasn't mapped and we are mapping it back, verify
 		 * that the content is still the same. If the page was
-		 * encrypted, decrypt it.
+		 * encrypted, decrypt it. If it's a new mapping, do nothing.
 		 */
 		res = decrypt_guest_page(guest, page_vaddr, page_paddr,
 					 prot & PROT_MASK_STAGE2);
 		if (res)
 			goto out_error;
-
 cont:
 		page_vaddr += PAGE_SIZE;
 		page_paddr += PAGE_SIZE;
