@@ -55,7 +55,10 @@ struct kvm_guest *owner_of(uint64_t addr)
 	int i = 0;
 
 	while (i < MAX_VM) {
-		if (!guests[i].vmid)
+		if (!guests[i].vmid || (guests[i].vmid == INVALID_VMID))
+			goto cont;
+
+		if (guests[i].vmid < GUEST_VMID_START)
 			goto cont;
 
 		tmp = patrack(&guests[i], addr);
@@ -65,7 +68,7 @@ struct kvm_guest *owner_of(uint64_t addr)
 cont:
 		i++;
 	}
-	return NULL;
+	return get_guest(HOST_VMID);
 }
 
 /*

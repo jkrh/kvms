@@ -29,6 +29,8 @@
 #define KVM_MEM_SLOTS_NUM (KVM_USER_MEM_SLOTS + KVM_PRIVATE_MEM_SLOTS)
 #endif
 
+#define INVALID_VMID    PRODUCT_VMID_MAX
+
 typedef int kernel_func_t(uint64_t, ...);
 
 typedef enum {

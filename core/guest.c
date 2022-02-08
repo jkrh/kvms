@@ -57,7 +57,6 @@ struct hyp_extension_ops {
 #define KVM_GET_PGD_PTR(x) ((uint64_t *)(_KVM_GET_ARCH((char *)x) + KVM_ARCH_PGD))
 #define KVM_GET_EXT_OPS_PTR(x) ((struct hyp_extension_ops *)(_KVM_GET_ARCH((char *)x) + KVM_EXT_OPS))
 
-#define INVALID_VMID	PRODUCT_VMID_MAX
 #define INVALID_GUEST	MAX_VM
 
 #define VCPU_GET_KVM(vcpu) kern_hyp_va(*(void **)((char *)(vcpu) + 0))
