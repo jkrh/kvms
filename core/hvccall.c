@@ -269,6 +269,15 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 */
 	case HYP_GUEST_MAP_STAGE2:
 		guest = get_guest(a1);
+		if (!guest) {
+			res = -ENOENT;
+			break;
+		}
+		if ((guest->vmid < GUEST_VMID_START) ||
+		    (guest->vmid == INVALID_VMID)) {
+			res = -EINVAL;
+			break;
+		}
 		res = guest_validate_range(guest, a2, a3, a4);
 		if (!res)
 			res = guest_map_range(guest, a2, a3, a4, a5);
