@@ -348,9 +348,8 @@ kvm_guest_t *alloc_guest(void *kvm)
 			return NULL;
 		}
 		guest->kvm = kern_hyp_va(kvm);
+		set_blinding_default(guest);
 	}
-
-	set_blinding_default(guest);
 
 	return guest;
 }
@@ -410,11 +409,10 @@ int __guest_memchunk_get(kvm_guest_t *guest, guest_memchunk_t *chunk)
 			break;
 	}
 
-	if (guest->mempool[c].type != chunk->type)
-		ERROR("%s, wrong type!", __func__);
-
 	if (c >= GUEST_MEMCHUNKS_MAX)
 		c = -ENOENT;
+	else if (guest->mempool[c].type != chunk->type)
+		ERROR("%s, wrong type!", __func__);
 
 	return c;
 }
@@ -962,14 +960,14 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 	if (!host)
 		HYP_ABORT();
 
-	if (guest->state == GUEST_CRASHING)
-		return -EFAULT;
-
 	range_end = vaddr + len;
 	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr)) {
 		res = -EINVAL;
 		goto out_error;
 	}
+
+	if (guest->state == GUEST_CRASHING)
+		return -EFAULT;
 
 	if (range_end > guest->ramend)
 		range_end = guest->ramend;
@@ -1004,7 +1002,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 						     paddr, PAGE_SIZE, 0,
 						     *pte & PROT_MASK_STAGE2);
 				if (res)
-					ERROR("add_range_info(%d): %d %p:%d\n",
+					ERROR("add_range_info(%u): %lx:%d\n",
 					      guest->vmid, map_addr, res);
 			}
 		} else {
