@@ -690,7 +690,10 @@ int is_any_share(uint64_t gpa)
 	int i = 0;
 
 	while (i < MAX_VM) {
-		if (!guests[i].vmid)
+		if (!guests[i].vmid || (guests[i].vmid == INVALID_VMID))
+			goto cont;
+
+		if (guests[i].vmid < GUEST_VMID_START)
 			goto cont;
 
 		if (is_share(&guests[i], gpa, PAGE_SIZE))
