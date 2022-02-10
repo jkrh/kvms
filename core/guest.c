@@ -1012,14 +1012,6 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 			memset((void *)paddr, 0, PAGE_SIZE);
 			free_range_info(guest, map_addr);
 		}
-
-		/*
-		 * Detach the page from the guest
-		 */
-		res = unmap_range(guest, STAGE2, map_addr, PAGE_SIZE);
-		if (res)
-			HYP_ABORT();
-
 		/*
 		 * We may have changed the page contents, flush the page just
 		 * in case before changing the permissions.
@@ -1028,6 +1020,13 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 			__flush_icache_area((void *)paddr, PAGE_SIZE);
 		else
 			__flush_dcache_area((void *)paddr, PAGE_SIZE);
+
+		/*
+		 * Detach the page from the guest
+		 */
+		res = unmap_range(guest, STAGE2, map_addr, PAGE_SIZE);
+		if (res)
+			HYP_ABORT();
 
 		res = patrack_unmap(guest, paddr, PAGE_SIZE);
 		if (res)

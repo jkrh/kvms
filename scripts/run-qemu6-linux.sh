@@ -133,7 +133,7 @@ SPICEOPTS="$SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migrat
 [ -z "$SMP" ] && SMP="-smp 4"
 [ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice -soundhw hda"
 CPU="-enable-kvm -cpu host,pmu=off,kvm-steal-time=off"
-USB="-device qemu-xhci -device usb-kbd -device usb-tablet"
+USB="-device qemu-xhci -device usb-mouse -device usb-kbd -device usb-tablet"
 RNG="-device virtio-rng-pci,id=rng0,max-bytes=1024,period=2000"
 BALLOON="-device virtio-balloon-pci,id=balloon0"
 DRIVE="-drive file=$IMAGE,format=qcow2,if=none,id=ubu-sd -device virtio-blk-device,drive=ubu-sd"
