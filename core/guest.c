@@ -1398,63 +1398,30 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 {
 	kvm_guest_t *guest;
-	uint64_t spsr_el2, elr_el2;
-	int iival = UNDEFINED;
+	uint64_t spsr_el2;
 	bool res = false;
-	void *phys;
 
-	if (vmid != HOST_VMID)
-		HYP_ABORT();
+	guest = get_guest_by_s1pgd((struct ptable *)(ttbr0_el1 &
+				   TTBR_BADDR_MASK));
+	if (!guest)
+		return res;
 
+	spin_lock(&core_lock);
 	spsr_el2 = read_reg(SPSR_EL2);
 	switch(spsr_el2 & 0xF) {
 	case 0x0:
-		spin_lock(&core_lock);
-
-		guest = get_guest_by_s1pgd((struct ptable *)(ttbr0_el1 &
-					   TTBR_BADDR_MASK));
-		if (!guest) {
-			ERROR("unable to find crashing userspace process\n");
-			goto out_done;
-		}
-		if (guest->state != GUEST_RUNNING) {
-			res = true;
-			goto out_done;
-		}
-		guest->state = GUEST_CRASHING;
-
-		/*
-		 * Userspace abort, crash only the process at hand
-		 */
-		elr_el2 = read_reg(ELR_EL2);
-		LOG("host data abort at host virtual address %p(%p)\n",
-		   (void *)elr_el2, virt_to_phys((void *)elr_el2));
-
-		elr_el2 += 4;
-		phys = virt_to_ipa((void *)elr_el2);
-		if (phys == (void *)~0UL)
-			HYP_ABORT();
-
-		/* Feed invalid instruction */
-		memcpy(phys, &iival, 4);
-
-		/* And return to it */
-		write_reg(ELR_EL2, elr_el2);
-
-		/*
-		 * Make the core dump region readable immediately, either
-		 * as zeroes or data.
-		 */
-		set_memory_readable(guest);
-		res = true;
-out_done:
-		spin_unlock(&core_lock);
-		break;
+		res = do_process_core(guest);
+		if (res)
+			break;
 	case 0x4:
 	case 0x5:
-		/* EL1 abort, map the page back when needed or crash */
-		return __map_back_host_page(vmid, ttbr0_el1, far_el2);
+		ERROR("%s: please fix qemu guest access at %p\n", __func__,
+		      far_el2);
+		res = __map_back_host_page(get_guest(vmid), guest, far_el2);
+		break;
 	}
+	spin_unlock(&core_lock);
+
 	return res;
 }
 
@@ -1467,3 +1434,43 @@ void set_memory_readable(kvm_guest_t *guest)
 	restore_host_mappings(guest);
 	dsb(); isb();
 }
+
+#ifndef DEBUG
+
+bool do_process_core(kvm_guest_t *guest)
+{
+	int iival = UNDEFINED;
+	uint64_t elr_el2;
+	void *phys;
+
+	if (guest->state != GUEST_RUNNING)
+		return true;
+	guest->state = GUEST_CRASHING;
+
+	/*
+	 * Userspace abort, crash only the process at hand
+	 */
+	elr_el2 = read_reg(ELR_EL2);
+	LOG("host data abort at host virtual address %p(%p)\n",
+	   (void *)elr_el2, virt_to_phys((void *)elr_el2));
+
+	elr_el2 += 4;
+	phys = virt_to_ipa((void *)elr_el2);
+	if (phys == (void *)~0UL)
+		HYP_ABORT();
+
+	/* Feed invalid instruction */
+	memcpy(phys, &iival, 4);
+
+	/* And return to it */
+	write_reg(ELR_EL2, elr_el2);
+
+	/*
+	 * Make the core dump region readable immediately, either
+	 * as zeroes or data.
+	 */
+	set_memory_readable(guest);
+	return true;
+}
+
+#endif

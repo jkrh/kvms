@@ -556,23 +556,17 @@ cont:
 	return 0;
 }
 
-bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
+bool __map_back_host_page(void *h, void *g, uint64_t far_el2)
 {
-	bool res;
-	kvm_guest_t *guest = NULL;
-	kvm_guest_t *host = NULL;
+	kvm_guest_t *host = h;
+	kvm_guest_t *guest = g;
 	uint64_t ipa, gpa;
+	bool res;
 
-	res = true;
-	/* Check if we have such guest */
-	ttbr0_el1 = (ttbr0_el1 & TTBR_BADDR_MASK);
-	guest = get_guest_by_s1pgd((struct ptable *)ttbr0_el1);
-	host = get_guest(vmid);
 	if ((guest == NULL) || (host == NULL))
 		return false;
 
-	spin_lock(&core_lock);
-
+	res = true;
 	/*
 	 * Stage 1 pgd of the process that owns the VM.
 	 * We should be able to find the IPA from there.
@@ -603,14 +597,12 @@ bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 		HYP_ABORT();
 
 map_back_out:
-	spin_unlock(&core_lock);
 	return res;
 }
 
 #else
 
-bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1,
-			uint64_t far_el2)
+bool __map_back_host_page(void *host, void *guest, uint64_t far_el2)
 {
 	return false;
 }

@@ -353,14 +353,26 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2);
  */
 int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk);
 
+#ifdef DEBUG
+static inline bool do_process_core(kvm_guest_t *guest)
+{
+	return false;
+}
+#else
+bool do_process_core(kvm_guest_t *guest);
+#endif
+
+#ifdef HOSTBLINDING
 static inline void set_blinding_default(kvm_guest_t *guest)
 {
-#ifdef HOSTBLINDING
 	guest->s2_host_access = true;
-#else
-	guest->s2_host_access = false;
-#endif // HOSTBLINDING
 }
+#else
+static inline void set_blinding_default(kvm_guest_t *guest)
+{
+	guest->s2_host_access = false;
+}
+#endif // HOSTBLINDING
 
 /**
  * Reset guest VCPU registers to initial values, and permit register access

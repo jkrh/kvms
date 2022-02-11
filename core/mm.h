@@ -225,7 +225,7 @@ int restore_host_range(void *guest, uint64_t gpa, uint64_t len, bool contiguous)
 /*
  * Internal use only
  */
-bool __map_back_host_page(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2);
+bool __map_back_host_page(void *host, void *guest, uint64_t far_el2);
 
 #ifdef HOSTBLINDING
 /**
