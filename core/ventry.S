@@ -207,6 +207,7 @@ _host_data_abort:
 	 */
 	mrs	x1, TTBR0_EL1
 	mrs	x2, FAR_EL2
+	mov	x3, sp
 	bl	host_data_abort
 	cmp	x0, #1
 	b.ne	1f

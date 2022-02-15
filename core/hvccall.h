@@ -9,6 +9,13 @@
 void hyp_abort(const char *func, const char *file, int line);
 
 /**
+ * Print registers at address
+ *
+ * @param regs, the register array
+ */
+void print_regs(void *regs);
+
+/**
  * Crash function, called from the trap handler in ventry.S
  *
  * @param level, the execution level crash occurred on

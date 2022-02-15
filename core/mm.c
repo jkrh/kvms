@@ -139,6 +139,10 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (!guest || !ipa || !len || len % PAGE_SIZE)
 		return -EINVAL;
 
+	/* If for any reason this hits our shares, exit */
+	if (is_share(g, ipa, PAGE_SIZE) > 0)
+		return 0;
+
 	res = get_range_info(guest, ipa);
 	if (res)
 		goto use_old;
@@ -367,6 +371,11 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
 		return -EINVAL;
 
+	if (len > (SZ_1M * 2)) {
+		ERROR("%s: requested region too large\n");
+		return -EINVAL;
+	}
+
 	guest = (kvm_guest_t *)g;
 	if (!guest->s2_host_access)
 		return 0;
@@ -415,6 +424,11 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
 		return -EINVAL;
+
+	if (len > (SZ_1M * 2)) {
+		ERROR("%s: requested region too large\n");
+		return -EINVAL;
+	}
 
 	guest = (kvm_guest_t *)g;
 	if (!guest->s2_host_access)

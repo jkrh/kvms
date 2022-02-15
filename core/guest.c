@@ -1395,7 +1395,7 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 	}
 }
 
-bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
+bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *regs)
 {
 	kvm_guest_t *guest;
 	uint64_t spsr_el2;
@@ -1410,7 +1410,7 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2)
 	spsr_el2 = read_reg(SPSR_EL2);
 	switch(spsr_el2 & 0xF) {
 	case 0x0:
-		res = do_process_core(guest);
+		res = do_process_core(guest, regs);
 		if (res)
 			break;
 	case 0x4:
@@ -1435,9 +1435,7 @@ void set_memory_readable(kvm_guest_t *guest)
 	dsb(); isb();
 }
 
-#ifndef DEBUG
-
-bool do_process_core(kvm_guest_t *guest)
+bool do_process_core(kvm_guest_t *guest, void *regs)
 {
 	int iival = UNDEFINED;
 	uint64_t elr_el2;
@@ -1451,8 +1449,10 @@ bool do_process_core(kvm_guest_t *guest)
 	 * Userspace abort, crash only the process at hand
 	 */
 	elr_el2 = read_reg(ELR_EL2);
-	LOG("host data abort at host virtual address %p(%p)\n",
+	ERROR("Userspace data abort at host virtual address %p(%p)\n",
 	   (void *)elr_el2, virt_to_phys((void *)elr_el2));
+	ERROR("Failing address was %p\n", read_reg(FAR_EL2));
+	print_regs(regs);
 
 	elr_el2 += 4;
 	phys = virt_to_ipa((void *)elr_el2);
@@ -1472,5 +1472,3 @@ bool do_process_core(kvm_guest_t *guest)
 	set_memory_readable(guest);
 	return true;
 }
-
-#endif

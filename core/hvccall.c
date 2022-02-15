@@ -398,11 +398,32 @@ void hyp_abort(const char *func, const char *file, int line)
 		wfi();
 }
 
+void print_regs(void *regs)
+{
+	uint64_t *__frame = (uint64_t *)regs;
+
+	ERROR("x00(0x%016lx):x01(0x%016lx):x02(0x%016lx):x03(0x%016lx)\n",
+		__frame[0], __frame[1], __frame[2], __frame[3]);
+	ERROR("x04(0x%016lx):x05(0x%016lx):x06(0x%016lx):x07(0x%016lx)\n",
+		__frame[4], __frame[5], __frame[6], __frame[7]);
+	ERROR("x08(0x%016lx):x09(0x%016lx):x10(0x%016lx):x11(0x%016lx)\n",
+		__frame[8], __frame[9], __frame[10], __frame[11]);
+	ERROR("x12(0x%016lx):x13(0x%016lx):x14(0x%016lx):x15(0x%016lx)\n",
+		__frame[12], __frame[13], __frame[14], __frame[15]);
+	ERROR("x16(0x%016lx):x17(0x%016lx):x18(0x%016lx):x19(0x%016lx)\n",
+		__frame[16], __frame[17], __frame[18], __frame[19]);
+	ERROR("x20(0x%016lx):x21(0x%016lx):x22(0x%016lx):x23(0x%016lx)\n",
+		__frame[20], __frame[21], __frame[22], __frame[23]);
+	ERROR("x24(0x%016lx):x25(0x%016lx):x26(0x%016lx):x27(0x%016lx)\n",
+		__frame[24], __frame[25], __frame[26], __frame[27]);
+	ERROR("x28(0x%016lx):x29(0x%016lx):x30(0x%016lx)\n",
+		__frame[28], __frame[29], __frame[30]);
+}
+
 NORETURN
 void dump_state(uint64_t level, void *sp)
 {
 	register uint64_t faddr;
-	uint64_t *__frame = (uint64_t *)sp;
 
 	/* Try to make sure the dump stays readable */
 	spin_lock(&crash_lock);
@@ -427,22 +448,7 @@ void dump_state(uint64_t level, void *sp)
 	ERROR("HPFAR_EL2 (0x%016lx)  GICD_STATUSR (0x%016lx)  SPSR_EL2(0x%016lx)\n",
 	      read_reg(HPFAR_EL2), read_gicdreg(GICD_STATUSR), read_reg(SPSR_EL2));
 	ERROR("\n");
-	ERROR("x00(0x%016lx):x01(0x%016lx):x02(0x%016lx):x03(0x%016lx)\n",
-		__frame[0], __frame[1], __frame[2], __frame[3]);
-	ERROR("x04(0x%016lx):x05(0x%016lx):x06(0x%016lx):x07(0x%016lx)\n",
-		__frame[4], __frame[5], __frame[6], __frame[7]);
-	ERROR("x08(0x%016lx):x09(0x%016lx):x10(0x%016lx):x11(0x%016lx)\n",
-		__frame[8], __frame[9], __frame[10], __frame[11]);
-	ERROR("x12(0x%016lx):x13(0x%016lx):x14(0x%016lx):x15(0x%016lx)\n",
-		__frame[12], __frame[13], __frame[14], __frame[15]);
-	ERROR("x16(0x%016lx):x17(0x%016lx):x18(0x%016lx):x19(0x%016lx)\n",
-		__frame[16], __frame[17], __frame[18], __frame[19]);
-	ERROR("x20(0x%016lx):x21(0x%016lx):x22(0x%016lx):x23(0x%016lx)\n",
-		__frame[20], __frame[21], __frame[22], __frame[23]);
-	ERROR("x24(0x%016lx):x25(0x%016lx):x26(0x%016lx):x27(0x%016lx)\n",
-		__frame[24], __frame[25], __frame[26], __frame[27]);
-	ERROR("x28(0x%016lx):x29(0x%016lx):x30(0x%016lx)\n",
-		__frame[28], __frame[29], __frame[30]);
+	print_regs(sp);
 
 #if defined(CRASHDUMP) && defined(DEBUG)
 	print_mappings(get_current_vmid(), STAGE2);

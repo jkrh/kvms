@@ -337,9 +337,11 @@ int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk);
  * @param vmid, the host vmid
  * @param uint64_t ttbr0_el1
  * @param uint64_t far_el2
+ * @param regs array of the given exception registers
  * @return true if the abort was correctly handled
  */
-bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2);
+bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2,
+		     void *regs);
 
 /**
  * Remove a chunk of memory from guest memory pool
@@ -348,19 +350,18 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2);
  *
  * @param guest the guest
  * @param chunk the chunk to be removed from mempool
- * @return zero in case of success, negative error code
- *	   otherwise
+ * @return zero in case of success, negative error code otherwise
  */
 int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk);
 
-#ifdef DEBUG
-static inline bool do_process_core(kvm_guest_t *guest)
-{
-	return false;
-}
-#else
-bool do_process_core(kvm_guest_t *guest);
-#endif
+/*
+ * Crash guest qemu process on access violation
+ *
+ * @param guest the guest
+ * @param regs, array of the userspace exception registers
+ * @return zero in case of success, negative error code otherwise
+ */
+bool do_process_core(kvm_guest_t *guest, void *regs);
 
 #ifdef HOSTBLINDING
 static inline void set_blinding_default(kvm_guest_t *guest)
