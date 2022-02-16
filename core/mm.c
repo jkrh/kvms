@@ -368,11 +368,13 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 	kvm_guest_t *host, *guest;
 	uint64_t phys, gpap = gpa;
 
-	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
+	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE)) {
+		ERROR("%s: gpa %lx, len %d\n", __func__, gpa, len);
 		return -EINVAL;
+	}
 
 	if (len > (SZ_1M * 2)) {
-		ERROR("%s: requested region too large\n");
+		ERROR("%s: requested region too large\n", __func__);
 		return -EINVAL;
 	}
 
@@ -389,8 +391,10 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		 * Range must be checked to be physically contiguous.
 		 * gpa equals to phy.
 		 */
-		if (!contiguous)
+		if (!contiguous) {
+			ERROR("%s: region not contiguous\n", __func__);
 			return -EINVAL;
+		}
 
 		if (unmap_range(host, STAGE2, gpa, len))
 			HYP_ABORT();
@@ -422,11 +426,12 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 	uint64_t phys, gpap = gpa;
 	int res = 0;
 
-	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE))
+	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE)) {
+		ERROR("%s: gpa %lx, len %d\n", __func__, gpa, len);
 		return -EINVAL;
-
+	}
 	if (len > (SZ_1M * 2)) {
-		ERROR("%s: requested region too large\n");
+		ERROR("%s: requested region too large\n", __func__);
 		return -EINVAL;
 	}
 
@@ -444,6 +449,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		 * gpa equals to phy.
 		 */
 		if (!contiguous) {
+			ERROR("%s: region not contiguous\n", __func__);
 			res = -EINVAL;
 			goto out;
 		}
@@ -456,14 +462,16 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 	}
 
 	if ((gpa + len) > guest->ramend) {
-		res = -EINVAL;
+		ERROR("%s: region spans beoynd the end of the guest ram\n",
+		      __func__);
+		res = -EPERM;
 		goto out;
 	}
 
 	while (gpap < (gpa + len)) {
 		/*
-		 * Restore scattered ranges page by page. Guest stage 2 mapping must be
-		 * maintained until this call has been completed.
+		 * Restore scattered ranges page by page. Guest stage 2 mapping
+		 * must be maintained until this call has been completed.
 		 */
 		phys = pt_walk(guest, STAGE2, gpap, NULL);
 		if (phys == ~0UL)
