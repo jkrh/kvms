@@ -84,6 +84,8 @@ struct kvm_guest {
 	struct patrack_s patrack;
 	bool s2_host_access;
 	struct vcpu_context vcpu_ctxt[NUM_VCPUS];
+	void *fail_addr;
+	uint32_t fail_inst;
 };
 
 typedef struct kvm_guest kvm_guest_t;

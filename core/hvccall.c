@@ -191,7 +191,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		if (!res)
 			res = unmap_range(guest, EL2_STAGE1, a1, a2);
 		 */
-		res = -EINVAL;
+		res = 0;
 		break;
 	/*
 	 * HYP_HOST_PREPARE_STAGE2 prepares a range of memory with an existing

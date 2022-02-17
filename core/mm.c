@@ -516,6 +516,22 @@ int restore_host_mappings(void *gp)
 		HYP_ABORT();
 
 	gettimeofday(&tv1, NULL);
+
+	/* Restore the abort instruction if this was a core dump */
+
+	if (guest->fail_addr) {
+		/*
+		 * FIXME: in the core dump case the page has been opened
+		 * before the dumping started. Second call to this function
+		 * will restore the failing instruction here, but since the
+		 * page was already moved back to the host we probably should
+		 * add page ownership check here before writing anything. While
+		 * this is happening before the mmdrop(), we want to be sure.
+		 */
+		memcpy(guest->fail_addr, &guest->fail_inst, 4);
+		guest->fail_addr = 0x0;
+	}
+
 	rcount = 0;
 	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
 		if (!guest->slots[i].slot.npages)

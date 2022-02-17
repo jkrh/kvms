@@ -1454,10 +1454,19 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 	ERROR("Failing address was %p\n", read_reg(FAR_EL2));
 	print_regs(regs);
 
-	elr_el2 += 4;
 	phys = virt_to_ipa((void *)elr_el2);
 	if (phys == (void *)~0UL)
 		HYP_ABORT();
+
+	/*
+	 * Make the core dump region readable immediately, either
+	 * as zeroes or data.
+	 */
+	set_memory_readable(guest);
+
+	/* Grab the instruction that failed */
+	guest->fail_addr = phys;
+	memcpy(&guest->fail_inst, phys, 4);
 
 	/* Feed invalid instruction */
 	memcpy(phys, &iival, 4);
@@ -1465,10 +1474,5 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 	/* And return to it */
 	write_reg(ELR_EL2, elr_el2);
 
-	/*
-	 * Make the core dump region readable immediately, either
-	 * as zeroes or data.
-	 */
-	set_memory_readable(guest);
 	return true;
 }
