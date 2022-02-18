@@ -2,68 +2,20 @@
 KVM compatible ARM64 hypervisor
 ******************************************************************************
 
-This project is a template of a hypervisor that can function outside of the
-linux kernel protecting the host kernel, but it can also enable support for
-the KVM virtual machines through requests initiated by the host kernel KVM
-API.
+KVM hypervisor variant that can do TDX/SEV like security for existing armv8
+systems. The hypervisor is implemented such that it can function in almost
+any armv8 board out there with virtualization support, regardless of the fact
+if the system shipped with existing EL2 elements or not.
 
-The project also attempts to take a step forward from regular KVM security
-levels by placing less trust in the host kernel. The host belongs in the TCB
-only during the guest initialization phase such that the guest stays secure
-even if the host is later compromised as a result of a runtime vulnerability.
-When configured to do so, the hypervisor will unmap the KVM guests from the
-host kernel memory. The goal is to try to make sure that even a compromised
-host kernel would not be able to access the guest memory beyond the allowed
-areas such as the virtio shared memory. We try to do this while a single
-host kernel is still responsible for the allocation and deallocation of the
-entire host machine physical RAM space for maximum utilization of the memory
-in embedded systems. There is no need to pin guest memory permanently in the
-system memory and the guests can even be swapped out securely.
-
-To accomplish the above mentioned duties the hypervisor takes ownership of
-the EL2 exception vector, the EL2 stage 1 translation table and the stage 2
-translation table of the lower ELs. We have attempted to keep changes to the
-kvm kernel code minimal, only adding handful of hooks into it. ~95% of the
-kvm code is intact and the hypervisor calls it directly as it needs the
-guests to execute.
-
-The current state of the code is that the regular KVM guests execute reliably
-on multiple ARM64 systems. There are two 'host blinding' (aka detach the
-guest from the host memory) models implemented in the code:
-1) 'Memory encryption' model (used by AMD SEV/Intel TDX/IBM S390) with the HW
-   support for the memory encryption) where the guests inform the hypervisor
-   about the pages that were allocated for the guest <-> host communications.
-   This model requires patching the guest kernel. There is a sample patch
-   provided in the patches/ dir and it's based on extending the ARM64
-   architecture by claiming that it supports 'memory encyption' and running
-   through the same hooks as the other architectures with the actual memory
-   encryption support.
-2) A model where we trap to the hypervisor when the host touches the guest
-   memory. This model does not require patching the guest kernel but it is
-   somewhat less secure. During the trap prior to mapping the page back to
-   the host the hypervisor checks that:
-   - The trapping host process is a known virtual machine QEMU process in
-     the host and that it is a known client with a correct run state.
-   - The memory being mapped back is dedicated guest device memory (not RAM).
-   - We are still in the middle of the quest kernel initialization phase.
-
-There is an option to extend the model to take the host entirely out of the
-TCB but this work is yet to be done. This involves adding an image signature
-check callback to the QEMU bootloader. After the QEMU has loaded (as in
-placed them in the memory for real) the relevant images that are about to be
-invoked, the hypervisor has to be invoked to verify them. Also note that the
-emulated hardware provided by the QEMU running inside the host have to be
-considered not be part of the TCB; in other words, the kernel will have all
-new attack vector as all host provided virtual devices can attempt to attack
-the guest.
-
-QEMU host emulation based development environment is provided in the source
-tree and it operates on top of the 'virt' machine. The host kernel and the
-hypervisor can be stepped through via a relatively comfortable environment.
-The KVM quest debugging with gdb works on the hardware but exposes a bug in
-QEMU we have not investigated: setting hardware breakpoints makes the
-execution extremely slow (instruction execution becomes heavier and heavier
-over time if a breakpoint is set). Stepping works fine.
+Features added over regular KVM configurations are:
+- Nearly full guest and host memory space separation
+- Complete, linear guest memory integrity protection. Guest pages remain
+  intact and unmovable but they can still be swapped in/out when needed.
+- Guest memory AES encrypted swapping
+- Kernel memory protection toolchain:
+  - Page table locks (including elements inside the P?Ds)
+  - Memory region permission adjustments
+- Memory region / permission validation tools for all CPU modes.
 
 
 Building and running on QEMU:
@@ -87,12 +39,12 @@ Building and running on QEMU:
 - Work with the kernel under oss/linux, hyp
 
 
-Guest support
-------------------
-- All QEMU boards, 'virt' for the host emulation / sdk
-- Preliminary 'ranchu' support for Android but no support for 'Android pipe'
-- Android via 'virt' emulation to run arm64 cuttlefish. Given the mesa/gallium
-  driver stack even the Virtio-GPU may run on some systems.
+Host <-> Guest separation
+-------------------------
+- Once guest touches a page, it is removed from the host. This is true for
+  all guest pages.
+- ARmv8 guests are extended to do 'set memory {encrypted, decrypted}' calls
+- Guest is always responsible for opening the shared communication channels
 
 
 Secure swapping
@@ -145,6 +97,13 @@ entry, the hypervisor updates the hypervisor context as follows:
 | sysreg write | msr source reg     | -                    |
 
 TBC: Floating point registers, QEMU state sync breakage
+
+
+Guest hardening
+---------------
+- Follow the TDX prior art at:
+  https://github.com/intel/tdx/blob/guest/arch/x86/kernel/tdx-filter.c
+- Some sample patches under 'patches' directory
 
 
 Migration support TODO
