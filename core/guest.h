@@ -41,11 +41,6 @@ typedef enum {
 	GUEST_CRASHING = 0x4,
 } guest_state_t;
 
-typedef struct {
-	uint64_t gpa;
-	size_t len;
-} share_t;
-
 enum pc_sync {
 	PC_SYNC_NONE = 0,
 	PC_SYNC_SKIP = 1,

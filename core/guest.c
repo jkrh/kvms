@@ -696,7 +696,7 @@ int is_any_share(uint64_t gpa)
 		if (guests[i].vmid < GUEST_VMID_START)
 			goto cont;
 
-		if (is_share(&guests[i], gpa, PAGE_SIZE))
+		if (is_share(&guests[i], gpa, PAGE_SIZE) == 1)
 			return 1;
 
 cont:
@@ -936,7 +936,7 @@ cont:
 	 * If it's a share, let it be but make sure the share area does
 	 * not have execute permissions.
 	 */
-	if (is_share(guest, vaddr, len)) {
+	if (is_share(guest, vaddr, len) == 1) {
 		res = mmap_range(host, STAGE2, paddr, paddr, len,
 				 ((SH_INN << 8) | PAGE_HYP_RW),
 				 S2_NORMAL_MEMORY);
@@ -1411,8 +1411,7 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	switch(spsr_el2 & 0xF) {
 	case 0x0:
 		res = do_process_core(guest, regs);
-		if (res)
-			break;
+		break;
 	case 0x4:
 	case 0x5:
 		ERROR("%s: please fix qemu guest access at %p\n", __func__,
@@ -1442,7 +1441,7 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 	void *phys;
 
 	if (guest->state != GUEST_RUNNING)
-		return true;
+		return false;
 	guest->state = GUEST_CRASHING;
 
 	/*

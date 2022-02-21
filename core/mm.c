@@ -140,7 +140,7 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		return -EINVAL;
 
 	/* If for any reason this hits our shares, exit */
-	if (is_share(g, ipa, PAGE_SIZE) > 0)
+	if (is_share(g, ipa, PAGE_SIZE) == 1)
 		return 0;
 
 	res = get_range_info(guest, ipa);
@@ -284,7 +284,7 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	int res;
 
 	/* If for any reason this hits our shares, exit */
-	if (is_share(g, ipa, PAGE_SIZE) > 0)
+	if (is_share(g, ipa, PAGE_SIZE) == 1)
 		return 0;
 
 	/*

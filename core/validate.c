@@ -99,7 +99,7 @@ int print_shares(uint32_t vmid)
 		size = guest->slots[i].slot.npages * PAGE_SIZE;
 
 		while (slot_end <= (slot_start + size)) {
-			if (is_share(guest, slot_end, PAGE_SIZE)) {
+			if (is_share(guest, slot_end, PAGE_SIZE) == 1) {
 
 				phys = pt_walk(guest, STAGE2, slot_end, 0);
 				if (phys != ~0UL)
@@ -110,7 +110,7 @@ int print_shares(uint32_t vmid)
 				LOG("Guest share at gpa 0x%016llx -> 0x%016llx, len %d\n",
 					slot_end, phys, PAGE_SIZE);
 			}
-		slot_end += PAGE_SIZE;
+			slot_end += PAGE_SIZE;
 		}
 	}
 	LOG("Total of %d guest declared shares of which %d are mapped\n",
@@ -313,6 +313,19 @@ int print_mappings(uint32_t vmid, uint64_t stage)
 		return -EINVAL;
 	}
 	return total;
+}
+
+int print_share_area(uint32_t vmid)
+{
+	kvm_guest_t *guest;
+
+	guest = get_guest(vmid);
+	if (!guest) {
+		ERROR("No such guest %u?\n", vmid);
+		return -ENOENT;
+	}
+
+	return print_range(guest, PATRACK_STAGE1, PATRACK_SHAREOFFT, PATRACK_SHAREOFFT + (SZ_1G * 4));
 }
 
 int print_addr(uint32_t vmid, uint64_t stage, uint64_t addr)

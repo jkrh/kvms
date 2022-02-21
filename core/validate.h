@@ -45,6 +45,14 @@ int print_mappings(uint32_t vmid, uint64_t stage);
  */
 int print_addr(uint32_t vmid, uint64_t stage, uint64_t addr);
 
+/*
+ * Print contents of the share region for VM
+ *
+ * @param vmid vmid of the guest to dump
+ * @return amount of pages dumped
+ */
+int print_share_area(uint32_t vmid);
+
 /**
  * Attempt to translate one virtual address with 2 stage at translation command
  *
