@@ -22,6 +22,7 @@
 #include "validate.h"
 #include "platform_api.h"
 #include "gic.h"
+#include "crypto/platform_crypto.h"
 
 #define ISS_MASK		0x1FFFFFFUL
 #define ISS_RT_MASK		0x3E0UL
@@ -131,6 +132,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	bool retried = false;
 	hyp_func_t *func;
 	uint32_t vmid;
+	simd_t crypto_ctx;
 	int ct;
 
 #ifdef DEBUG
@@ -282,8 +284,11 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			break;
 		}
 		res = guest_validate_range(guest, a2, a3, a4);
-		if (!res)
+		if (!res) {
+			RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 			res = guest_map_range(guest, a2, a3, a4, a5);
+			RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
+		}
 		break;
 	case HYP_GUEST_UNMAP_STAGE2:
 		guest = get_guest(a1);
@@ -291,7 +296,9 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = -ENOENT;
 			break;
 		}
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 		res = guest_unmap_range(guest, a2, a3, a4);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	case HYP_MKYOUNG:
 	case HYP_MKOLD:
@@ -299,7 +306,9 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = guest_stage2_access_flag(cn, a1, a2, a3);
 		break;
 	case HYP_INIT_GUEST:
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 		res = init_guest((void *)a1);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	case HYP_FREE_GUEST:
 		res = free_guest((void *)a1);

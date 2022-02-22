@@ -3,10 +3,10 @@ export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
 
 ifeq ($(PLATFORM),virt)
-SUBDIRS := stdlib core platform/$(PLATFORM)
+SUBDIRS := stdlib core core/crypto platform/$(PLATFORM)
 KERNEL_DIR := $(BASE_DIR)/oss/linux
 else
-SUBDIRS := platform/$(PLATFORM) stdlib core platform/$(PLATFORM)/common
+SUBDIRS := platform/$(PLATFORM) stdlib core core/crypto platform/$(PLATFORM)/common
 endif
 include core/tools.mk
 include core/makevars.mk
