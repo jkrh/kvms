@@ -1,4 +1,4 @@
-From 33e1b654cd1719f54489d92a471192496dcda87e Mon Sep 17 00:00:00 2001
+From 1bb20358d4cbbcc8664b70d2311af8db2035bc66 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 10 May 2021 14:02:47 +0300
 Subject: [PATCH] kvm: 'encrypted memory' draft for arm64 - development
@@ -16,10 +16,11 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  arch/arm64/mm/Makefile               |  3 +-
  arch/arm64/mm/set_memory.c           | 98 ++++++++++++++++++++++++++++
  drivers/irqchip/irq-gic-v3-its.c     | 37 +++++++++++
+ drivers/usb/core/message.c           | 10 ++-
  drivers/usb/host/xhci-mem.c          | 33 +++++++---
  drivers/virtio/virtio_ring.c         | 30 +++++++--
  include/asm-generic/set_memory.h     |  5 ++
- 11 files changed, 292 insertions(+), 14 deletions(-)
+ 12 files changed, 301 insertions(+), 15 deletions(-)
  create mode 100644 arch/arm64/include/asm/mem_encrypt.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
  create mode 100644 arch/arm64/mm/set_memory.c
@@ -432,8 +433,37 @@ index 42b295337baf..95021fdcb51c 100644
  	its->cmd_base = (void *)page_address(page);
  	its->cmd_write = its->cmd_base;
  	its->fwnode_handle = handle;
+diff --git a/drivers/usb/core/message.c b/drivers/usb/core/message.c
+index dba2baca486e..fa0a0a3be4aa 100644
+--- a/drivers/usb/core/message.c
++++ b/drivers/usb/core/message.c
+@@ -89,8 +89,9 @@ static int usb_internal_control_msg(struct usb_device *usb_dev,
+ 				    void *data, int len, int timeout)
+ {
+ 	struct urb *urb;
+-	int retv;
++	int retv, res, numpages;
+ 	int length;
++	u64 addr;
+ 
+ 	urb = usb_alloc_urb(0, GFP_NOIO);
+ 	if (!urb)
+@@ -99,6 +100,13 @@ static int usb_internal_control_msg(struct usb_device *usb_dev,
+ 	usb_fill_control_urb(urb, usb_dev, pipe, (unsigned char *)cmd, data,
+ 			     len, usb_api_blocking_completion, NULL);
+ 
++	if (urb->transfer_buffer_length) {
++		numpages = round_up(urb->transfer_buffer_length, PAGE_SIZE) >> PAGE_SHIFT;
++		addr = round_down((u64)urb->transfer_buffer, PAGE_SIZE);
++		res = set_memory_decrypted(addr, numpages);
++		if (res)
++			pr_err("%s set_memory_decrypted %d\n", __func__, res);
++	}
+ 	retv = usb_start_wait_urb(urb, timeout, &length);
+ 	if (retv < 0)
+ 		return retv;
 diff --git a/drivers/usb/host/xhci-mem.c b/drivers/usb/host/xhci-mem.c
-index ed380ee58ab5..51fe6ea86519 100644
+index ed380ee58ab5..27a33a5e3fda 100644
 --- a/drivers/usb/host/xhci-mem.c
 +++ b/drivers/usb/host/xhci-mem.c
 @@ -18,6 +18,23 @@
@@ -445,7 +475,7 @@ index ed380ee58ab5..51fe6ea86519 100644
 +	int res, numpages = 0;
 +	void *vaddr;
 +
-+	vaddr = kmalloc_order(size, flags, get_order(size));
++	vaddr = kmalloc_order(size, flags | __GFP_ZERO, 1);
 +	if (!vaddr)
 +		return NULL;
 +
