@@ -26,8 +26,7 @@ hyp_guest_enter:
 	mov	x0, #ARM_EXCEPTION_IRQ
 	ret
 
-1:	str	x0, [x2, #HOST_CONTEXT_VCPU]
-	mov	x29, x1
+1:	mov	x29, x1
 	ldr	x2, [x29, #(8 * 31)]
 	msr	SP_EL0, x2
 	ldp	x0, x1,   [x29, #(8 * 0)]
@@ -63,10 +62,6 @@ guest_exit:
 	restore_callee_saved_regs x2
 	ldr	x3, [x2, #CPU_HOST_SP]
 	mov	sp, x3
-
-	get_host_ctxt	x2, x3
-	kern_hyp_va	x2
-	str	xzr, [x2, #HOST_CONTEXT_VCPU]
 
 	dsb	sy
 	isb
