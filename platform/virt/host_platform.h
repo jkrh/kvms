@@ -11,7 +11,6 @@
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
 #define TABLE_LEVELS    4
-#define KVM_ARCH_VMID_OFFT (sizeof(uint64_t))
 #else
 #define TABLE_LEVELS    3
 #endif

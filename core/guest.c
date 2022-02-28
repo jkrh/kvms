@@ -42,11 +42,8 @@ struct hyp_extension_ops {
 	uint64_t (*guest_enter)(void *vcpu);
 };
 
-/*
- * FIXME: calculate vmid offset
- * properly in asm_offsets.c
- */
 #ifndef KVM_ARCH_VMID_OFFT
+#pragma message("KVM_ARCH_VMID_OFFT not defined! Setting to zero.")
 #define KVM_ARCH_VMID_OFFT 0
 #endif
 
