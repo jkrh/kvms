@@ -15,6 +15,7 @@
 #include "pt_regs.h"
 #include "spinlock.h"
 #include "validate.h"
+#include "arm-sysregs.h"
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -54,6 +55,7 @@ struct hyp_extension_ops {
 #define KVM_GET_VMID(x) (*(uint32_t *)_KVM_GET_VMID(x))
 #define KVM_GET_PGD_PTR(x) ((uint64_t *)(_KVM_GET_ARCH((char *)x) + KVM_ARCH_PGD))
 #define KVM_GET_EXT_OPS_PTR(x) ((struct hyp_extension_ops *)(_KVM_GET_ARCH((char *)x) + KVM_EXT_OPS))
+#define KVM_GET_VTCR(x) (*(uint64_t *)(_KVM_GET_ARCH((char *)x) + KVM_ARCH_VTCR))
 
 #define INVALID_GUEST	MAX_VM
 
@@ -584,6 +586,42 @@ int guest_memchunk_alloc(kvm_guest_t *guest,
 	return c;
 }
 
+static int guest_set_table_levels(kvm_guest_t *guest, void *kvm)
+{
+	uint64_t vtcr_el2;
+
+	vtcr_el2 = KVM_GET_VTCR(kvm);
+
+	switch (VTCR_GET_GRANULE_SIZE(vtcr_el2)) {
+	case GRANULE_SIZE_4KB:
+		switch (VTCR_SL0(vtcr_el2)) {
+		case 0:
+			guest->table_levels_el1s2 = 2;
+			break;
+		case 1:
+			guest->table_levels_el1s2 = 3;
+			break;
+		case 2:
+			guest->table_levels_el1s2 = 4;
+			break;
+		default:
+			return -ENOTSUP;
+		}
+		break;
+	/* We only support 4kB granule for now. Flow through */
+	case GRANULE_SIZE_16KB:
+	case GRANULE_SIZE_64KB:
+	default:
+		return -ENOTSUP;
+	}
+
+	/* FIXME: do proper detection */
+	guest->table_levels_el1s1 = TABLE_LEVELS;
+	guest->table_levels_el2s1 = TABLE_LEVELS;
+
+	return 0;
+}
+
 int init_guest(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
@@ -604,6 +642,10 @@ int init_guest(void *kvm)
 		}
 	}
 
+	res = guest_set_table_levels(guest, kvm);
+	if (res)
+		return res;
+
 	mbedtls_aes_init(&guest->aes_ctx);
 	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 				    &mbedtls_entropy_ctx, 0, 0);
@@ -622,7 +664,6 @@ int init_guest(void *kvm)
 	pgd = KVM_GET_PGD_PTR(kvm);
 	*pgd = (uint64_t)guest->EL1S2_pgd;
 	guest->kvm = kvm;
-	guest->table_levels_s2 = TABLE_LEVELS;
 
 	guest->vmid = KVM_GET_VMID(kvm);
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
@@ -638,8 +679,6 @@ int init_guest(void *kvm)
 	/* Save the current VM process stage1 PGDs */
 	guest->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
 	guest->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
-	/* FIXME: do proper detection */
-	guest->table_levels_s1 = TABLE_LEVELS;
 
 	dsb();
 	isb();

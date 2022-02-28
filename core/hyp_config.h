@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-#ifndef __CONFIG_H__
-#define __CONFIG_H__
+#ifndef __HYP_CONFIG_H__
+#define __HYP_CONFIG_H__
 
 #ifndef STANDALONE
 #include "include/generated/asm-offsets.h"
@@ -35,7 +35,10 @@
 #ifndef CPU_HOST_SP
 #error CPU_HOST_SP not defined, check your config!
 #endif
-#else
+#ifndef KVM_ARCH_VTCR
+#error KVM_ARCH_VTCR not defined, check your config!
+#endif
+#else // STANDALONE
 #define	KVM_ARCH		0
 #define	KVM_ARCH_VMID		0
 #define	KVM_ARCH_PGD		0
@@ -45,7 +48,7 @@
 #define	VCPU_VCPUIDX		0
 #define	VCPU_CONTEXT		0
 #define	CPU_HOST_SP		0
+#define	KVM_ARCH_VTCR		0
 #endif // STANDALONE
 
-
-#endif // __CONFIG_H__
+#endif // __HYP_CONFIG_H__

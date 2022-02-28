@@ -221,7 +221,7 @@ uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		addr = pt_walk(guest, STAGE2, ipa, 0);
 		break;
 	case STAGE2:
-		lvl = guest->table_levels_s2;
+		lvl = guest->table_levels_el1s2;
 		addr = __pt_walk(guest->EL1S2_pgd, vaddr, ptep, &lvl, NULL);
 		break;
 	case STAGE1:
@@ -234,11 +234,11 @@ uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		else
 			tbl = guest->EL1S1_0_pgd;
 
-		lvl = guest->table_levels_s1;
+		lvl = guest->table_levels_el1s1;
 		addr = __pt_walk(tbl, vaddr, ptep, &lvl, NULL);
 		break;
 	case PATRACK_STAGE1:
-		lvl = guest->table_levels_s1;
+		lvl = guest->table_levels_el1s1;
 		addr = __pt_walk(guest->patrack.EL1S1_0_pgd, vaddr, ptep, &lvl, NULL);
 		break;
 	default:
@@ -258,7 +258,7 @@ uint64_t pt_walk_el2(uint64_t vaddr, uint64_t **ptep)
 	if (!host)
 		HYP_ABORT();
 
-	lvl = host->table_levels_s2;
+	lvl = host->table_levels_el2s1;
 	return __pt_walk(host->EL2S1_pgd, vaddr, ptep, &lvl, NULL);
 }
 
@@ -306,7 +306,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 		return -EINVAL;
 	}
 	nl = guest->EL1S2_pgd;
-	levels = guest->table_levels_s2;
+	levels = guest->table_levels_el1s2;
 
 	if (depth & 0x1)
 		lock_kernel_page(guest, (uint64_t)nl);
@@ -375,9 +375,9 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 		HYP_ABORT();
 
 	if (block->stage == STAGE2)
-		block->level = block->guest->table_levels_s2;
+		block->level = block->guest->table_levels_el1s2;
 	else
-		block->level = block->guest->table_levels_s1;
+		block->level = block->guest->table_levels_el2s1;
 
 	paddr = __pt_walk(block->pgd, addr, &block->ptep, &block->level, &einfo);
 	if (paddr == ~0UL) {
@@ -864,7 +864,7 @@ out_done:
 int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type)
 {
-	uint64_t attr, nattr, val, *pte;
+	uint64_t attr, nattr, val, *pte, pgd_levels;
 	kvm_guest_t *host;
 
 	if (!guest || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR) ||
@@ -890,6 +890,8 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (type == KERNEL_MATTR)
 			type = (TYPE_MASK_STAGE2 & prot);
 		prot &= PROT_MASK_STAGE2;
+
+		pgd_levels = block.guest->table_levels_el1s2;
 
 		if (block.guest != host)
 			break;
@@ -961,6 +963,8 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 		block.tpool = &guest->el2_tablepool;
 
+		pgd_levels = block.guest->table_levels_el2s1;
+
 		break;
 	case PATRACK_STAGE1:
 		if (!guest->patrack.EL1S1_0_pgd)
@@ -969,6 +973,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		block.guest = guest;
 		block.pgd = guest->patrack.EL1S1_0_pgd;
 		block.tpool = &guest->patrack.trailpool;
+		pgd_levels = block.guest->table_levels_el1s1;
 		break;
 	default:
 		return -EINVAL;
@@ -980,13 +985,14 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	block.stage = stage;
 
 	return __block_remap(vaddr, length, &block, paddr, prot, type,
-			     TABLE_LEVELS);
+			     pgd_levels);
 }
 
 int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		size_t length)
 {
 	kvm_guest_t *host;
+	uint64_t pgd_levels;
 
 	if (!guest || (vaddr > MAX_VADDR) || (length > (SZ_1G * 4)))
 		return -EINVAL;
@@ -997,18 +1003,22 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 	switch (stage) {
 	case STAGE2:
+		if (hostflags & HOST_STAGE2_LOCK)
+			return -EPERM;
+
 		block.guest = guest;
 		block.pgd = guest->EL1S2_pgd;
 		block.tpool = &block.guest->s2_tablepool;
-		if (hostflags & HOST_STAGE2_LOCK)
-			return -EPERM;
+		pgd_levels = block.guest->table_levels_el1s2;
 		break;
 	case EL2_STAGE1:
-		block.guest = host;
-		block.pgd = host->EL2S1_pgd;
 		if (hostflags & HOST_STAGE1_LOCK)
 			return -EPERM;
+
+		block.guest = host;
+		block.pgd = host->EL2S1_pgd;
 		block.tpool = &guest->el2_tablepool;
+		pgd_levels = block.guest->table_levels_el2s1;
 		break;
 	case PATRACK_STAGE1:
 		if (!guest->patrack.EL1S1_0_pgd)
@@ -1017,6 +1027,7 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		block.guest = guest;
 		block.pgd = guest->patrack.EL1S1_0_pgd;
 		block.tpool = &guest->patrack.trailpool;
+		pgd_levels = block.guest->table_levels_el1s1;
 		break;
 	default:
 		return -EINVAL;
@@ -1028,7 +1039,7 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	block.stage = stage;
 
 	return __block_remap(vaddr, length, &block, 0, 0, INVALID_MEMORY,
-			     TABLE_LEVELS);
+			     pgd_levels);
 }
 
 int user_copy(uint64_t dest, uint64_t src, uint64_t count,

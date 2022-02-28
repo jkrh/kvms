@@ -70,8 +70,9 @@ struct kvm_guest {
 	uint64_t pd_index;
 	uint64_t ramend;
 	uint32_t sn;
-	uint8_t table_levels_s1;
-	uint8_t table_levels_s2;
+	uint8_t table_levels_el2s1;
+	uint8_t table_levels_el1s1;
+	uint8_t table_levels_el1s2;
 	uint16_t index;
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
 	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];

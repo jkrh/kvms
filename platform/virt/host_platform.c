@@ -119,10 +119,6 @@ nextmap:
 	if (res)
 		goto error;
 
-	host->table_levels_s2 = TABLE_LEVELS;
-	host->table_levels_s1 = TABLE_LEVELS;
-	host->ramend = 0x200000000UL;
-
 	/* Initial slots for host */
 	platform_init_slots(host);
 
@@ -209,6 +205,11 @@ int platform_init_host_pgd(kvm_guest_t *host)
 
 	if (!host->EL2S1_pgd || !host->EL1S2_pgd)
 		return -ENOMEM;
+
+	host->table_levels_el1s2 = TABLE_LEVELS;
+	host->table_levels_el1s1 = TABLE_LEVELS;
+	host->table_levels_el2s1 = TABLE_LEVELS;
+	host->ramend = 0x200000000UL;
 
 	return 0;
 }

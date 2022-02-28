@@ -68,7 +68,7 @@ void tdinfo_init(void)
 	if (PLATFORM_VTCR_EL2 == 0)
 		HYP_ABORT();
 
-	granule_size = ((PLATFORM_VTCR_EL2 >> 14) & 3);
+	granule_size = VTCR_GET_GRANULE_SIZE(PLATFORM_VTCR_EL2);
 	switch (granule_size) {
 	case GRANULE_SIZE_4KB:
 		tdinfo.l1_blk_oa_mask = L1_BLK_OADDR_MASK_4KGRANULE;
@@ -387,7 +387,14 @@ static int clean_parentpgd(struct tablepool *tpool, struct ptable *ppgd)
 	uint64_t table;
 	struct ptable *tableptr;
 	uint64_t *pte;
-	uint64_t desci;
+	uint64_t desci, pgd_levels = 0;
+
+	if (tpool == &tpool->guest->el2_tablepool)
+		pgd_levels = tpool->guest->table_levels_el2s1;
+	else if (tpool == &tpool->guest->s2_tablepool)
+		pgd_levels = tpool->guest->table_levels_el1s2;
+	else
+		HYP_ABORT();
 
 	for (table = 0; table < tpool->num_tables; table++) {
 		tableptr = &tpool->pool[table];
@@ -401,7 +408,7 @@ static int clean_parentpgd(struct tablepool *tpool, struct ptable *ppgd)
 		 * Remove the reference if found.
 		 */
 		pte = pte_from_pgd_by_oaddr(ppgd, (uint64_t)tableptr,
-						TABLE_LEVELS, 2);
+						pgd_levels, 2);
 		if (pte != NULL) {
 			LOG("cleaned 0x%lx\n", *pte);
 			*pte = 0;
