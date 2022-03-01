@@ -166,6 +166,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 	platform_console_init();
 
 	if (init_index == 0) {
+		log_init();
 		init_guest_array();
 		if (HOST_VMID == 0)
 			HYP_ABORT();

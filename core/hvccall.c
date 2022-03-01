@@ -46,7 +46,7 @@ uint64_t hostflags;
 
 int set_lockflags(uint64_t flags, uint64_t addr, size_t sz, uint64_t depth)
 {
-	LOG("%s flags: 0x%lx addr: 0x%lx sz: 0x%lx depth: 0x%lx\n", __func__,
+	LOG("flags: 0x%lx addr: 0x%lx sz: 0x%lx depth: 0x%lx\n",
 	     flags, addr, sz, depth);
 #if (DEBUG == 2)
 	return 0;
@@ -102,8 +102,8 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 
 		res = set_share(guest, a1, a2);
 		if (res)
-			ERROR("%s: unable to mark region %p/%d as shared\n",
-			      __func__, a1, (int)a2);
+			ERROR("unable to mark region %p/%d as shared\n",
+			      a1, (int)a2);
 		break;
 #ifdef DEBUG
 	case HYP_TRANSLATE:

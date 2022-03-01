@@ -136,8 +136,10 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	bool s = false;
 	int ret = 0;
 
-	if (!guest || !ipa || !len || len % PAGE_SIZE)
+	if (!guest || !ipa || !len || len % PAGE_SIZE) {
+		ERROR("invalid arguments: %p %lx %lu\n", guest, ipa, len);
 		return -EINVAL;
+	}
 
 	/* If for any reason this hits our shares, exit */
 	if (is_share(g, ipa, PAGE_SIZE) == 1)
@@ -147,8 +149,10 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (res)
 		goto use_old;
 
-	if (guest->pd_index == MAX_PAGING_BLOCKS - 1)
+	if (guest->pd_index == MAX_PAGING_BLOCKS - 1) {
+		ERROR("too many paging blocks\n");
 		return -ENOSPC;
+	}
 
 	s = true;
 	res = &guest->hyp_page_data[guest->pd_index];
@@ -369,12 +373,12 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 	uint64_t phys, gpap = gpa;
 
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE)) {
-		ERROR("%s: gpa %lx, len %d\n", __func__, gpa, len);
+		ERROR("gpa %lx, len %d\n", gpa, len);
 		return -EINVAL;
 	}
 
 	if (len > (SZ_1M * 2)) {
-		ERROR("%s: requested region too large\n", __func__);
+		ERROR("requested region too large\n");
 		return -EINVAL;
 	}
 
@@ -392,7 +396,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		 * gpa equals to phy.
 		 */
 		if (!contiguous) {
-			ERROR("%s: region not contiguous\n", __func__);
+			ERROR("region not contiguous\n");
 			return -EINVAL;
 		}
 
@@ -427,11 +431,11 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 	int res = 0;
 
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE)) {
-		ERROR("%s: gpa %lx, len %d\n", __func__, gpa, len);
+		ERROR("invalid arguments: gpa %lx, len %d\n", gpa, len);
 		return -EINVAL;
 	}
 	if (len > (SZ_1M * 2)) {
-		ERROR("%s: requested region too large\n", __func__);
+		ERROR("requested region too large\n");
 		return -EINVAL;
 	}
 
@@ -449,7 +453,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		 * gpa equals to phy.
 		 */
 		if (!contiguous) {
-			ERROR("%s: region not contiguous\n", __func__);
+			ERROR("region not contiguous\n");
 			res = -EINVAL;
 			goto out;
 		}
@@ -462,8 +466,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 	}
 
 	if ((gpa + len) > guest->ramend) {
-		ERROR("%s: region spans beoynd the end of the guest ram\n",
-		      __func__);
+		ERROR("region spans beoynd the end of the guest ram\n");
 		res = -EPERM;
 		goto out;
 	}
@@ -507,7 +510,7 @@ int restore_host_mappings(void *gp)
 
 	if ((uint64_t)guest->EL1S1_0_pgd ==
 	    (read_reg(TTBR0_EL1) & TTBR_BADDR_MASK)) {
-		LOG("HYP: %s using at commands\n", __func__);
+		LOG("%s using at commands\n", __func__);
 		use_at = true;
 	}
 
@@ -588,8 +591,8 @@ cont:
 		}
 	}
 	gettimeofday(&tv2, NULL);
-	LOG("HYP: %s %ld pages. Latency was %ldms\n",
-	     __func__, rcount, (tv2.tv_usec - tv1.tv_usec) / 1000);
+	LOG("%s %ld pages. Latency was %ldms\n", __func__, rcount,
+	   (tv2.tv_usec - tv1.tv_usec) / 1000);
 
 	return 0;
 }
@@ -625,7 +628,7 @@ bool __map_back_host_page(void *h, void *g, uint64_t far_el2)
 	}
 
 	gpa = patrack_hpa2gpa(guest, ipa);
-	LOG("%s (hva: 0x%lx) gpa: 0x%lx hpa: 0x%lx\n", __func__, far_el2, gpa, ipa);
+	LOG("hva: 0x%lx gpa: 0x%lx hpa: 0x%lx\n", far_el2, gpa, ipa);
 
 	ipa = ipa & PAGE_MASK;
 

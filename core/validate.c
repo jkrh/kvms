@@ -219,10 +219,12 @@ int print_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr, uint64_t end
 	int total = 0;
 	char buf[128];
 
-	LOG("VMID %u stage %u mappings %p - %p\n", guest->vmid, stage, (void *)vaddr,
-	    (void *)end);
-	LOG("vaddr\t\t\tpaddr\t\tsize\t\tattributes         %s\n",
-	    parse_attrs(0, 0, stage));
+	if ((end - vaddr) > PAGE_SIZE) {
+		LOG("VMID %u stage %u mappings %p - %p\n", guest->vmid, stage,
+		    (void *)vaddr, (void *)end);
+		LOG("vaddr               paddr               size                attributes          %s\n",
+		    parse_attrs(0, 0, stage));
+	}
 
 	while (vaddr < end) {
 		pte = NULL;
@@ -256,7 +258,7 @@ int print_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr, uint64_t end
 		 */
 		if (end_vaddr) {
 			size = end_vaddr - start_vaddr;
-			LOG("0x%016lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
+			LOG("0x%016lx  0x%016lx  0x%016lx  0x%016lx  %s\n",
 			    start_vaddr, start_addr, size, oattrs,
 			    parse_attrs(buf, oattrs, stage));
 		}
@@ -276,7 +278,7 @@ int print_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr, uint64_t end
 		return total;
 
 	size = end_vaddr - start_vaddr;
-	LOG("0x%016lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n", start_vaddr,
+	LOG("0x%016lx  0x%016lx  0x%016lx  0x%016lx  %s\n", start_vaddr,
 	    start_addr, size, attrs, parse_attrs(buf, attrs, stage));
 
 	return total;
@@ -367,7 +369,7 @@ int __print_mappings_el2(uint64_t ivaddr, uint64_t iend)
 	char buf[128];
 
 	LOG("EL2 mappings %p - %p\n", (void *)vaddr, iend);
-	LOG("vaddr\t\tpaddr\t\tsize\t\tattributes         %s\n",
+	LOG("vaddr               paddr               size                attributes          %s\n",
 	    parse_attrs(0, 0, EL2_STAGE1));
 
 	while (vaddr < iend) {
@@ -403,7 +405,7 @@ int __print_mappings_el2(uint64_t ivaddr, uint64_t iend)
 		 */
 		if (end_vaddr) {
 			size = end_vaddr - start_vaddr;
-			LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n",
+			LOG("0x%016lx  0x%016lx  0x%016lx  0x%016lx  %s\n",
 			    start_vaddr, start_addr, size, oattrs,
 			    parse_attrs(buf, oattrs, EL2_STAGE1));
 		}
@@ -423,7 +425,7 @@ int __print_mappings_el2(uint64_t ivaddr, uint64_t iend)
 		return total;
 
 	size = end_vaddr - start_vaddr;
-	LOG("0x%012lx\t0x%012lx\t0x%012lx\t0x%016lx %s\n", start_vaddr,
+	LOG("0x%016lx  0x%016lx  0x%016lx  0x%016lx  %s\n", start_vaddr,
 	    start_addr, size, attrs, parse_attrs(buf, attrs, EL2_STAGE1));
 
 	return total;

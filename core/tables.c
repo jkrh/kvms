@@ -130,14 +130,14 @@ static int free_static_ttbl_chunk(struct tablepool *tpool)
 	chunk.type = tpool->guest->mempool[tpool->currentchunk].type;
 
 	if (guest_table_user[i] != tpool->guest) {
-		ERROR("%s guest mismatch!\n", __func__);
+		ERROR("guest mismatch!\n");
 		HYP_ABORT();
 	}
 
 	err = __guest_memchunk_remove(tpool->guest, &chunk);
 	if (err)
-		ERROR("%s, unable to remove %lx, err %d\n",
-		      __func__, chunk.start, err);
+		ERROR("unable to remove %lx, err %d\n",
+		      chunk.start, err);
 
 	guest_table_user[i] = 0;
 
@@ -215,7 +215,7 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 	tpool->hint = 0;
 
 	if (tpool->used[tpool->hint]) {
-		ERROR("%s table accounting error!\n", __func__);
+		ERROR("table accounting error!\n");
 		return NULL;
 	}
 
@@ -403,7 +403,7 @@ static int clean_parentpgd(struct tablepool *tpool, struct ptable *ppgd)
 		pte = pte_from_pgd_by_oaddr(ppgd, (uint64_t)tableptr,
 						TABLE_LEVELS, 2);
 		if (pte != NULL) {
-			LOG("%s cleaned 0x%lx\n", __func__, *pte);
+			LOG("cleaned 0x%lx\n", *pte);
 			*pte = 0;
 		}
 		memset(tableptr, 0, sizeof(struct ptable));
@@ -425,7 +425,7 @@ struct ptable *alloc_pgd(struct kvm_guest *guest, struct tablepool *tpool)
 
 	pgd_check = patrack_set_table_offt(tpool, pgd);
 	if (pgd_check != check) {
-		ERROR("%s invalid pgd!\n", __func__);
+		ERROR("invalid pgd!\n");
 		return NULL;
 	}
 

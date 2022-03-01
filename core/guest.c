@@ -14,6 +14,7 @@
 #include "cache.h"
 #include "pt_regs.h"
 #include "spinlock.h"
+#include "validate.h"
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -412,7 +413,7 @@ int __guest_memchunk_get(kvm_guest_t *guest, guest_memchunk_t *chunk)
 	if (c >= GUEST_MEMCHUNKS_MAX)
 		c = -ENOENT;
 	else if (guest->mempool[c].type != chunk->type)
-		ERROR("%s, wrong type!", __func__);
+		ERROR("wrong type!");
 
 	return c;
 }
@@ -435,7 +436,7 @@ int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk)
 		c = -ENOSPC;
 
 	if (_zeromem16((void *)guest->mempool[c].start, guest->mempool[c].size))
-		ERROR("%s, check alignment!", __func__);
+		ERROR("check alignment!");
 
 	return c;
 }
@@ -453,7 +454,7 @@ int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk)
 		return -EBUSY;
 
 	if (_zeromem16((void *)guest->mempool[c].start, guest->mempool[c].size))
-		ERROR("%s, check alignment!", __func__);
+		ERROR("check alignment!");
 
 	guest->mempool[c].start = 0;
 	guest->mempool[c].size = 0;
@@ -476,8 +477,8 @@ void guest_mempool_free(kvm_guest_t *guest)
 			guest->mempool[c].type = GUEST_MEMCHUNK_FREE;
 			err = guest_memchunk_remove(guest->kvm, paddr, len);
 			if (err)
-				ERROR("%s, unable to remove %lx, err %d\n",
-				      __func__, paddr, err);
+				ERROR("unable to remove %lx, err %d\n",
+				      paddr, err);
 		}
 	}
 }
@@ -497,13 +498,15 @@ int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 	guest = __get_guest_by_kvm(&kvm, NULL);
 	if (guest == NULL) {
 		guest = alloc_guest(kvm);
-		if (guest == NULL)
+		if (guest == NULL) {
+			ERROR("no space to allocate a new guest\n");
 			return -ENOSPC;
+		}
 	}
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		return -EINVAL;
+		HYP_ABORT();
 	/*
 	 * Walk through the provided range to verify it is contiguous
 	 * and physically mapped by the calling host context. This will also
@@ -512,17 +515,20 @@ int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 	 */
 	s1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
 	tpaddr = paddr;
-	if (!s1_range_physically_contiguous(host, s1_pgd, s1addr, &tpaddr, len))
+	if (!s1_range_physically_contiguous(host, s1_pgd, s1addr, &tpaddr, len)) {
+		ERROR("range is not contiguous\n");
 		return -EINVAL;
-
+	}
 	res = remove_host_range(host, paddr, len, true);
 	if (!res) {
 		chunk.start = paddr;
 		chunk.size = len;
 		chunk.type = GUEST_MEMCHUNK_FREE;
 		res = __guest_memchunk_add(guest, &chunk);
-		if (res < 0)
+		if (res < 0) {
+			ERROR("failed to add memchunk\n");
 			return -ENOSPC;
+		}
 	} else {
 		ERROR("remove_host_range returned: %d\n", res);
 		restore_host_range(host, paddr, len, true);
@@ -544,7 +550,7 @@ int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len)
 
 	host = get_guest(HOST_VMID);
 	if (host == NULL)
-		return -EINVAL;
+		HYP_ABORT();
 
 	res = guest_validate_range(host, paddr, paddr, len);
 	if (res)
@@ -572,9 +578,10 @@ int guest_memchunk_alloc(kvm_guest_t *guest,
 		}
 	}
 
-	if (c >= GUEST_MEMCHUNKS_MAX)
+	if (c >= GUEST_MEMCHUNKS_MAX) {
+		ERROR("not enough memory chunk slots\n");
 		return -ENOSPC;
-
+	}
 	guest->mempool[c].type = type;
 
 	return c;
@@ -594,8 +601,10 @@ int init_guest(void *kvm)
 	guest = __get_guest_by_kvm(&kvm, NULL);
 	if (guest == NULL) {
 		guest = alloc_guest(kvm);
-		if (guest == NULL)
+		if (guest == NULL) {
+			ERROR("no space for a new guest\n");
 			return -ENOSPC;
+		}
 	}
 
 	mbedtls_aes_init(&guest->aes_ctx);
@@ -724,9 +733,10 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	kvm_guest_t *guest = NULL;
 	int i, res = -ENOENT;
 
-	if (vmid < GUEST_VMID_START)
+	if (vmid < GUEST_VMID_START) {
+		ERROR("invalid vmid %u\n", vmid);
 		return res;
-
+	}
 	guest = __get_guest_by_kvm(&kvm, &i);
 	if (guest != NULL) {
 		guest_index[guest->vmid] = INVALID_GUEST;
@@ -838,6 +848,8 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	int res;
 
 	if (!guest || !vaddr || !paddr || (len % PAGE_SIZE)) {
+		ERROR("invalid mapping request for guest %u: %p, %p, %lu\n",
+		       guest->vmid, vaddr, paddr, len);
 		res = -EINVAL;
 		goto out_error;
 	}
@@ -858,9 +870,11 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	end = vaddr + len - 1;
 	slot1 = gfn_to_memslot(guest, addr_to_fn(vaddr));
 	slot2 = gfn_to_memslot(guest, addr_to_fn(end));
-	if (!slot1 || (slot1 != slot2) || (slot1->flags & KVM_MEM_READONLY))
+	if (!slot1 || (slot1 != slot2) || (slot1->flags & KVM_MEM_READONLY)) {
+		ERROR("invalid memory slot %p, %p, %p\n",
+		      slot1, slot2, slot1->flags);
 		return -EINVAL;
-
+	}
 	newtype = (prot & TYPE_MASK_STAGE2);
 
 	/*
@@ -929,7 +943,7 @@ cont:
 	 */
 	res = patrack_mmap(guest, paddr, vaddr, len);
 	if (res)
-		ERROR("%s patrack_mmap error %d\n", __func__, res);
+		ERROR("patrack_mmap error %d\n", res);
 
 	/*
 	 * If it's a normal region that is mapped on the host, remove it.
@@ -965,6 +979,8 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 
 	range_end = vaddr + len;
 	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr)) {
+		ERROR("invalid unmap request for guest %u: %p, %lu\n",
+		      guest->vmid, vaddr, len);
 		res = -EINVAL;
 		goto out_error;
 	}
@@ -1030,7 +1046,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 
 		res = patrack_unmap(guest, paddr, PAGE_SIZE);
 		if (res)
-			ERROR("%s patrack_unmap error %d\n", __func__, res);
+			ERROR("patrack_unmap error %d\n", res);
 
 		/*
 		 * Give it back to the host
@@ -1087,7 +1103,7 @@ int free_guest(void *kvm)
 
 	res = patrack_stop(guest);
 	if (res)
-		ERROR("%s patrack_stop error: %d\n", __func__, res);
+		ERROR("patrack_stop error: %d\n",res);
 
 	free_pgd(&guest->s2_tablepool, NULL);
 	free_pgd(&guest->el2_tablepool, host->EL2S1_pgd);
@@ -1136,16 +1152,18 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 	slot = kern_hyp_va(slot);
 	reg = kern_hyp_va(reg);
 
-	if (slot->npages > 0x100000)
+	if (slot->npages > 0x100000) {
+		ERROR("slot too large\n");
 		return -EINVAL;
-
+	}
 	guest = get_guest_by_kvm(kvm);
 	if (!guest)
 		return 0;
 
-	if (guest->sn > KVM_MEM_SLOTS_NUM)
+	if (guest->sn > KVM_MEM_SLOTS_NUM) {
+		ERROR("too many guest slots?\n");
 		return -EINVAL;
-
+	}
 	addr = fn_to_addr(slot->base_gfn);
 	size = slot->npages * PAGE_SIZE;
 
@@ -1268,6 +1286,8 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 	 * Get clearance for the range from the platform implementation.
 	 */
 	if (!platform_range_permitted(paddr, len)) {
+		ERROR("platform rejected mapping of %p, %u\n",
+		      paddr, len);
 		ret = -EPERM;
 		goto out_error;
 	}
@@ -1276,6 +1296,8 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 	 */
 	ret = is_range_valid(addr, len, guest->slots);
 	if (!ret) {
+		ERROR("range %p/%u not within guest boundary\n",
+		      paddr, len);
 		ret = -EPERM;
 		goto out_error;
 	}
@@ -1291,12 +1313,16 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 		if (powner == guest)
 			goto cont;
 
-		if (powner && (powner != host))
+		if (powner && (powner != host)) {
+			ERROR("vmid %u not a page owner for %p\n",
+			      guest->vmid, paddr);
 			return -EPERM;
-
+		}
 		/* Keep shares as 1:1 communication pipes */
-		if (is_any_share(paddr))
+		if (is_any_share(paddr)) {
+			ERROR("page %p is already a share\n", paddr);
 			return -EPERM;
+		}
 cont:
 		tmp += PAGE_SIZE;
 	}
@@ -1304,8 +1330,8 @@ cont:
 	return 0;
 
 out_error:
-	ERROR("%s failed gpa:0x%lx hpa:0x%lx len:%d err:%d\n",
-	       __func__, addr, paddr, len, ret);
+	ERROR("failed gpa:0x%lx hpa:0x%lx len:%d err:%d\n",
+	       addr, paddr, len, ret);
 	return ret;
 }
 
@@ -1314,7 +1340,7 @@ int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid)
 	kvm_guest_t *guest = __get_guest_by_kvm(&kvm, NULL);
 
 	if (!guest) {
-		LOG("%s: bad kvm %p\n", __func__, kvm);
+		LOG("bad kvm %p\n", kvm);
 		return -ENOENT;
 	}
 	if (vcpuid >= NUM_VCPUS)
@@ -1338,8 +1364,8 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 	kvm_guest_t *guest = get_guest(vmid);
 
 	if (!guest || vcpuid >= NUM_VCPUS) {
-		ERROR("%s: invalid vmid %u or vcpuid %u\n",
-		      __func__,  vmid, vcpuid);
+		ERROR("invalid vmid %u or vcpuid %u\n",
+		      vmid, vcpuid);
 		return;
 	}
 	ctxt = &guest->vcpu_ctxt[vcpuid];
@@ -1414,8 +1440,9 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		break;
 	case 0x4:
 	case 0x5:
-		ERROR("%s: please fix qemu guest access at %p\n", __func__,
-		      far_el2);
+		ERROR("please fix qemu guest access at %p, esr_el2: %p\n",
+		       far_el2, read_reg(ESR_EL2));
+		print_addr(vmid, STAGE1, far_el2);
 		res = __map_back_host_page(get_guest(vmid), guest, far_el2);
 		break;
 	}
@@ -1429,7 +1456,7 @@ void set_memory_readable(kvm_guest_t *guest)
 	if (!guest)
 		return;
 
-	LOG("Restoring pages for guest %u..\n", guest->vmid);
+	LOG("restoring pages for guest %u..\n", guest->vmid);
 	restore_host_mappings(guest);
 	dsb(); isb();
 }
@@ -1448,9 +1475,9 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 	 * Userspace abort, crash only the process at hand
 	 */
 	elr_el2 = read_reg(ELR_EL2);
-	ERROR("Userspace data abort at host virtual address %p(%p)\n",
+	ERROR("userspace data abort at host virtual address %p(%p)\n",
 	   (void *)elr_el2, virt_to_phys((void *)elr_el2));
-	ERROR("Failing address was %p\n", read_reg(FAR_EL2));
+	ERROR("failing address was %p\n", read_reg(FAR_EL2));
 	print_regs(regs);
 
 	phys = virt_to_ipa((void *)elr_el2);

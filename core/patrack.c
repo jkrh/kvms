@@ -92,14 +92,14 @@ int patrack_mmap_table(struct kvm_guest *guest, uint64_t ipa, uint64_t paddr,
 	res = mmap_range(guest, STAGE2, ipa, paddr, len,
 			 PAGE_HYP_RO | (SH_INN << SH_SHIFT), S2_NORMAL_MEMORY);
 	if (res) {
-		ERROR("%s error %d!\n", __func__, res);
+		ERROR("error %d!\n", res);
 		return res;
 	}
 
 	res = mmap_range(host, EL2_STAGE1, ipa, paddr, len,
 			 PAGE_KERNEL_RW | (SH_INN << SH_SHIFT), NORMAL_WBACK_P);
 	if (res)
-		ERROR("%s error %d!\n", __func__, res);
+		ERROR("error %d!\n", res);
 
 	return res;
 }
@@ -115,13 +115,13 @@ int patrack_unmap_table(struct kvm_guest *guest, uint64_t ipa, uint64_t len)
 
 	res = unmap_range(guest, STAGE2, ipa, len);
 	if (res) {
-		ERROR("%s error %d!\n", __func__, res);
+		ERROR("error %d!\n", res);
 		return res;
 	}
 
 	res = unmap_range(host, EL2_STAGE1, ipa, len);
 	if (res)
-		ERROR("%s error %d!\n", __func__, res);
+		ERROR("error %d!\n", res);
 
 	return res;
 }
@@ -192,7 +192,7 @@ int patrack_stop(struct kvm_guest *guest)
 		tablelen = guest->mempool[c].size;
 		res = patrack_unmap_table(guest, tableipa, tablelen);
 		if (res)
-			ERROR("%s table unmap error: %d\n", __func__, res);
+			ERROR("table unmap error: %d\n", res);
 		c = guest->mempool[c].next;
 	} while (c < GUEST_MEMCHUNKS_MAX);
 
@@ -281,7 +281,7 @@ int patrack_mmap(struct kvm_guest *guest, uint64_t s1_addr, uint64_t ipa,
 int patrack_unmap(struct kvm_guest *guest, uint64_t s1_addr, size_t length)
 {
 	if (patrack_hpa_is_multiref(guest, s1_addr)) {
-		LOG("%s skip 0x%llx\n", __func__, s1_addr);
+		LOG("skip 0x%llx\n", s1_addr);
 		return 0;
 	}
 
@@ -320,7 +320,7 @@ int patrack_validate_hpa(struct kvm_guest *host, struct kvm_guest *guest,
 	 * Address was not found from host or guest. Perhaps the address
 	 * belongs to another guest?
 	 */
-	ERROR("%s g:0x%lx unknown hpa:0x%llx\n", __func__, guest, hpa);
+	ERROR("g:0x%lx unknown hpa:0x%llx\n", guest, hpa);
 
 	return -EPERM;
 }

@@ -1,8 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0-only
+
+#include <sys/time.h>
 #include <errno.h>
+#include <stdarg.h>
+
 #include "hyplogs.h"
+#include "commondefines.h"
+
+#define BUFSIZE 128
 
 extern int __getchar(void);
+
+static struct timeval boot_ts ALIGN(16);
 
 #ifdef DEBUG
 const char bars[] = { '/', '-', '\\', '|' };
@@ -35,4 +44,51 @@ uint64_t read_log(void)
 		return -ENODATA;
 
 	return res;
+}
+
+void log_init()
+{
+	gettimeofday(&boot_ts, NULL);
+}
+
+static int __printbuf(char *buf)
+{
+	int count = 0;
+
+	buf[BUFSIZE - 1] = '\0';
+	while (buf[count]) {
+		if (putchar(buf[count]) != EOF) {
+			count++;
+		} else {
+			count = EOF;
+			break;
+		}
+	}
+
+	return count;
+}
+
+void __log(int level, const char *func, const char *fmt, ...)
+{
+	char buf[BUFSIZE];
+	struct timeval tv2;
+	register uint64_t ts;
+	va_list args;
+
+	gettimeofday(&tv2, NULL);
+	ts = (tv2.tv_usec - boot_ts.tv_usec) / 1000;
+
+	if (level)
+		printf("\033[0;31m");
+
+	printf("[%*.*lu] %*.*s ", 12, 12, ts, 16, 16, func);
+	va_start(args, fmt);
+	vsnprintf(buf, sizeof(buf) - 1, fmt, args);
+	va_end(args);
+
+	__printbuf(buf);
+	putchar('\r');
+
+	if (level)
+		printf("\033[0m");
 }
