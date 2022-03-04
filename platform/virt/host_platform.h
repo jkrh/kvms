@@ -8,6 +8,7 @@
 #include "host_defs.h"
 #include "include/generated/uapi/linux/version.h"
 #include "platform_api.h"
+#include "arm-sysregs.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
 #define TABLE_LEVELS    4
@@ -51,5 +52,8 @@ int console_putc(unsigned char);
 
 #define PHYS_OFFSET 0x40000000UL
 #define VIRT_UART 0x09000000UL
+
+#define PLATFORM_SMP_CORE_INDEX	((read_reg(mpidr_el1) & MPIDR_AFF0_MASK) \
+				>> MPIDR_AFF0_SHIFT)
 
 #endif

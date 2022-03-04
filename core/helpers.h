@@ -216,15 +216,20 @@ static inline void iowrite32(uint32_t val, volatile void *addr)
 #define get_current_vmid() (read_reg(VTTBR_EL2) >> 48)
 #define set_current_vmid(x) write_reg(VTTBR_EL2, (read_reg(VTTBR_EL2) | ((uint64_t)x << 48)))
 
-static inline uint64_t smp_processor_id()
+/**
+ * smp_processor_id - get currently running core index
+ *
+ * Return the current core index. The returned core index should correspond
+ * the logical core number enumerated by linux kernel. Logical cores for linux
+ * kernel are described in platform device tree. Refer to cpu configuration in
+ * your platform and implement the PLATFORM_SMP_CORE_INDEX corresponding to
+ * linux kernel cpu enumeration.
+ *
+ * @return currently running core index
+ */
+static inline __attribute__((__always_inline__)) uint64_t smp_processor_id()
 {
-	uint64_t value;
-
-	value = read_reg(mpidr_el1);
-	value &= PLAT_CPU_AFF_MASK;
-	value = value >> PLAT_CPU_AFF_SHIFT;
-
-	return value;
+	return PLATFORM_SMP_CORE_INDEX;
 }
 
 static inline void hexdump(const char *token, uint8_t *data, int len)

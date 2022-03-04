@@ -22,12 +22,6 @@
 	add	\dst, \dst, :lo12:\sym
 .endm
 
-.macro smp_processor_id reg
-	mrs	\reg, mpidr_el1
-	and	\reg, \reg, #PLAT_CPU_AFF_MASK
-	lsr	\reg, \reg, #PLAT_CPU_AFF_SHIFT
-.endm
-
 .macro save_clobber_regs
 	stp	x0, x1, [sp, #(8 * 0)]
 	stp	x2, x3, [sp, #(8 * 2)]
@@ -127,6 +121,7 @@
  * landing us with the address of the host data.
  */
 .macro hyp_adr_this_cpu reg, sym, tmp
+	/* FIXME - use platform specific CPU ID setting */
 	mrs	\tmp, mpidr_el1
 	and	\tmp, \tmp, #0xFF00
 	lsr	\tmp, \tmp, #8
