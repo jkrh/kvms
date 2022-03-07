@@ -68,6 +68,10 @@ struct kvm_guest *owner_of(uint64_t addr)
 cont:
 		i++;
 	}
+	/* 
+	 * Host must be returned as owner of the address ONLY IF the address was
+	 * NOT mapped to any guest.
+	 */
 	return get_guest(HOST_VMID);
 }
 

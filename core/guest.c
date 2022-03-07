@@ -1306,18 +1306,13 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 
 	tmp = paddr;
 	while (tmp < (paddr + len)) {
-		powner = owner_of(paddr);
+		powner = owner_of(tmp);
 		if (powner == guest)
 			goto cont;
 
-		if (powner && (powner != host)) {
+		if (powner != host) {
 			ERROR("vmid %u not a page owner for %p\n",
 			      guest->vmid, paddr);
-			return -EPERM;
-		}
-		/* Keep shares as 1:1 communication pipes */
-		if (is_any_share(paddr)) {
-			ERROR("page %p is already a share\n", paddr);
 			return -EPERM;
 		}
 cont:
