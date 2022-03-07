@@ -1,0 +1,6 @@
+#ifndef NXP_MBEDTLS_CONFIG_H
+#define NXP_MBEDTLS_CONFIG_H
+
+#undef MBEDTLS_ERROR_C
+
+#endif /* !NXP_MBEDTLS_CONFIG_H */
