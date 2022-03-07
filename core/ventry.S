@@ -194,7 +194,7 @@ data_abort:
 	b	_guest_data_abort
 
 _host_data_abort:
-#ifndef STANDALONE
+#ifdef HOSTBLINDING
 	save_all_regs
 	/*
 	 * Host data abort
