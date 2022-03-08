@@ -9,7 +9,7 @@ if [ -z "$CLEAN" ]; then
   CLEAN="true"
 fi
 
-KERNEL_PATCH="patches/0001-KVM-external-hypervisor-5.6-kernel-baseport.patch"
+KERNEL_PATCH="patches/host/virt/0001-KVM-external-hypervisor-5.6-kernel-baseport.patch"
 QEMU_PATCH="patches/qemu-compilation.patch"
 
 CORES=8
