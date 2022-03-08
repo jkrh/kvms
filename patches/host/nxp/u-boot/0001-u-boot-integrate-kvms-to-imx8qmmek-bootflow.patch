@@ -1,0 +1,36 @@
+From 83d5ad24166e12cc0af6fc99e5c9a18be5b2dd39 Mon Sep 17 00:00:00 2001
+From: Jani Hyvonen <jani.hyvonen@digital14.com>
+Date: Mon, 7 Mar 2022 18:53:00 +0200
+Subject: [PATCH] u-boot: integrate kvms to imx8qmmek bootflow
+
+u-boot version 2021.04-r0
+
+Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
+---
+ include/configs/imx8qm_mek.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/include/configs/imx8qm_mek.h b/include/configs/imx8qm_mek.h
+index e90b2508db..b3ac08a8fd 100644
+--- a/include/configs/imx8qm_mek.h
++++ b/include/configs/imx8qm_mek.h
+@@ -202,11 +202,16 @@
+ 	"hdprx_file=hdmirxfw.bin\0" \
+ 	"loadhdp=fatload mmc ${mmcdev}:${mmcpart} ${hdp_addr} ${hdp_file}\0" \
+ 	"loadhdprx=fatload mmc ${mmcdev}:${mmcpart} ${hdprx_addr} ${hdprx_file}\0" \
++	"kvms_addr=0xe0000000\0" \
++	"kvms_file=bl1.bin\0" \
++	"loadkvms=fatload mmc ${mmcdev}:${mmcpart} ${kvms_addr} ${kvms_file}\0" \
+ 	"boot_os=booti ${loadaddr} - ${fdt_addr};\0" \
+ 	"loadcntr=fatload mmc ${mmcdev}:${mmcpart} ${cntr_addr} ${cntr_file}\0" \
+ 	"auth_os=auth_cntr ${cntr_addr}\0" \
+ 	"mmcboot=echo Booting from mmc ...; " \
+ 		HDP_LOAD_ENV \
++		"run loadkvms; " \
++		"echo Loaded kvms to 0xe0000000; " \
+ 		"run mmcargs; " \
+ 		"if test ${sec_boot} = yes; then " \
+ 			"if run auth_os; then " \
+-- 
+2.17.1
+
