@@ -377,7 +377,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		return -EINVAL;
 	}
 
-	if (len > (SZ_1M * 2)) {
+	if (len > (SZ_1M * 16)) {
 		ERROR("requested region too large\n");
 		return -EINVAL;
 	}
@@ -434,7 +434,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		ERROR("invalid arguments: gpa %lx, len %d\n", gpa, len);
 		return -EINVAL;
 	}
-	if (len > (SZ_1M * 2)) {
+	if (len > (SZ_1M * 16)) {
 		ERROR("requested region too large\n");
 		return -EINVAL;
 	}

@@ -1,26 +1,31 @@
-From 1bb20358d4cbbcc8664b70d2311af8db2035bc66 Mon Sep 17 00:00:00 2001
+From 099042330cd1420c3bd69f21c964a478eab4b67c Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 10 May 2021 14:02:47 +0300
 Subject: [PATCH] kvm: 'encrypted memory' draft for arm64 - development
 
-Variant with in-kernel irqchip + working (insecure) usb.
+Variant with:
+- in-kernel irqchip
+- (somewhat insecure) usb3
+- virtio-gpu
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 ---
- arch/arm/include/asm/set_memory.h    |  6 ++
- arch/arm64/Kconfig                   |  2 +
- arch/arm64/configs/defconfig         |  8 ++-
- arch/arm64/include/asm/mem_encrypt.h | 13 ++++
- arch/arm64/kvm/hvccall-defines.h     | 71 ++++++++++++++++++++
- arch/arm64/mm/Makefile               |  3 +-
- arch/arm64/mm/set_memory.c           | 98 ++++++++++++++++++++++++++++
- drivers/irqchip/irq-gic-v3-its.c     | 37 +++++++++++
- drivers/usb/core/message.c           | 10 ++-
- drivers/usb/host/xhci-mem.c          | 33 +++++++---
- drivers/virtio/virtio_ring.c         | 30 +++++++--
- include/asm-generic/set_memory.h     |  5 ++
- 12 files changed, 301 insertions(+), 15 deletions(-)
+ arch/arm/include/asm/set_memory.h       |  6 ++
+ arch/arm64/Kconfig                      |  2 +
+ arch/arm64/configs/defconfig            | 11 ++-
+ arch/arm64/include/asm/mem_encrypt.h    | 13 ++++
+ arch/arm64/kvm/hvccall-defines.h        | 71 ++++++++++++++++++
+ arch/arm64/mm/Makefile                  |  3 +-
+ arch/arm64/mm/set_memory.c              | 98 +++++++++++++++++++++++++
+ drivers/gpu/drm/virtio/virtgpu_object.c | 31 +++++++-
+ drivers/gpu/drm/virtio/virtgpu_vq.c     |  4 +-
+ drivers/irqchip/irq-gic-v3-its.c        | 37 ++++++++++
+ drivers/usb/core/message.c              | 10 ++-
+ drivers/usb/host/xhci-mem.c             | 33 +++++++--
+ drivers/virtio/virtio_ring.c            | 30 +++++++-
+ include/asm-generic/set_memory.h        |  5 ++
+ 14 files changed, 334 insertions(+), 20 deletions(-)
  create mode 100644 arch/arm64/include/asm/mem_encrypt.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
  create mode 100644 arch/arm64/mm/set_memory.c
@@ -54,7 +59,7 @@ index 3da71fe56b92..ca2c407ec172 100644
  	select ARCH_HAVE_NMI_SAFE_CMPXCHG
  	select ARCH_INLINE_READ_LOCK if !PREEMPTION
 diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
-index 5cfe3cf6f2ac..65781a3a78c5 100644
+index 5cfe3cf6f2ac..31c1337b23c8 100644
 --- a/arch/arm64/configs/defconfig
 +++ b/arch/arm64/configs/defconfig
 @@ -71,7 +71,7 @@ CONFIG_KEXEC_FILE=y
@@ -66,6 +71,15 @@ index 5cfe3cf6f2ac..65781a3a78c5 100644
  CONFIG_HIBERNATION=y
  CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y
  CONFIG_ENERGY_MODEL=y
+@@ -629,7 +629,7 @@ CONFIG_VIDEO_RCAR_DRIF=m
+ CONFIG_VIDEO_IMX219=m
+ CONFIG_VIDEO_OV5645=m
+ CONFIG_VIDEO_QCOM_CAMSS=m
+-CONFIG_DRM=m
++CONFIG_DRM=y
+ CONFIG_DRM_I2C_NXP_TDA998X=m
+ CONFIG_DRM_MALI_DISPLAY=m
+ CONFIG_DRM_NOUVEAU=m
 @@ -1085,6 +1085,7 @@ CONFIG_CRYPTO_DEV_HISI_HPRE=m
  CONFIG_CMA_SIZE_MBYTES=32
  CONFIG_PRINTK_TIME=y
@@ -74,7 +88,7 @@ index 5cfe3cf6f2ac..65781a3a78c5 100644
  CONFIG_MAGIC_SYSRQ=y
  CONFIG_DEBUG_FS=y
  CONFIG_DEBUG_KERNEL=y
-@@ -1092,3 +1093,8 @@ CONFIG_DEBUG_KERNEL=y
+@@ -1092,3 +1093,9 @@ CONFIG_DEBUG_KERNEL=y
  # CONFIG_DEBUG_PREEMPT is not set
  # CONFIG_FTRACE is not set
  CONFIG_MEMTEST=y
@@ -83,6 +97,7 @@ index 5cfe3cf6f2ac..65781a3a78c5 100644
 +CONFIG_ARCH_HAS_DMA_MARK_CLEAN=y
 +CONFIG_ARCH_HAS_FORCE_DMA_UNENCRYPTED=y
 +CONFIG_ARCH_HAS_MEM_ENCRYPT=y
++CONFIG_DRM_VIRTIO_GPU=y
 diff --git a/arch/arm64/include/asm/mem_encrypt.h b/arch/arm64/include/asm/mem_encrypt.h
 new file mode 100644
 index 000000000000..d75c682abd53
@@ -297,6 +312,91 @@ index 000000000000..9ac1990e9535
 +	 */
 +	return true;
 +}
+diff --git a/drivers/gpu/drm/virtio/virtgpu_object.c b/drivers/gpu/drm/virtio/virtgpu_object.c
+index 0c98978e2e55..e3cf86aa8348 100644
+--- a/drivers/gpu/drm/virtio/virtgpu_object.c
++++ b/drivers/gpu/drm/virtio/virtgpu_object.c
+@@ -25,6 +25,10 @@
+ 
+ #include <linux/dma-mapping.h>
+ #include <linux/moduleparam.h>
++#include <linux/dma-direct.h>
++
++#include <asm/set_memory.h>
++#include "../kvm/hvccall-defines.h"
+ 
+ #include "virtgpu_drv.h"
+ 
+@@ -136,15 +140,32 @@ struct drm_gem_object *virtio_gpu_create_object(struct drm_device *dev,
+ 	return &dshmem->base;
+ }
+ 
++static int __set_memory_decrypted(unsigned long addr, int len)
++{
++	register int ret asm ("x0");
++
++	__asm__ __volatile__ (
++		"mov	x0, " XSTR(HYP_SET_GUEST_MEMORY_OPEN) "\n"
++		"mov	x1, %[addr]\n"
++		"mov	x2, %[len]\n"
++		"hvc	#0\n"
++		:
++		: [addr]"r"(addr), [len]"r"(len)
++		: "memory", "x0", "x1", "x2");
++
++	return ret;
++}
++
+ static int virtio_gpu_object_shmem_init(struct virtio_gpu_device *vgdev,
+ 					struct virtio_gpu_object *bo,
+ 					struct virtio_gpu_mem_entry **ents,
+ 					unsigned int *nents)
+ {
+-	bool use_dma_api = !virtio_has_dma_quirk(vgdev->vdev);
++	bool use_dma_api = true;
+ 	struct virtio_gpu_object_shmem *shmem = to_virtio_gpu_shmem(bo);
+ 	struct scatterlist *sg;
+-	int si, ret;
++	int si, ret, res, len;
++	void *vaddr;
+ 
+ 	ret = drm_gem_shmem_pin(&bo->base.base);
+ 	if (ret < 0)
+@@ -185,6 +206,12 @@ static int virtio_gpu_object_shmem_init(struct virtio_gpu_device *vgdev,
+ 			(*ents)[si].addr = cpu_to_le64(sg_dma_address(sg));
+ 			(*ents)[si].length = cpu_to_le32(sg_dma_len(sg));
+ 			(*ents)[si].padding = 0;
++
++			len = round_up(sg->length, PAGE_SIZE);
++			vaddr = (void *)round_down(sg_dma_address(sg), PAGE_SIZE);
++			res = __set_memory_decrypted((u64)vaddr, len);
++			if (res)
++				pr_err("%s set_memory_decrypted %d\n", __func__, res);
+ 		}
+ 	} else {
+ 		for_each_sgtable_sg(shmem->pages, sg, si) {
+diff --git a/drivers/gpu/drm/virtio/virtgpu_vq.c b/drivers/gpu/drm/virtio/virtgpu_vq.c
+index 5e40fa0f5e8f..7989c8ae003d 100644
+--- a/drivers/gpu/drm/virtio/virtgpu_vq.c
++++ b/drivers/gpu/drm/virtio/virtgpu_vq.c
+@@ -598,7 +598,7 @@ void virtio_gpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev,
+ 	struct virtio_gpu_object *bo = gem_to_virtio_gpu_obj(objs->objs[0]);
+ 	struct virtio_gpu_transfer_to_host_2d *cmd_p;
+ 	struct virtio_gpu_vbuffer *vbuf;
+-	bool use_dma_api = !virtio_has_dma_quirk(vgdev->vdev);
++	bool use_dma_api = true;
+ 	struct virtio_gpu_object_shmem *shmem = to_virtio_gpu_shmem(bo);
+ 
+ 	if (use_dma_api)
+@@ -1017,7 +1017,7 @@ void virtio_gpu_cmd_transfer_to_host_3d(struct virtio_gpu_device *vgdev,
+ 	struct virtio_gpu_object *bo = gem_to_virtio_gpu_obj(objs->objs[0]);
+ 	struct virtio_gpu_transfer_host_3d *cmd_p;
+ 	struct virtio_gpu_vbuffer *vbuf;
+-	bool use_dma_api = !virtio_has_dma_quirk(vgdev->vdev);
++	bool use_dma_api = true;
+ 	struct virtio_gpu_object_shmem *shmem = to_virtio_gpu_shmem(bo);
+ 
+ 	if (use_dma_api)
 diff --git a/drivers/irqchip/irq-gic-v3-its.c b/drivers/irqchip/irq-gic-v3-its.c
 index 42b295337baf..95021fdcb51c 100644
 --- a/drivers/irqchip/irq-gic-v3-its.c
