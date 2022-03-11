@@ -103,6 +103,7 @@ void format_guest(int i)
 	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
 		guests[i].mempool[c].type = GUEST_MEMCHUNK_UNDEFINED;
 		guests[i].mempool[c].next = GUEST_MEMCHUNKS_MAX;
+		guests[i].mempool[c].previous = GUEST_MEMCHUNKS_MAX;
 	}
 }
 
@@ -649,10 +650,9 @@ int guest_memchunk_alloc(kvm_guest_t *guest,
 		}
 	}
 
-	if (c >= GUEST_MEMCHUNKS_MAX) {
-		ERROR("not enough memory chunk slots\n");
+	if (c >= GUEST_MEMCHUNKS_MAX)
 		return -ENOSPC;
-	}
+
 	guest->mempool[c].type = type;
 
 	return c;

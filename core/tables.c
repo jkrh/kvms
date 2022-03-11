@@ -187,8 +187,13 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 	if (c < 0)
 		c = alloc_static_ttbl_chunk(tpool->guest);
 
-	if (c < 0)
+	if (c < 0) {
+		ERROR("out of memory chunks\n");
+		if (tpool->guest->vmid == HOST_VMID)
+			HYP_ABORT();
+
 		return NULL;
+	}
 
 	if (tpool->currentchunk < GUEST_MEMCHUNKS_MAX) {
 		tpool->guest->mempool[c].previous = tpool->currentchunk;
