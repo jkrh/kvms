@@ -1062,7 +1062,7 @@ cont:
 	 */
 	if (is_share(guest, vaddr, len) == 1) {
 		res = mmap_range(host, STAGE2, paddr, paddr, len,
-				 ((SH_INN << 8) | PAGE_HYP_RW),
+				 (EL1S2_SH | PAGE_HYP_RW),
 				 S2_NORMAL_MEMORY);
 		if (res)
 			 HYP_ABORT();

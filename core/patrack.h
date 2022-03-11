@@ -25,6 +25,10 @@
 #include "sys_context.h"
 #include "guest.h"
 
+#ifndef PATRACK_SH
+#define PATRACK_SH (SH_INN << SH_SHIFT)
+#endif
+
 /*
  * PATRACK_TABLEOFFT
  * Physical address tracker page table offset is used to lift the tracker page

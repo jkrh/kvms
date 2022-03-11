@@ -94,14 +94,14 @@ int patrack_mmap_table(struct kvm_guest *guest, uint64_t ipa, uint64_t paddr,
 		return -EINVAL;
 
 	res = mmap_range(guest, STAGE2, ipa, paddr, len,
-			 PAGE_HYP_RO | (SH_INN << SH_SHIFT), S2_NORMAL_MEMORY);
+			 PAGE_HYP_RO | PATRACK_SH, S2_NORMAL_MEMORY);
 	if (res) {
 		ERROR("error %d!\n", res);
 		return res;
 	}
 
 	res = mmap_range(host, EL2_STAGE1, ipa, paddr, len,
-			 PAGE_KERNEL_RW | (SH_INN << SH_SHIFT), NORMAL_WBACK_P);
+			 PAGE_KERNEL_RW | PATRACK_SH, NORMAL_WBACK_P);
 	if (res)
 		ERROR("error %d!\n", res);
 
@@ -276,8 +276,7 @@ int patrack_mmap(struct kvm_guest *guest, uint64_t s1_addr, uint64_t ipa,
 	}
 
 	res = mmap_range(guest, PATRACK_STAGE1, s1_addr, ipa, length,
-				PAGE_KERNEL_RO | (SH_INN << SH_SHIFT),
-				NORMAL_WBACK_LINUX);
+				PAGE_KERNEL_RO | PATRACK_SH, NORMAL_WBACK_LINUX);
 
 	return res;
 }

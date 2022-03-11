@@ -458,7 +458,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 			goto out;
 		}
 		if (mmap_range(host, STAGE2, gpa, gpa, len,
-			       ((SH_INN<<8)|PAGE_HYP_RW),
+			       (EL1S2_SH|PAGE_HYP_RW),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
 
@@ -482,7 +482,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 
 		phys &= PAGE_MASK;
 		if (mmap_range(host, STAGE2, phys, phys,
-			       PAGE_SIZE, ((SH_INN<<8)|PAGE_HYP_RW),
+			       PAGE_SIZE, (EL1S2_SH|PAGE_HYP_RW),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
 
@@ -581,7 +581,7 @@ int restore_host_mappings(void *gp)
 
 			res = mmap_range(host, STAGE2, slot_addr, slot_addr,
 					 PAGE_SIZE,
-					 ((SH_INN << 8) | PAGE_HYP_RWX),
+					 (EL1S2_SH | PAGE_HYP_RWX),
 					 S2_NORMAL_MEMORY);
 			if (res)
 				HYP_ABORT();
