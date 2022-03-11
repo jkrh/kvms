@@ -1,6 +1,8 @@
 #ifndef __HOST_DEFS_H__
 #define __HOST_DEFS_H__
 
+#include "arm-tabledefs.h"
+
 #ifndef PLATFORM_CORE_COUNT
 #define PLATFORM_CORE_COUNT	6
 #endif
@@ -76,5 +78,9 @@
 
 #define GIC_DIST_ADDR	0x51a00000UL
 #define GIC_DIST_SZ	0x10000
+
+#define EL1S2_SH (SH_INN << SH_SHIFT)
+#define EL2S1_SH (SH_OUT << SH_SHIFT)
+#define PATRACK_SH (SH_OUT << SH_SHIFT)
 
 #endif /*__HOST_DEFS_H__*/

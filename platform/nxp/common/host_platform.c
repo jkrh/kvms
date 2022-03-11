@@ -76,7 +76,6 @@ int machine_init(kvm_guest_t *host)
 {
 	int res;
 	size_t len;
-	uint64_t sh = SH_INN << SH_SHIFT;
 
 	init_ready = false;
 
@@ -100,7 +99,7 @@ int machine_init(kvm_guest_t *host)
 	/* Hyp EL2 text */
 	len = BL_CODE_LIMIT - BL_CODE_BASE;
 	res = mmap_range(host, EL2_STAGE1, BL_CODE_BASE, BL_CODE_BASE,
-			 len, PAGE_KERNEL_EXEC | sh, NORMAL_WBACK_P);
+			 len, PAGE_KERNEL_EXEC | EL2S1_SH, NORMAL_WBACK_P);
 	if (res)
 		return res;
 
@@ -110,7 +109,7 @@ int machine_init(kvm_guest_t *host)
 	/* Hyp EL2 data */
 	len = BL1_RAM_LIMIT - BL1_RAM_BASE;
 	res = mmap_range(host, EL2_STAGE1, BL1_RAM_BASE, BL1_RAM_BASE,
-			 len, PAGE_KERNEL_RW | sh, NORMAL_WBACK_P);
+			 len, PAGE_KERNEL_RW | EL2S1_SH, NORMAL_WBACK_P);
 	if (res)
 		return res;
 
