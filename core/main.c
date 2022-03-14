@@ -30,7 +30,7 @@ struct timeval tv1 ALIGN(16);
 struct timeval tv2 ALIGN(16);
 uint8_t init_index;
 
-extern uint64_t entrylock;
+extern spinlock_t entrylock;
 extern uint64_t __stack[];
 extern uint64_t __fdt_addr;
 extern uint64_t __lr_addr;

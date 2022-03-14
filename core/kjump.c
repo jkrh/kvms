@@ -14,7 +14,7 @@
 
 static uint64_t kvm_jump_vector[MAX_KVM_JUMPS];
 static uint32_t jump_count;
-static uint64_t jump_lock;
+static spinlock_t jump_lock;
 
 static int compfunc(const void *v1, const void *v2)
 {

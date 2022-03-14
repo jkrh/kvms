@@ -10,7 +10,7 @@
 #include "tables.h"
 
 bool at_debugstop = false;
-extern uint64_t core_lock;
+extern spinlock_t core_lock;
 
 int debugstop(void)
 {

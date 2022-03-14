@@ -40,9 +40,9 @@ extern uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 hyp_func_t *__fpsimd_guest_restore;
 extern uint64_t hyp_text_start;
 extern uint64_t hyp_text_end;
-extern uint64_t core_lock;
 extern bool at_debugstop;
-uint64_t crash_lock;
+extern spinlock_t core_lock;
+spinlock_t crash_lock;
 uint64_t hostflags;
 
 int set_lockflags(uint64_t flags, uint64_t addr, size_t sz, uint64_t depth)

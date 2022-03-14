@@ -27,7 +27,7 @@
 #include "mbedtls/platform.h"
 
 extern struct mbedtls_entropy_context mbedtls_entropy_ctx;
-extern uint64_t core_lock;
+extern spinlock_t core_lock;
 
 #define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
 #define ARMV8_PMU_USERENR_MASK 0xf
