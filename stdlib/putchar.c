@@ -54,7 +54,7 @@ struct _IO_FILE *stderr = &outstream;
 int _IO_putc(int c, struct _IO_FILE *__fp);
 
 #ifndef DEBUG
-static uint64_t print_lock;
+static spinlock_t print_lock;
 
 static void wraparound_ptrs(struct _IO_FILE *__fp)
 {
