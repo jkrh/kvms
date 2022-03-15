@@ -12,11 +12,19 @@ USER=$(whoami)
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICEPORT=$(($PORT+1)) && SPICESOCK="port=$SPICEPORT"
 [ -z "$CORE" ] && CORE="off"
+[ -z "$VMNAME" ] && VMNAME="vm_$PORT"
 
 export TMPDIR=$SPICEMNT
 
 usage() {
-	echo "$0 -tcp|-unix|-core -image <disk image> -kernel <kernel file>"
+	echo "$0 -tcp|-unix|-core -image <disk image> -kernel <kernel file> -hw [hw name]"
+	echo ""
+	echo "-hw	Available hw specific configurations:"
+	echo "	imxq8mmek_1"
+	echo "		- Runs with cpuset 0-3 configuration (a53 cores)"
+	echo ""
+	echo "	Note: Default configuration (-hw parameter omitted) will work with"
+	echo "	most of the supported hardware"
 	rm -f $SPICESOCK
 	exit 1
 }
@@ -60,12 +68,28 @@ for i in "$@"; do
 			SPICESOCK="unix=on,addr=$SPICEMNT/sock/linux$PORT"
 			shift
 		;;
+		-name)
+			VMNAME=$2
+			shift; shift
+		;;
 		-image)
 			IMAGE=$2
 			shift; shift
 		;;
 		-kernel)
 			KERNEL=$2
+			shift; shift
+		;;
+		-hw)
+			HW=$2
+			shift; shift
+		;;
+		-cpuset)
+			CPUSET=$2
+			shift; shift
+		;;
+		-cpumems)
+			CPUMEMS=$2
 			shift; shift
 		;;
 	esac
@@ -97,6 +121,16 @@ else
 fi
 
 #
+# Hardware specific configuration
+#
+if [ -n "$HW" ]; then
+	if [ "$HW" = "imx8qmmek_1" ]; then
+		CPUSET="0-3"
+		CPUMEMS="0"
+	fi
+fi
+
+#
 # System configuration
 #
 if [ "$USER" = "root" ]; then
@@ -114,6 +148,24 @@ if [ "$USER" = "root" ]; then
 
 	echo 1 > /proc/sys/net/ipv4/ip_forward
 	iptables -t nat -A POSTROUTING -o $LOCALIF -j MASQUERADE
+
+	if [ -z "$CPUSET" ]; then
+		echo "Running default cpuset configuration.";
+	else
+		if [ -z "$CPUMEMS" ]; then
+			echo "Invalid configuration: -cpuset without -cpumems"
+		else
+			echo "Setting up cpuset.cpus: $CPUSET with cpuset.mems: $CPUMEMS"
+			[ ! -d /dev/cpuset ] && mkdir /dev/cpuset
+			[ -z "$(mount | grep /dev/cpuset)" ] && mount -t cpuset none /dev/cpuset
+			[ ! -d /dev/cpuset/$VMNAME ] && mkdir /dev/cpuset/$VMNAME
+			echo $CPUSET > /dev/cpuset/$VMNAME/cpuset.cpus
+			echo $CPUMEMS > /dev/cpuset/$VMNAME/cpuset.mems
+			echo $$ > /dev/cpuset/$VMNAME/tasks
+			echo "Running cpuset $(cat /proc/self/cpuset)"
+		fi	
+
+	fi
 else
 	echo "The system configuration may not be up to date and the VM execution may fail."
 	echo "Run as the user root if that happens or reconfigure the system manually."
@@ -155,4 +207,4 @@ else
 fi
 echo "- Host wlan ip $LOCALIP"
 
-$QEMUDIR/qemu-system-aarch64 -kernel $KERNEL $DRIVE $DTB $USB $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
+$QEMUDIR/qemu-system-aarch64 -name $VMNAME -kernel $KERNEL $DRIVE $DTB $USB $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
