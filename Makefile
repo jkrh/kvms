@@ -4,7 +4,6 @@ export OBJDIR := $(BASE_DIR)/.objs
 
 ifeq ($(PLATFORM),virt)
 SUBDIRS := stdlib core core/crypto platform/$(PLATFORM)
-KERNEL_DIR := $(BASE_DIR)/oss/linux
 else
 SUBDIRS := platform/$(PLATFORM) stdlib core core/crypto platform/$(PLATFORM)/common
 endif

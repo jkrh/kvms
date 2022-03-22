@@ -4,6 +4,7 @@
 
 #ifndef __ASSEMBLY__
 #include <stdint.h>
+#include "hyp_config.h"
 
 /*
  * User structures for general purpose, floating point and debug registers.
@@ -33,6 +34,8 @@ struct pt_regs {
 };
 #endif // __ASSEMBLY__
 
+#ifndef PT_REGS_SIZE
 #define PT_REGS_SIZE (8 * 36)
+#endif
 
 #endif /* !__PT_REGS_H__ */

@@ -1389,9 +1389,10 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 	uint64_t tmp;
 	int ret;
 
-	if (!guest)
+	if (!guest) {
+		ERROR("no guest?\n");
 		return -EINVAL;
-
+	}
 	/*
 	 * Get clearance for the range from the platform implementation.
 	 */
