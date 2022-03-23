@@ -22,6 +22,7 @@ check:
 	@[ "${PLATFORM}" = "virt" ] || [ "${CHIPSET}" ] && echo -n "" || ( echo "CHIPSET is not set"; exit 1 )
 
 dirs: $(SUBDIRS) | $(OBJDIR)
+	$(MAKE) -Ccore/crypto patch_mbedtls
 	$(MAKE) $(MBEDFLAGS) -Cmbedtls/library static
 	@for DIR in $(SUBDIRS); do \
 		$(MAKE) $(SUBMAKEFLAGS) -C$${DIR}; \
@@ -33,6 +34,7 @@ clean:
 		$(MAKE) $(SUBMAKEFLAGS) -C$${DIR} clean; \
 	done
 	@rm -rf $(OBJDIR)
+	$(MAKE) -Ccore/crypto revert_patch_mbedtls
 
 $(FETCH_SOURCES):
 	@echo "Fetching sources.."

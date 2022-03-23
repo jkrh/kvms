@@ -22,6 +22,11 @@ store_simd:
 	stp q26, q27, [x0, #416]
 	stp q28, q29, [x0, #448]
 	stp q30, q31, [x0, #480]
+#ifdef DEBUG
+	adr x0, simd_stored
+	mov w1, #1
+	str w1,[x0]
+#endif
 	ret
 
 .global	restore_simd
@@ -44,4 +49,17 @@ restore_simd:
 	ldp q26, q27, [x0, #416]
 	ldp q28, q29, [x0, #448]
 	ldp q30, q31, [x0, #480]
+#ifdef DEBUG
+	adr x0, simd_stored
+	mov w1, #0
+	str w1,[x0]
+#endif
 	ret
+
+#ifdef DEBUG
+.data
+.global simd_stored
+.align	2
+simd_stored:
+	.word	0
+#endif

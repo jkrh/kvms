@@ -15,10 +15,17 @@ export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(BASE_DIR)/stdlib \
 		-I$(BASE_DIR)/platform/$(PLATFORM)/$(CHIPSET)/$(PRODUCT) \
 		-I$(BASE_DIR)/stdlib/sys \
 		-I$(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)
-export CFLAGS := -march=armv8-a+nofp --sysroot=$(TOOLDIR) --no-sysroot-suffix \
+
+ARMV8_NOSIMD := -march=armv8-a+nosimd -mgeneral-regs-only
+ARMV8_SIMD := -march=armv8-a+crypto
+
+CFLAGS_COMMON := --sysroot=$(TOOLDIR) --no-sysroot-suffix \
 		-fstack-protector-strong -mstrict-align -static -ffreestanding \
-		-fno-hosted -std=c99 -mgeneral-regs-only -mno-omit-leaf-frame-pointer \
+		-fno-hosted -std=c99  -mno-omit-leaf-frame-pointer \
 		$(DEFINES) $(OPTS) $(INCLUDES) $(WARNINGS)
+
+export CFLAGS := $(ARMV8_NOSIMD) $(CFLAGS_COMMON)
+export CFLAGS_SIMD := $(ARMV8_SIMD) $(CFLAGS_COMMON)
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
 export LDFLAGS := -nostdlib \
 		-L$(BASE_DIR)/mbedtls/library \
@@ -31,5 +38,11 @@ export SUBMAKEFLAGS := $(SUBMAKETOOLS) CFLAGS='$(CFLAGS)'
 # External
 #
 export MBEDCONFIG := -DMBEDTLS_USER_CONFIG_FILE=\"$(BASE_DIR)/core/mbedconfig.h\"
+ifeq ($(PLATFORM),virt)
+# If platform uses armv8 crypto extention then CLAGS must not contain -mgeneral-regs-only flag
+# and it should contain -march=armv8-a+crypto
+export MBEDCFLAGS := '$(MBEDCONFIG) $(CFLAGS_SIMD) -U_GNU_SOURCE -Wno-implicit-function-declaration -include "config.h"'
+else
 export MBEDCFLAGS := '$(MBEDCONFIG) $(CFLAGS) -U_GNU_SOURCE -Wno-implicit-function-declaration -include "config.h"'
+endif
 export MBEDFLAGS := $(SUBMAKETOOLS) CFLAGS=$(MBEDCFLAGS)

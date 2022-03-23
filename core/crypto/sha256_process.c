@@ -1,7 +1,18 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+#include "hyplogs.h"
 #include "mbedtls/sha256.h"
 
 extern void sha256_armv8(uint32_t *ctx, const void *in, const uint32_t *k);
+
+#ifdef DEBUG
+extern uint32_t simd_stored;
+
+void mbedtls_armv8ce_in_use(void)
+{
+	if (simd_stored == 0)
+		ERROR("Trying to use SIMD without saving them\n");
+}
+#endif
 
 static const uint32_t K[] = {
 	0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5,
@@ -21,7 +32,6 @@ static const uint32_t K[] = {
 	0x748F82EE, 0x78A5636F, 0x84C87814, 0x8CC70208,
 	0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2,
 };
-
 
 int mbedtls_internal_sha256_process(mbedtls_sha256_context *ctx,
 				    const unsigned char data[64])

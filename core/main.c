@@ -17,6 +17,7 @@
 #include "hvccall.h"
 #include "kentry.h"
 #include "tables.h"
+#include "crypto/platform_crypto.h"
 
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
@@ -75,7 +76,12 @@ int early_setup(void)
 int crypto_init(void)
 {
 	int res;
+	simd_t crypto_ctx;
 
+	/* Platform reservation is not necessary here, but without it
+	 * it gives unnecessary warning on debug build
+	 */
+	RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 	mbedtls_memory_buffer_alloc_init(crypto_buf, sizeof(crypto_buf));
 	mbedtls_entropy_init(&mbedtls_entropy_ctx);
 	mbedtls_entropy_add_source(&mbedtls_entropy_ctx, mbed_entropy, NULL, 8,
@@ -83,6 +89,7 @@ int crypto_init(void)
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 				    &mbedtls_entropy_ctx, 0, 0);
+	RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 	if (res)
 		HYP_ABORT();
 
