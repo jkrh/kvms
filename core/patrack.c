@@ -8,6 +8,7 @@
 #include "patrack.h"
 
 extern kvm_guest_t guests[MAX_VM];
+extern uint16_t last_guest_index;
 
 static void patrack_context_load(struct kvm_guest *guest)
 {
@@ -54,7 +55,7 @@ struct kvm_guest *owner_of(uint64_t addr)
 	uint64_t tmp;
 	int i = 0;
 
-	while (i < MAX_VM) {
+	while (i < last_guest_index) {
 		if (!guests[i].vmid || (guests[i].vmid == INVALID_VMID))
 			goto cont;
 

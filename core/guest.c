@@ -87,6 +87,7 @@ extern uint64_t hyp_guest_enter(void *vcpu, struct user_pt_regs *regs);
 
 static uint16_t guest_index[PRODUCT_VMID_MAX] ALIGN(16);
 kvm_guest_t guests[MAX_VM] ALIGN(16);
+uint16_t last_guest_index ALIGN(16);
 
 void format_guest(int i)
 {
@@ -305,6 +306,7 @@ void sysreg_save_guest(uint64_t vmid, uint64_t vcpuid)
 
 kvm_guest_t *get_free_guest(uint64_t vmid)
 {
+	kvm_guest_t *entry = NULL;
 	int i;
 
 	if ((guest_index[vmid] != INVALID_GUEST) &&
@@ -316,10 +318,19 @@ kvm_guest_t *get_free_guest(uint64_t vmid)
 			guest_index[vmid] = i;
 			guests[i].index = i;
 			guests[i].vmid = vmid;
-			return &guests[i];
+			entry = &guests[i];
+			break;
 		}
 	}
-	return NULL;
+	if (!entry)
+		return entry;
+
+	for (i = 0; i < MAX_VM; i++) {
+		if (guests[i].vmid != INVALID_VMID)
+			last_guest_index = i;
+	}
+
+	return entry;
 }
 
 kvm_guest_t *get_guest(uint64_t vmid)
@@ -384,7 +395,7 @@ static kvm_guest_t *__get_guest_by_kvm(void **kvm, int *guest_index)
 
 	guest = NULL;
 	*kvm = kern_hyp_va(*kvm);
-	for (i = 0; i < MAX_VM; i++) {
+	for (i = 0; i < last_guest_index; i++) {
 		if (guests[i].kvm == *kvm) {
 			guest = &guests[i];
 			break;
@@ -775,13 +786,13 @@ kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd)
 	int i;
 
 	/* Look for the actual guests first.. */
-	for (i = 0; i < MAX_VM; i++) {
+	for (i = 0; i < last_guest_index; i++) {
 		if ((guests[i].vmid != HOST_VMID) &&
 		    (guests[i].EL1S1_0_pgd == pgd))
 			return &guests[i];
 	}
 	/* And if it wasn't any, the host..  */
-	for (i = 0; i < MAX_VM; i++) {
+	for (i = 0; i < last_guest_index; i++) {
 		if (guests[i].EL2S1_pgd == pgd)
 			return &guests[i];
 	}
@@ -808,7 +819,7 @@ int is_any_share(uint64_t gpa)
 {
 	int i = 0;
 
-	while (i < MAX_VM) {
+	while (i < last_guest_index) {
 		if (!guests[i].vmid || (guests[i].vmid == INVALID_VMID))
 			goto cont;
 
@@ -829,7 +840,7 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 	kvm_guest_t *guest = NULL;
 	int i;
 
-	for (i = 0; i < MAX_VM; i++) {
+	for (i = 0; i < last_guest_index; i++) {
 		if (guests[i].EL1S2_pgd == pgd) {
 			guest = &guests[i];
 			break;
@@ -1226,7 +1237,7 @@ int free_guest(void *kvm)
 	if (guest->vmid)
 		guest_index[guest->vmid] = INVALID_GUEST;
 	else {
-		for (i = 0; i < MAX_VM; i++) {
+		for (i = 0; i < last_guest_index; i++) {
 			if ((guests[i].kvm != kvm) && guests[i].vmid == 0) {
 				guest_index[0] = i;
 				break;

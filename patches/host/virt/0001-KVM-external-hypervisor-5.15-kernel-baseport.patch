@@ -1,4 +1,4 @@
-From 88f4c8a7b48879137ba3566fae211d18832abf64 Mon Sep 17 00:00:00 2001
+From fcca126785d87f2fb4e91e9cb6ed73df828b4f16 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 16 Mar 2022 14:56:47 +0200
 Subject: [PATCH] KVM: external hypervisor 5.15 kernel baseport
@@ -2174,7 +2174,7 @@ index d296d617f589..2f0ef8dc2693 100644
  
  void __kvm_flush_vm_context(void)
 diff --git a/arch/arm64/kvm/hyp/pgtable.c b/arch/arm64/kvm/hyp/pgtable.c
-index 4c77ff556f0a..9afac3533029 100644
+index 4c77ff556f0a..fd1747a07353 100644
 --- a/arch/arm64/kvm/hyp/pgtable.c
 +++ b/arch/arm64/kvm/hyp/pgtable.c
 @@ -10,7 +10,7 @@
@@ -2919,7 +2919,7 @@ index 4c77ff556f0a..9afac3533029 100644
 +		 .phys		= ALIGN_DOWN(phys, PAGE_SIZE),
 +		 .mmu		= NULL,
 +		 .memcache	= mc,
-+		 .mm_ops	=  NULL,
++		 .mm_ops	= NULL,
 +		 .force_pte	= true,
  	};
 -	struct kvm_pgtable_walker walker = {
@@ -2968,8 +2968,8 @@ index 4c77ff556f0a..9afac3533029 100644
 -
 -	ret = kvm_pgtable_walk(pgt, addr, size, &walker);
 -	return ret;
-+	return create_guest_mapping(vmid, addr, phys, 0x1000,
-+				      (map_data.attr & 0x600000000003FC));
++	return create_guest_mapping(vmid, addr, phys, PAGE_SIZE,
++				   (map_data.attr & 0x600000000003FC));
  }
  
 -static int stage2_unmap_walker(u64 addr, u64 end, u32 level, kvm_pte_t *ptep,
