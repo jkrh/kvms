@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
+#ifndef __KVJMP_H__
+#define __KVJMP_H__
+
 #include <stdint.h>
 
 /**
@@ -15,3 +20,5 @@ int is_jump_valid(uint64_t addr);
  * @return zero if address was added, negative error code on failure
  */
 int add_jump(uint64_t addr);
+
+#endif

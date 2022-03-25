@@ -1,6 +1,24 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef __HYP_API__
 #define __HYP_API__
+
+#ifndef __ASSEMBLY__
+/*
+ * Kernel-visible struct pointer to call security critical operations
+ * from the kernel EL2 blob.
+ */
+struct hyp_extension_ops {
+	int	(*load_host_stage2)(void);
+	int	(*load_guest_stage2)(uint64_t vmid);
+	void	(*save_host_traps)(void);
+	void	(*restore_host_traps)(void);
+	void	*(*hyp_vcpu_regs)(uint64_t vmid, uint64_t vcpuid);
+	uint64_t (*guest_enter)(void *vcpu);
+	void	(*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
+	void	(*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
+};
+#endif
+
 /*
  * Base addressing for data sharing
  */

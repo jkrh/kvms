@@ -17,9 +17,6 @@
 #ifndef KVM_ARCH_PGD
 #error KVM_ARCH_PGD not defined, check your config!
 #endif
-#ifndef KVM_EXT_OPS
-#error KVM_EXT_OPS not defined, check your config!
-#endif
 #ifndef HOST_DATA_CONTEXT
 #error HOST_DATA_CONTEXT not defined, check your config!
 #endif

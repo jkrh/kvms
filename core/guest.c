@@ -34,17 +34,6 @@ extern spinlock_t core_lock;
 
 extern struct mbedtls_ctr_drbg_context ctr_drbg;
 
-struct hyp_extension_ops {
-	int (*load_host_stage2)(void);
-	int (*load_guest_stage2)(uint64_t vmid);
-	void (*save_host_traps)(void);
-	void (*restore_host_traps)(void);
-	void *(*hyp_vcpu_regs)(uint64_t vmid, uint64_t vcpuid);
-	uint64_t (*guest_enter)(void *vcpu);
-	void (*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
-	void (*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
-};
-
 #ifndef KVM_ARCH_VMID_OFFT
 #pragma message("KVM_ARCH_VMID_OFFT not defined! Setting to zero.")
 #define KVM_ARCH_VMID_OFFT 0
@@ -56,7 +45,6 @@ struct hyp_extension_ops {
 
 #define KVM_GET_VMID(x) (*(uint32_t *)_KVM_GET_VMID(x))
 #define KVM_GET_PGD_PTR(x) ((uint64_t *)(_KVM_GET_ARCH((char *)x) + KVM_ARCH_PGD))
-#define KVM_GET_EXT_OPS_PTR(x) ((struct hyp_extension_ops *)(_KVM_GET_ARCH((char *)x) + KVM_EXT_OPS))
 #define KVM_GET_VTCR(x) (*(uint64_t *)(_KVM_GET_ARCH((char *)x) + KVM_ARCH_VTCR))
 
 #define INVALID_GUEST	MAX_VM
@@ -106,18 +94,6 @@ void format_guest(int i)
 		guests[i].mempool[c].next = GUEST_MEMCHUNKS_MAX;
 		guests[i].mempool[c].previous = GUEST_MEMCHUNKS_MAX;
 	}
-}
-
-void init_guest_array(void)
-{
-	int i;
-
-	for (i = 0; i < PRODUCT_VMID_MAX; i++)
-		guest_index[i] = INVALID_GUEST;
-
-	_zeromem16(guests, sizeof(guests));
-	for (i = 0; i < MAX_VM; i++)
-		format_guest(i);
 }
 
 int load_host_s2(void)
@@ -705,10 +681,32 @@ static int guest_set_table_levels(kvm_guest_t *guest, void *kvm)
 	return 0;
 }
 
+const struct hyp_extension_ops eops ALIGN(16) = {
+	.load_host_stage2 = load_host_s2,
+	.load_guest_stage2 = load_guest_s2,
+	.save_host_traps = save_host_traps,
+	.restore_host_traps = restore_host_traps,
+	.hyp_vcpu_regs = hyp_vcpu_regs,
+	.guest_enter = guest_enter,
+	.sysreg_restore_guest = sysreg_restore_guest,
+	.sysreg_save_guest = sysreg_save_guest,
+};
+
+void init_guest_array(void)
+{
+	int i;
+
+	for (i = 0; i < PRODUCT_VMID_MAX; i++)
+		guest_index[i] = INVALID_GUEST;
+
+	_zeromem16(guests, sizeof(guests));
+	for (i = 0; i < MAX_VM; i++)
+		format_guest(i);
+}
+
 int init_guest(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
-	struct hyp_extension_ops *eops;
 	uint64_t *pgd;
 	uint8_t key[32];
 	int res;
@@ -751,15 +749,6 @@ int init_guest(void *kvm)
 	guest->vmid = KVM_GET_VMID(kvm);
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
 				    ((uint64_t)guest->vmid << 48));
-	eops = KVM_GET_EXT_OPS_PTR(kvm);
-	eops->load_host_stage2 = load_host_s2;
-	eops->load_guest_stage2 = load_guest_s2;
-	eops->save_host_traps = save_host_traps;
-	eops->restore_host_traps = restore_host_traps;
-	eops->hyp_vcpu_regs = hyp_vcpu_regs;
-	eops->guest_enter = guest_enter;
-	eops->sysreg_restore_guest = sysreg_restore_guest;
-	eops->sysreg_save_guest = sysreg_save_guest;
 
 	/* Save the current VM process stage1 PGDs */
 	guest->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);

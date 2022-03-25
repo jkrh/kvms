@@ -131,6 +131,5 @@ SHORT TERM TODO
    has been set
 6) QEMU protected guest support to give the madvise() hint to KSM not to scan
    the guest memory: -cpu=host,protected-guest-support=kvms
-7) Move SHA-256 operations to hardware via the arm crypto-extension (mbedtls)
-8) IPI based debug stops, backtraces, tlb flushes when needed
-9) Libhybris based GPU access for QEMU
+7) IPI based debug stops, backtraces, tlb flushes when needed
+8) Libhybris based GPU access for QEMU

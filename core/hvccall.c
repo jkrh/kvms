@@ -36,12 +36,14 @@
 typedef int hyp_func_t(void *, ...);
 typedef int kvm_func_t(uint64_t, ...);
 
+extern struct hyp_extension_ops eops;
 extern uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 hyp_func_t *__fpsimd_guest_restore;
 extern uint64_t hyp_text_start;
 extern uint64_t hyp_text_end;
 extern bool at_debugstop;
 extern spinlock_t core_lock;
+
 spinlock_t crash_lock;
 uint64_t hostflags;
 
@@ -128,6 +130,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		register_t a8, register_t a9)
 {
 	kvm_guest_t *guest = NULL, *host = NULL;
+	struct hyp_extension_ops **eop;
 	int64_t res = -EINVAL;
 	bool retried = false;
 	hyp_func_t *func;
@@ -246,6 +249,8 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		hyp_text_start = (uint64_t)kern_hyp_va((void *)a1);
 		hyp_text_end = (uint64_t)kern_hyp_va((void *)a2);
 		__fpsimd_guest_restore = (hyp_func_t *)(a3 & CALL_MASK);
+		eop = (struct hyp_extension_ops **)virt_to_phys((void *)a4);
+		*eop = &eops;
 
 		if (hyp_text_end <= hyp_text_start)
 			HYP_ABORT();
@@ -254,6 +259,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 						      hyp_text_end);
 		LOG("simd_guest_restore is at offset 0x%lx\n",
 			(uint64_t)__fpsimd_guest_restore);
+		LOG("hyp extension is installed at 0x%lx -> 0x%lx\n", eop, *eop);
 
 		res = 0;
 		break;
