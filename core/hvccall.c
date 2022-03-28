@@ -22,6 +22,7 @@
 #include "validate.h"
 #include "platform_api.h"
 #include "gic.h"
+#include "oplocks.h"
 #include "crypto/platform_crypto.h"
 
 #define ISS_MASK		0x1FFFFFFUL
@@ -45,26 +46,6 @@ extern bool at_debugstop;
 extern spinlock_t core_lock;
 
 spinlock_t crash_lock;
-uint64_t hostflags;
-
-int set_lockflags(uint64_t flags, uint64_t addr, size_t sz, uint64_t depth)
-{
-	LOG("flags: 0x%lx addr: 0x%lx sz: 0x%lx depth: 0x%lx\n",
-	     flags, addr, sz, depth);
-#if (DEBUG == 2)
-	return 0;
-#endif
-	if (flags & HOST_STAGE2_LOCK)
-		hostflags |= HOST_STAGE2_LOCK;
-	if (flags & HOST_STAGE1_LOCK)
-		hostflags |= HOST_STAGE1_LOCK;
-	if (flags & HOST_KVM_CALL_LOCK)
-		hostflags |= HOST_KVM_CALL_LOCK;
-	if (flags & HOST_PT_LOCK)
-		return lock_host_kernel_area(addr, sz, depth);
-
-	return 0;
-}
 
 int is_apicall(uint64_t cn)
 {
@@ -145,7 +126,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	}
 #endif
 	ct = is_apicall(cn);
-	if ((ct == CALL_TYPE_GUESTCALL) && (hostflags & HOST_KVM_CALL_LOCK))
+	if ((ct == CALL_TYPE_GUESTCALL) && (is_locked(HOST_KVM_CALL_LOCK)))
 		return -EPERM;
 
 	vmid = get_current_vmid();
@@ -169,6 +150,11 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		 * This is a hyp mode mapping.
 		 * Validate the requested range for the host.
 		 */
+		if (is_locked(HOST_STAGE1_EXEC_LOCK) && (a4 & S1_PXN)) {
+			ERROR("EL2S1 exec lock is set: unable to map as exec\n");
+			res = -EPERM;
+			break;
+		}
 		res = guest_validate_range(host, a1, a2, a3);
 		if (!res)
 			res = mmap_range(guest, EL2_STAGE1, a1, a2, a3, a4,
@@ -246,6 +232,11 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = read_reg(MDCR_EL2);
 		break;
 	case HYP_SET_HYP_TXT:
+		if (is_locked(HOST_STAGE1_EXEC_LOCK)) {
+			ERROR("Hyp text already set\n");
+			res = -EPERM;
+			break;
+		}
 		hyp_text_start = (uint64_t)kern_hyp_va((void *)a1);
 		hyp_text_end = (uint64_t)kern_hyp_va((void *)a2);
 		__fpsimd_guest_restore = (hyp_func_t *)(a3 & CALL_MASK);
@@ -261,6 +252,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			(uint64_t)__fpsimd_guest_restore);
 		LOG("hyp extension is installed at 0x%lx -> 0x%lx\n", eop, *eop);
 
+		set_lockflags(HOST_STAGE1_EXEC_LOCK, 0, 0, 0);
 		res = 0;
 		break;
 	case HYP_SET_TPIDR:
@@ -362,7 +354,7 @@ do_retry:
 			res = func((void *)a1, a2, a3, a4, a5, a6, a7, a8, a9);
 		} else {
 			if ((cn >= hyp_text_start) && (cn < hyp_text_end) &&
-			   !(hostflags & HOST_KVM_TRAMPOLINE_LOCK) &&
+			   !(is_locked(HOST_KVM_TRAMPOLINE_LOCK)) &&
 			   !retried) {
 				res = add_jump(cn);
 				if (!res) {

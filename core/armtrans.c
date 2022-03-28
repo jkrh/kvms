@@ -18,6 +18,7 @@
 #include "hvccall.h"
 #include "mhelpers.h"
 #include "tables.h"
+#include "oplocks.h"
 
 #define DESCR_ATTR_MASK			0xFFFF00000001FFFFUL
 
@@ -42,8 +43,6 @@
 struct tdinfo_t tdinfo;
 static uint64_t kmaidx2pmaidx[8];
 static bool need_hyp_s1_init = true;
-
-extern uint64_t hostflags;
 
 typedef struct
 {
@@ -903,7 +902,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if ((vaddr != paddr) && (type != INVALID_MEMORY))
 			return -EINVAL;
 
-		if (!(hostflags & HOST_STAGE2_LOCK))
+		if (!(is_locked(HOST_STAGE2_LOCK)))
 			break;
 
 		/*
@@ -958,7 +957,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		}
 		prot &= PROT_MASK_STAGE1;
 
-		if (hostflags & HOST_STAGE1_LOCK)
+		if (is_locked(HOST_STAGE1_LOCK))
 			return -EPERM;
 
 		block.tpool = &guest->el2_tablepool;
@@ -1003,7 +1002,7 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 	switch (stage) {
 	case STAGE2:
-		if (hostflags & HOST_STAGE2_LOCK)
+		if (is_locked(HOST_STAGE2_LOCK))
 			return -EPERM;
 
 		block.guest = guest;
@@ -1012,7 +1011,7 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		pgd_levels = block.guest->table_levels_el1s2;
 		break;
 	case EL2_STAGE1:
-		if (hostflags & HOST_STAGE1_LOCK)
+		if (is_locked(HOST_STAGE1_LOCK))
 			return -EPERM;
 
 		block.guest = host;

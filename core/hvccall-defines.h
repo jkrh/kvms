@@ -35,6 +35,8 @@ struct hyp_extension_ops {
 #define HOST_KVM_CALL_LOCK		0x4
 #define HOST_PT_LOCK			0x8
 #define HOST_KVM_TRAMPOLINE_LOCK	0x10
+#define HOST_STAGE1_EXEC_LOCK		0x20
+#define	HOST_LOCKFLAG_MASK		0x3F
 
 /*
  * Host protection support
