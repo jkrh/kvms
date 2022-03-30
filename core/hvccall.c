@@ -29,10 +29,9 @@
 #define ISS_RT_MASK		0x3E0UL
 #define ISS_RT_SHIFT		5
 
-#define CALL_TYPE_UNKNOWN	0
+#define CALL_TYPE_KVMCALL	0
 #define CALL_TYPE_HOSTCALL	1
 #define CALL_TYPE_GUESTCALL	2
-#define CALL_TYPE_KVMCALL	3
 
 typedef int hyp_func_t(void *, ...);
 typedef int kvm_func_t(uint64_t, ...);
@@ -49,13 +48,13 @@ spinlock_t crash_lock;
 
 int is_apicall(uint64_t cn)
 {
-	if ((cn >= HYP_FIRST_GUESTCALL) &&
-	    (cn <= HYP_LAST_GUESTCALL))
+	if (unlikely((cn >= HYP_FIRST_GUESTCALL) &&
+		     (cn <= HYP_LAST_GUESTCALL)))
 		return CALL_TYPE_GUESTCALL;
-	if ((cn >= HYP_FIRST_HOSTCALL) &&
-	    (cn <= HYP_LAST_HOSTCALL))
+	if (unlikely((cn >= HYP_FIRST_HOSTCALL) &&
+		     (cn <= HYP_LAST_HOSTCALL)))
 		return CALL_TYPE_HOSTCALL;
-	return CALL_TYPE_UNKNOWN;
+	return CALL_TYPE_KVMCALL;
 }
 
 int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
@@ -66,7 +65,7 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	int64_t res = -EINVAL;
 
 	guest = get_guest(get_current_vmid());
-	if (!guest)
+	if (unlikely(guest == NULL))
 		return -EINVAL;
 
 	spin_lock(&core_lock);
@@ -120,20 +119,20 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	int ct;
 
 #ifdef DEBUG
-	if (at_debugstop) {
+	if (unlikely(at_debugstop)) {
 		spin_lock(&core_lock);
 		spin_unlock(&core_lock);
 	}
 #endif
 	ct = is_apicall(cn);
-	if ((ct == CALL_TYPE_GUESTCALL) && (is_locked(HOST_KVM_CALL_LOCK)))
+	if (unlikely((ct == CALL_TYPE_GUESTCALL) && (is_locked(HOST_KVM_CALL_LOCK))))
 		return -EPERM;
 
 	vmid = get_current_vmid();
-	if (vmid != HOST_VMID)
+	if (unlikely(vmid != HOST_VMID))
 		return guest_hvccall(cn, a1, a2, a3, a4, a5, a6, a7, a8, a9);
 
-	if (ct)
+	if (unlikely((ct > CALL_TYPE_KVMCALL)))
 		spin_lock(&core_lock);
 
 	switch (cn) {
@@ -349,7 +348,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	default:
 		cn = (uint64_t)kern_hyp_va((void *)cn);
 do_retry:
-		if (is_jump_valid(cn)) {
+		if (likely(is_jump_valid(cn))) {
 			func = (hyp_func_t *)cn;
 			res = func((void *)a1, a2, a3, a4, a5, a6, a7, a8, a9);
 		} else {
@@ -366,7 +365,7 @@ do_retry:
 		}
 		break;
 	}
-	if (ct)
+	if (unlikely((ct > CALL_TYPE_KVMCALL)))
 		spin_unlock(&core_lock);
 
 	return res;
@@ -482,7 +481,7 @@ void memctrl_exec(uint64_t *sp)
 	vmid = get_current_vmid();
 
 #ifdef DEBUG
-	if (at_debugstop) {
+	if (unlikely(at_debugstop)) {
 		spin_lock(&core_lock);
 		spin_unlock(&core_lock);
 	}

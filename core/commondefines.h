@@ -21,6 +21,9 @@ typedef uint64_t u_register_t;
   extern __typeof (name) aliasname __attribute__ ((weak, alias (#name)));
 #define WEAK_ALIAS(name, aliasname) _WEAK_ALIAS (name, aliasname)
 
+#define likely(x)       __builtin_expect(!!(x), 1)
+#define unlikely(x)     __builtin_expect(!!(x), 0)
+
 #define SZ_1K 0x000000400UL
 #define SZ_1M 0x000100000UL
 #define SZ_1G 0x040000000UL
