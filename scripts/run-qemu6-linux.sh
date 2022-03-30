@@ -13,6 +13,7 @@ USER=$(whoami)
 [ -z "$SPICESOCK" ] && SPICEPORT=$(($PORT+1)) && SPICESOCK="port=$SPICEPORT"
 [ -z "$CORE" ] && CORE="off"
 [ -z "$VMNAME" ] && VMNAME="vm_$PORT"
+[ -z "$INPUT" ] && INPUT="-device virtio-keyboard-pci -device virtio-mouse-pci -device virtio-tablet-pci"
 
 export TMPDIR=$SPICEMNT
 
@@ -91,6 +92,9 @@ for i in "$@"; do
 		-cpumems)
 			CPUMEMS=$2
 			shift; shift
+		-usb3)
+			INPUT="-device qemu-xhci -device usb-mouse -device usb-kbd -device usb-tablet"
+			shift;
 		;;
 	esac
 done
@@ -186,7 +190,6 @@ SPICEOPTS="$SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migrat
 [ -z "$GICV" ] && GICV="gic-version=3"
 [ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice -soundhw hda"
 CPU="-enable-kvm -cpu host,pmu=off,kvm-steal-time=off"
-USB="-device qemu-xhci -device usb-mouse -device usb-kbd -device usb-tablet"
 RNG="-device virtio-rng-pci,id=rng0,max-bytes=1024,period=2000"
 BALLOON="-device virtio-balloon-pci,id=balloon0"
 DRIVE="-drive file=$IMAGE,format=qcow2,if=none,id=ubu-sd -device virtio-blk-device,drive=ubu-sd"
@@ -207,4 +210,4 @@ else
 fi
 echo "- Host wlan ip $LOCALIP"
 
-$QEMUDIR/qemu-system-aarch64 -name $VMNAME -kernel $KERNEL $DRIVE $DTB $USB $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
+$QEMUDIR/qemu-system-aarch64 -name $VMNAME -kernel $KERNEL $DRIVE $DTB $INPUT $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS

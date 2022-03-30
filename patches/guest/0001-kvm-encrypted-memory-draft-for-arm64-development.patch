@@ -1,4 +1,4 @@
-From 099042330cd1420c3bd69f21c964a478eab4b67c Mon Sep 17 00:00:00 2001
+From 4340daef5add17166c60f9943454074c085c7c26 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 10 May 2021 14:02:47 +0300
 Subject: [PATCH] kvm: 'encrypted memory' draft for arm64 - development
@@ -13,7 +13,7 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 ---
  arch/arm/include/asm/set_memory.h       |  6 ++
  arch/arm64/Kconfig                      |  2 +
- arch/arm64/configs/defconfig            | 11 ++-
+ arch/arm64/configs/defconfig            | 12 ++-
  arch/arm64/include/asm/mem_encrypt.h    | 13 ++++
  arch/arm64/kvm/hvccall-defines.h        | 71 ++++++++++++++++++
  arch/arm64/mm/Makefile                  |  3 +-
@@ -25,7 +25,7 @@ Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
  drivers/usb/host/xhci-mem.c             | 33 +++++++--
  drivers/virtio/virtio_ring.c            | 30 +++++++-
  include/asm-generic/set_memory.h        |  5 ++
- 14 files changed, 334 insertions(+), 20 deletions(-)
+ 14 files changed, 335 insertions(+), 20 deletions(-)
  create mode 100644 arch/arm64/include/asm/mem_encrypt.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
  create mode 100644 arch/arm64/mm/set_memory.c
@@ -59,7 +59,7 @@ index 3da71fe56b92..ca2c407ec172 100644
  	select ARCH_HAVE_NMI_SAFE_CMPXCHG
  	select ARCH_INLINE_READ_LOCK if !PREEMPTION
 diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
-index 5cfe3cf6f2ac..31c1337b23c8 100644
+index 5cfe3cf6f2ac..36addfcc8b80 100644
 --- a/arch/arm64/configs/defconfig
 +++ b/arch/arm64/configs/defconfig
 @@ -71,7 +71,7 @@ CONFIG_KEXEC_FILE=y
@@ -88,7 +88,7 @@ index 5cfe3cf6f2ac..31c1337b23c8 100644
  CONFIG_MAGIC_SYSRQ=y
  CONFIG_DEBUG_FS=y
  CONFIG_DEBUG_KERNEL=y
-@@ -1092,3 +1093,9 @@ CONFIG_DEBUG_KERNEL=y
+@@ -1092,3 +1093,10 @@ CONFIG_DEBUG_KERNEL=y
  # CONFIG_DEBUG_PREEMPT is not set
  # CONFIG_FTRACE is not set
  CONFIG_MEMTEST=y
@@ -98,6 +98,7 @@ index 5cfe3cf6f2ac..31c1337b23c8 100644
 +CONFIG_ARCH_HAS_FORCE_DMA_UNENCRYPTED=y
 +CONFIG_ARCH_HAS_MEM_ENCRYPT=y
 +CONFIG_DRM_VIRTIO_GPU=y
++CONFIG_VIRTIO_INPUT=y
 diff --git a/arch/arm64/include/asm/mem_encrypt.h b/arch/arm64/include/asm/mem_encrypt.h
 new file mode 100644
 index 000000000000..d75c682abd53
