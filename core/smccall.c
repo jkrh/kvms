@@ -13,6 +13,7 @@
 #include "hyplogs.h"
 #include "smccall.h"
 
+WEAK_SYM
 unsigned int smccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		     register_t a4, register_t a5, register_t a6, register_t a7,
 		     register_t a8, register_t a9)
