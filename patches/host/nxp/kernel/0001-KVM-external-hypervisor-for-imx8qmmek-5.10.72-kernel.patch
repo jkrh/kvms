@@ -1,4 +1,4 @@
-From e757f4ae94a7bdb7e69bf1f44c97f4835fab0ef7 Mon Sep 17 00:00:00 2001
+From e83aaa5788a779cae1e28f976a624647ee2fa0fa Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor for imx8qmmek 5.10.72 kernel
@@ -12,19 +12,19 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/include/asm/kvm_arm.h             |   2 +-
  arch/arm64/include/asm/kvm_asm.h             |  21 +
  arch/arm64/include/asm/kvm_emulate.h         |  12 +
- arch/arm64/include/asm/kvm_host.h            |  31 +-
+ arch/arm64/include/asm/kvm_host.h            |  19 +-
  arch/arm64/include/asm/kvm_hyp.h             |  15 +-
- arch/arm64/include/asm/kvm_mmu.h             |  93 +++-
- arch/arm64/kernel/asm-offsets.c              |  12 +
+ arch/arm64/include/asm/kvm_mmu.h             |  88 +++-
+ arch/arm64/kernel/asm-offsets.c              |  11 +
  arch/arm64/kernel/cpuinfo.c                  |   3 +-
  arch/arm64/kernel/head.S                     |  14 +-
  arch/arm64/kvm/Makefile                      |   2 +-
  arch/arm64/kvm/arm.c                         |  56 ++-
- arch/arm64/kvm/ext-guest.c                   | 448 +++++++++++++++++++
+ arch/arm64/kvm/ext-guest.c                   | 455 +++++++++++++++++++
  arch/arm64/kvm/ext-guest.h                   |  31 ++
  arch/arm64/kvm/fpsimd.c                      |   4 +-
  arch/arm64/kvm/guest.c                       |  24 -
- arch/arm64/kvm/hvccall-defines.h             |  73 +++
+ arch/arm64/kvm/hvccall-defines.h             |  91 ++++
  arch/arm64/kvm/hyp/Makefile                  |   2 +-
  arch/arm64/kvm/hyp/kvms-hvci.S               |  11 +
  arch/arm64/kvm/hyp/nvhe/switch.c             |  15 +-
@@ -35,7 +35,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/reset.c                       |  12 +-
  init/main.c                                  |   2 +
  virt/kvm/kvm_main.c                          |   2 +-
- 28 files changed, 929 insertions(+), 167 deletions(-)
+ 28 files changed, 936 insertions(+), 167 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -211,38 +211,19 @@ index 472122d731b0..c856f4dde9b6 100644
  
  static inline unsigned long vcpu_read_spsr(const struct kvm_vcpu *vcpu)
 diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
-index 912b83e784bb..93e204224c1c 100644
+index 912b83e784bb..fdc249a67160 100644
 --- a/arch/arm64/include/asm/kvm_host.h
 +++ b/arch/arm64/include/asm/kvm_host.h
-@@ -67,6 +67,17 @@ struct kvm_vmid {
- 	u32    vmid;
- };
+@@ -36,6 +36,8 @@
+ #include <kvm/arm_arch_timer.h>
+ #include <kvm/arm_pmu.h>
  
-+struct hyp_extension_ops {
-+	int (*load_host_stage2)(void);
-+	int (*load_guest_stage2)(u64 vmid);
-+	void (*save_host_traps)(void);
-+	void (*restore_host_traps)(void);
-+	void *(*hyp_vcpu_regs)(uint64_t vmid, uint64_t vcpuid);
-+	uint64_t (*guest_enter)(void *vcpu);
-+	void (*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
-+	void (*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
-+};
++#include "../../kvm/hvccall-defines.h"
 +
- struct kvm_s2_mmu {
- 	struct kvm_vmid vmid;
+ #define KVM_MAX_VCPUS VGIC_V3_MAX_CPUS
  
-@@ -87,6 +98,9 @@ struct kvm_s2_mmu {
- 	int __percpu *last_vcpu_ran;
- 
- 	struct kvm *kvm;
-+
-+	/* Hyp extension functions */
-+	struct hyp_extension_ops hyp_ext_ops;
- };
- 
- struct kvm_arch {
-@@ -262,6 +276,7 @@ struct kvm_cpu_context {
+ #define KVM_VCPU_MAX_FEATURES 7
+@@ -262,6 +264,7 @@ struct kvm_cpu_context {
  	};
  
  	struct kvm_vcpu *__hyp_running_vcpu;
@@ -250,7 +231,7 @@ index 912b83e784bb..93e204224c1c 100644
  };
  
  struct kvm_pmu_events {
-@@ -489,8 +504,10 @@ int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
+@@ -489,8 +492,10 @@ int kvm_test_age_hva(struct kvm *kvm, unsigned long hva);
  
  void kvm_arm_halt_guest(struct kvm *kvm);
  void kvm_arm_resume_guest(struct kvm *kvm);
@@ -262,7 +243,7 @@ index 912b83e784bb..93e204224c1c 100644
  	({								\
  		struct arm_smccc_res res;				\
  									\
-@@ -500,7 +517,17 @@ void kvm_arm_resume_guest(struct kvm *kvm);
+@@ -500,7 +505,17 @@ void kvm_arm_resume_guest(struct kvm *kvm);
  									\
  		res.a1;							\
  	})
@@ -321,7 +302,7 @@ index 123e67cb8505..598501251341 100644
  #ifdef __KVM_NVHE_HYPERVISOR__
  void __noreturn __hyp_do_panic(struct kvm_cpu_context *host_ctxt, u64 spsr,
 diff --git a/arch/arm64/include/asm/kvm_mmu.h b/arch/arm64/include/asm/kvm_mmu.h
-index 79c671d72fdd..c50028e8dd20 100644
+index 79c671d72fdd..a1ddc8dc33de 100644
 --- a/arch/arm64/include/asm/kvm_mmu.h
 +++ b/arch/arm64/include/asm/kvm_mmu.h
 @@ -49,6 +49,8 @@
@@ -333,7 +314,7 @@ index 79c671d72fdd..c50028e8dd20 100644
  #ifdef __ASSEMBLY__
  
  #include <asm/alternative.h>
-@@ -62,15 +64,10 @@
+@@ -62,17 +64,13 @@
   * perform the register allocation (kvm_update_va_mask uses the
   * specific registers encoded in the instructions).
   */
@@ -352,8 +333,11 @@ index 79c671d72fdd..c50028e8dd20 100644
 + .endm
  
  #else
++extern const struct hyp_extension_ops *eops;
  
-@@ -84,15 +81,11 @@ void kvm_update_va_mask(struct alt_instr *alt,
+ #include <linux/pgtable.h>
+ #include <asm/pgalloc.h>
+@@ -84,15 +82,11 @@ void kvm_update_va_mask(struct alt_instr *alt,
  			__le32 *origptr, __le32 *updptr, int nr_inst);
  void kvm_compute_layout(void);
  
@@ -373,7 +357,7 @@ index 79c671d72fdd..c50028e8dd20 100644
  	return v;
  }
  
-@@ -110,8 +103,29 @@ static __always_inline unsigned long __kern_hyp_va(unsigned long v)
+@@ -110,8 +104,29 @@ static __always_inline unsigned long __kern_hyp_va(unsigned long v)
  
  #include <asm/kvm_pgtable.h>
  #include <asm/stage2_pgtable.h>
@@ -405,7 +389,7 @@ index 79c671d72fdd..c50028e8dd20 100644
  int create_hyp_io_mappings(phys_addr_t phys_addr, size_t size,
  			   void __iomem **kaddr,
  			   void __iomem **haddr);
-@@ -132,8 +146,6 @@ phys_addr_t kvm_mmu_get_httbr(void);
+@@ -132,8 +147,6 @@ phys_addr_t kvm_mmu_get_httbr(void);
  phys_addr_t kvm_get_idmap_vector(void);
  int kvm_mmu_init(void);
  
@@ -414,61 +398,55 @@ index 79c671d72fdd..c50028e8dd20 100644
  #define kvm_flush_dcache_to_poc(a,l)	__flush_dcache_area((a), (l))
  
  static inline bool vcpu_has_cache_enabled(struct kvm_vcpu *vcpu)
-@@ -274,8 +286,9 @@ static __always_inline u64 kvm_get_vttbr(struct kvm_s2_mmu *mmu)
+@@ -274,8 +287,8 @@ static __always_inline u64 kvm_get_vttbr(struct kvm_s2_mmu *mmu)
   */
  static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
  {
-+	if (mmu->hyp_ext_ops.load_guest_stage2)
-+		mmu->hyp_ext_ops.load_guest_stage2(mmu->vmid.vmid);
++	eops->load_guest_stage2(mmu->vmid.vmid);
  	write_sysreg(kern_hyp_va(mmu->kvm)->arch.vtcr, vtcr_el2);
 -	write_sysreg(kvm_get_vttbr(mmu), vttbr_el2);
  
  	/*
  	 * ARM errata 1165522 and 1530923 require the actual execution of the
-@@ -285,5 +298,41 @@ static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
+@@ -285,5 +298,36 @@ static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
  	asm(ALTERNATIVE("nop", "isb", ARM64_WORKAROUND_SPECULATIVE_AT));
  }
  
 +static __always_inline void __load_host_stage2(struct kvm_s2_mmu *mmu)
 +{
-+	if (mmu->hyp_ext_ops.load_host_stage2)
-+		mmu->hyp_ext_ops.load_host_stage2();
++	eops->load_host_stage2();
 +}
 +
 +static __always_inline void *__hyp_vcpu_regs(const struct kvm_vcpu *vcpu)
 +{
 +	struct kvm_s2_mmu *mmu = kern_hyp_va(vcpu->arch.hw_mmu);
-+	if (mmu->hyp_ext_ops.hyp_vcpu_regs)
-+		return mmu->hyp_ext_ops.hyp_vcpu_regs(mmu->vmid.vmid, vcpu->vcpu_idx);
-+	return NULL;
++
++	return eops->hyp_vcpu_regs(mmu->vmid.vmid, vcpu->vcpu_idx);
 +}
 +
 +static __always_inline u64 __guest_enter(struct kvm_vcpu *vcpu)
-+{
-+	struct kvm_s2_mmu *mmu = kern_hyp_va(vcpu->arch.hw_mmu);
-+	if (mmu->hyp_ext_ops.guest_enter)
-+		return mmu->hyp_ext_ops.guest_enter(vcpu);
-+	return ARM_EXCEPTION_HYP_GONE;
++	{
++	return eops->guest_enter(vcpu);
 +}
 +
 +static __always_inline void __sysreg_restore_guest(struct kvm_vcpu *vcpu)
 +{
 +	struct kvm_s2_mmu *mmu = kern_hyp_va(vcpu->arch.hw_mmu);
-+	if (mmu->hyp_ext_ops.sysreg_restore_guest)
-+		mmu->hyp_ext_ops.sysreg_restore_guest(mmu->vmid.vmid, vcpu->vcpu_idx);
++
++	eops->sysreg_restore_guest(mmu->vmid.vmid, vcpu->vcpu_idx);
 +}
 +
 +static __always_inline void __sysreg_save_guest(struct kvm_vcpu *vcpu)
 +{
 +	struct kvm_s2_mmu *mmu = kern_hyp_va(vcpu->arch.hw_mmu);
-+	if (mmu->hyp_ext_ops.sysreg_save_guest)
-+		mmu->hyp_ext_ops.sysreg_save_guest(mmu->vmid.vmid, vcpu->vcpu_idx);
++
++	eops->sysreg_save_guest(mmu->vmid.vmid, vcpu->vcpu_idx);
 +}
 +
  #endif /* __ASSEMBLY__ */
  #endif /* __ARM64_KVM_MMU_H__ */
 diff --git a/arch/arm64/kernel/asm-offsets.c b/arch/arm64/kernel/asm-offsets.c
-index 7d32fc959b1a..806a1d0754f8 100644
+index 7d32fc959b1a..97fce1203599 100644
 --- a/arch/arm64/kernel/asm-offsets.c
 +++ b/arch/arm64/kernel/asm-offsets.c
 @@ -99,6 +99,7 @@ int main(void)
@@ -479,7 +457,7 @@ index 7d32fc959b1a..806a1d0754f8 100644
    DEFINE(VCPU_FAULT_DISR,	offsetof(struct kvm_vcpu, arch.fault.disr_el1));
    DEFINE(VCPU_WORKAROUND_FLAGS,	offsetof(struct kvm_vcpu, arch.workaround_flags));
    DEFINE(VCPU_HCR_EL2,		offsetof(struct kvm_vcpu, arch.hcr_el2));
-@@ -110,6 +111,17 @@ int main(void)
+@@ -110,6 +111,16 @@ int main(void)
    DEFINE(CPU_APGAKEYLO_EL1,	offsetof(struct kvm_cpu_context, sys_regs[APGAKEYLO_EL1]));
    DEFINE(HOST_CONTEXT_VCPU,	offsetof(struct kvm_cpu_context, __hyp_running_vcpu));
    DEFINE(HOST_DATA_CONTEXT,	offsetof(struct kvm_host_data, host_ctxt));
@@ -490,7 +468,6 @@ index 7d32fc959b1a..806a1d0754f8 100644
 +  DEFINE(KVM_S2MMU_VMID,	offsetof(struct kvm_s2_mmu, vmid));
 +  DEFINE(KVM_ARCH_VMID_OFFT,	offsetof(struct kvm_vmid, vmid));
 +  DEFINE(KVM_S2MMU_PGD,		offsetof(struct kvm_s2_mmu, pgd_phys));
-+  DEFINE(KVM_EXT_OPS,		offsetof(struct kvm_s2_mmu, hyp_ext_ops));
 +  DEFINE(KVM_ARCH_PGD,		offsetof(struct kvm_arch, mmu) + offsetof(struct kvm_s2_mmu, pgd_phys));
 +  DEFINE(KVM_ARCH_VMID,		offsetof(struct kvm_arch, mmu) + offsetof(struct kvm_s2_mmu, vmid));
 +  DEFINE(KVM_ARCH_VCPU_SIZE,	sizeof(struct kvm_vcpu));
@@ -752,10 +729,10 @@ index 5bc978be8043..b3cd52794987 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..970f2adb3f24
+index 000000000000..4f79fb80bf53
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,448 @@
+@@ -0,0 +1,455 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -774,6 +751,13 @@ index 000000000000..970f2adb3f24
 +#include <asm/virt.h>
 +
 +#include "hvccall-defines.h"
++
++#define _WEAK_ALIAS(name, aliasname) \
++	extern __typeof (name) aliasname __attribute__ ((weak, alias (#name)));
++#define WEAK_ALIAS(name, aliasname) _WEAK_ALIAS (name, aliasname)
++
++const struct hyp_extension_ops *eops;
++WEAK_ALIAS(eops, __kvm_nvhe_eops);
 +
 +static unsigned long nvhe_percpu_size(void)
 +{
@@ -989,7 +973,7 @@ index 000000000000..970f2adb3f24
 +	unsigned long end = kern_hyp_va((unsigned long)__te);
 +	int err;
 +
-+	err = __kvms_hvc_cmd(HYP_SET_HYP_TXT, start, end, NULL);
++	err = __kvms_hvc_cmd(HYP_SET_HYP_TXT, start, end, NULL, &eops);
 +	if (err)
 +		pr_err("kvm: %s failed: %d\n", __func__, err);
 +
@@ -1296,13 +1280,31 @@ index dfb5218137ca..88e8ca175b63 100644
  }
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..3337944f691b
+index 000000000000..ae74ec17096d
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,91 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef __HYP_API__
 +#define __HYP_API__
++
++#ifndef __ASSEMBLY__
++/*
++ * Kernel-visible struct pointer to call security critical operations
++ * from the kernel EL2 blob.
++ */
++struct hyp_extension_ops {
++	int	(*load_host_stage2)(void);
++	int	(*load_guest_stage2)(uint64_t vmid);
++	void	(*save_host_traps)(void);
++	void	(*restore_host_traps)(void);
++	void	*(*hyp_vcpu_regs)(uint64_t vmid, uint64_t vcpuid);
++	uint64_t (*guest_enter)(void *vcpu);
++	void	(*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
++	void	(*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
++};
++#endif
++
 +/*
 + * Base addressing for data sharing
 + */
