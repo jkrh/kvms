@@ -216,11 +216,11 @@ int patrack_stop(struct kvm_guest *guest)
  */
 int patrack_hpa_set_multiref(struct kvm_guest *guest, uint64_t hpa)
 {
-	uint64_t *pte;
+	uint64_t *pte = NULL;
 
 	pt_walk(guest, PATRACK_STAGE1, hpa, &pte);
 
-	if (*pte == ~0UL)
+	if (pte == NULL)
 		HYP_ABORT();
 
 	/*
@@ -239,11 +239,11 @@ int patrack_hpa_set_multiref(struct kvm_guest *guest, uint64_t hpa)
 
 int patrack_hpa_is_multiref(struct kvm_guest *guest, uint64_t hpa)
 {
-	uint64_t *pte;
+	uint64_t *pte = NULL;
 
 	pt_walk(guest, PATRACK_STAGE1, hpa, &pte);
 
-	if ((*pte != ~0UL) && (*pte & PATRACK_HPA_MULTIREF))
+	if ((pte != NULL) && (*pte & PATRACK_HPA_MULTIREF))
 		return 1;
 
 	return 0;
