@@ -227,28 +227,42 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 	return tpool->pool;
 }
 
-int tablepool_get_free_idx(struct tablepool *tpool, bool *new_pool)
+int tablepool_get_free_idx(struct tablepool *tpool)
 {
-	int i;
+	int i = 0;
 
-	if (new_pool != NULL)
-		*new_pool = false;
+next_pool:
+	/* Find free table index if pool is allocated */
+	if (tpool->num_tables) {
+		if (!tpool->used[tpool->hint])
+			return tpool->hint;
 
-	if (!tpool->used[tpool->hint])
-		i = tpool->hint;
-	else {
 		for (i = 0; i < tpool->num_tables; i++) {
 			if (!tpool->used[i])
-				break;
-		}
-		if (i >= tpool->num_tables) {
-			if (alloc_tablepool(tpool) == NULL)
-				return -ENOSPC;
-			i = 0;
-			if (new_pool != NULL)
-				*new_pool = true;
+				return i;
 		}
 	}
+
+	/*
+	 * Activate next pool if there is one available in the chain.
+	 */
+	if (tpool->num_tables) {
+		uint16_t c = tpool->guest->mempool[tpool->currentchunk].next;
+
+		if (c <	GUEST_MEMCHUNKS_MAX) {
+			if (get_tablepool(tpool, c))
+				HYP_ABORT();
+			goto next_pool;
+		}
+	}
+
+	/*
+	 * Allocate a new pool either because it was not allocated in the first
+	 * place or all tables within the pools we tried above were occupied.
+	 */
+	if (alloc_tablepool(tpool) == NULL)
+		return -ENOSPC;
+	i = 0;
 
 	return i;
 }
@@ -259,7 +273,7 @@ struct ptable *alloc_table(struct tablepool *tpool)
 	int i;
 
 	table = NULL;
-	i = tablepool_get_free_idx(tpool, NULL);
+	i = tablepool_get_free_idx(tpool);
 
 	if (i >= 0) {
 		table = &tpool->pool[i];
@@ -426,22 +440,8 @@ static int clean_parentpgd(struct tablepool *tpool, struct ptable *ppgd)
 
 struct ptable *alloc_pgd(struct kvm_guest *guest, struct tablepool *tpool)
 {
-	struct ptable *pgd, *check, *pgd_check;
-
-	check = NULL;
 	tpool->guest = guest;
-	pgd = alloc_tablepool(tpool);
-
-	if (pgd != NULL)
-		check = alloc_table(tpool);
-
-	pgd_check = patrack_set_table_offt(tpool, pgd);
-	if (pgd_check != check) {
-		ERROR("invalid pgd!\n");
-		return NULL;
-	}
-
-	return pgd;
+	return alloc_table(tpool);
 }
 
 int free_pgd(struct tablepool *tpool, struct ptable *pgd_base)

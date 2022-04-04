@@ -92,14 +92,14 @@ struct ptable *alloc_tablepool(struct tablepool *tpool);
 /**
  * Get index to a free table entry within the currently active table pool
  *
- * If there is no space left in currently active pool a new pool will be
- * allocated and associated with the provided tablepool structure.
+ * If there is no space left in currently active pool, the next pool in
+ * the chain will be activated or a new pool will be allocated and
+ * associated with the provided tablepool structure.
  *
  * @param tpool tablepool structure to get the index from
- * @param new_pool optional information on whether a new pool was allocated
  * @return index to the table pool or negative error code on failure
  */
-int tablepool_get_free_idx(struct tablepool *tpool, bool *new_pool);
+int tablepool_get_free_idx(struct tablepool *tpool);
 
 /**
  * Allocate a page table structure

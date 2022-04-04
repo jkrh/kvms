@@ -69,7 +69,7 @@ struct kvm_guest *owner_of(uint64_t addr)
 cont:
 		i++;
 	}
-	/* 
+	/*
 	 * Host must be returned as owner of the address ONLY IF the address was
 	 * NOT mapped to any guest.
 	 */
@@ -148,33 +148,32 @@ struct ptable *patrack_set_table_offt(struct tablepool *tpool,
 
 int patrack_start(struct kvm_guest *guest)
 {
-	int res;
 	struct tablepool *tpool;
 	struct ptable *pgd;
+	uint64_t plen;
+	int res;
 
 	tpool = &guest->patrack.trailpool;
 	pgd = alloc_pgd(guest, tpool);
 	if (pgd == NULL)
 		return -ENOMEM;
 
-	guest->patrack.ctxt.ttbr0_el1 = (uint64_t)pgd |
-					PATRACK_TABLEOFFT;
+	plen = tpool->num_tables * sizeof(struct ptable);
+	res = patrack_mmap_table(tpool->guest, (uint64_t)pgd,
+				 (uint64_t)tpool->pool, plen);
+	if (res)
+		return res;
 
-	res = patrack_mmap_table(guest, guest->patrack.ctxt.ttbr0_el1,
-				  (uint64_t)pgd,
-				  guest->mempool[tpool->currentchunk].size);
+	guest->patrack.ctxt.ttbr0_el1 = (uint64_t)pgd;
+	guest->patrack.EL1S1_0_pgd = pgd;
 
-	guest->patrack.EL1S1_0_pgd = (struct ptable *)guest->patrack.ctxt.ttbr0_el1;
-
-	if (!res)
-		guest->patrack.ctxt.ttbr1_el1 = (uint64_t)alloc_table(tpool);
-
-	if (!guest->patrack.ctxt.ttbr1_el1)
+	pgd = alloc_table(tpool);
+	if (pgd == NULL)
 		return -ENOMEM;
 
-	guest->patrack.ctxt.ttbr1_el1 |= PATRACK_TABLEOFFT;
+	guest->patrack.ctxt.ttbr1_el1 = (uint64_t)pgd;
 
-	return res;
+	return 0;
 }
 
 int patrack_stop(struct kvm_guest *guest)
@@ -252,34 +251,49 @@ int patrack_hpa_is_multiref(struct kvm_guest *guest, uint64_t hpa)
 int patrack_mmap(struct kvm_guest *guest, uint64_t s1_addr, uint64_t ipa,
 		 uint64_t length)
 {
-	int res;
-	bool new_pool;
-	uint64_t tableipa;
-	uint64_t tablephy;
-	uint64_t tablelen;
+	int r, t = 0;
 	struct tablepool *tpool;
 
+	/*
+	 * We can't map more page table memory while mapping the tracked
+	 * addresses. Check that we have the worst case amount of table
+	 * memory available for mapping. Starting from hint should be
+	 * sufficient at this point.
+	 */
 	tpool = &guest->patrack.trailpool;
-	res = tablepool_get_free_idx(tpool, &new_pool);
-
-	if (res < 0)
-		return res;
-
-	if (new_pool) {
-		tablephy = (uint64_t)tpool->pool;
-		tableipa = tablephy | PATRACK_TABLEOFFT;
-		tablelen = guest->mempool[tpool->currentchunk].size;
-
-		res = patrack_mmap_table(guest, tableipa,
-				tablephy, tablelen);
-		if (res)
-			return res;
+	for (r = tpool->hint; r < tpool->num_tables; r++) {
+		if (!tpool->used[r])
+			t++;
+		if (t >= TABLE_LEVELS)
+			break;
 	}
 
-	res = mmap_range(guest, PATRACK_STAGE1, s1_addr, ipa, length,
-				PAGE_KERNEL_RO | PATRACK_SH, NORMAL_WBACK_LINUX);
+	if ((t < TABLE_LEVELS) &&
+	     guest->mempool[tpool->currentchunk].next == GUEST_MEMCHUNKS_MAX) {
+		uint64_t plen;
+		struct ptable *pool;
 
-	return res;
+		/* Take a note on currently active pool */
+		t = tpool->currentchunk;
+		/* Allocate new pool */
+		pool = alloc_tablepool(tpool);
+		if (pool == NULL)
+			return -ENOSPC;
+		/* Map the new pool */
+		pool = patrack_set_table_offt(tpool, pool);
+		plen = tpool->num_tables * sizeof(struct ptable);
+		r = patrack_mmap_table(tpool->guest, (uint64_t)pool,
+				       (uint64_t)tpool->pool, plen);
+		if (r)
+			return r;
+		/* And re-activate the current one */
+		r = get_tablepool(tpool, t);
+		if (r)
+			return r;
+	}
+
+	return mmap_range(guest, PATRACK_STAGE1, s1_addr, ipa, length,
+			  PAGE_KERNEL_RO | PATRACK_SH, NORMAL_WBACK_LINUX);
 }
 
 int patrack_unmap(struct kvm_guest *guest, uint64_t s1_addr, size_t length)
@@ -338,7 +352,10 @@ int patrack_gpa_set_share(struct kvm_guest *guest, uint64_t gpa, size_t length)
 
 	tgpa = gpa | PATRACK_SHAREOFFT;
 
-	return patrack_mmap(guest, tgpa, gpa, length);
+	if (patrack_mmap(guest, tgpa, gpa, length))
+		HYP_ABORT();
+
+	return 0;
 }
 
 int patrack_gpa_clear_share(struct kvm_guest *guest, uint64_t gpa,

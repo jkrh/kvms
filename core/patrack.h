@@ -155,7 +155,7 @@ uint64_t patrack_hpa2gpa(struct kvm_guest *guest, uint64_t hpa);
  * Check if page table region is for tracker and adjust the IPA offset
  * accordingly.
  *
- * @param tpool currenty active table pool
+ * @param tpool currently active table pool
  * @param table address to be adjusted
  * @return adjusted table address if this was a table address for physical
  *         address tracker. Unaltered table address otherwise.

@@ -1040,7 +1040,7 @@ cont:
 	 */
 	res = patrack_mmap(guest, paddr, vaddr, len);
 	if (res)
-		ERROR("patrack_mmap error %d\n", res);
+		HYP_ABORT();
 
 	/*
 	 * If it's a normal region that is mapped on the host, remove it.
