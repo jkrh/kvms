@@ -19,13 +19,17 @@ cp ~/.gitconfig gitconfig
 
 docker build --build-arg userid=$(id -u) --build-arg groupid=$(id -g) --build-arg username=$(id -un) -t kvms .
 
-# Run the docker image
-
-export HYP_BUILD_ROOT=<path to your hyp root folder>
+# When building for virt machine:
+export HYP_BUILD_ROOT=<kvms root folder>
 docker run -it --rm \
 		-v $HYP_BUILD_ROOT:/hyp \
 		--env PLATFORM=virt \
 		kvms
+
+# When building for NXP imx8qmmek use the imx8qmmek-docker-run.sh:
+./imx8qmmek-docker-run.sh <kvms root folder> <kernel root folder>
+# For example:
+./imx8qmmek-docker-run.sh /home/me/kvms /home/me/imx8kernel
 
 # Enter the hyp folder mounted by docker
 
