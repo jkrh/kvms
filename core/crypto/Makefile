@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
-MBEDTLS_AES_PATCH_FILE = $(BASE_DIR)/patches/0001-mbedtld-armv8ce-support-added.patch
+HOST_COMMON_PATCH_DIR = $(BASE_DIR)/patches/host/common
+MBEDTLS_AES_PATCH_FILE = $(HOST_COMMON_PATCH_DIR)/0001-mbedtls-armv8ce-support-added.patch
 MBEDTLS_AES_PATCHED = $(shell git -C $(BASE_DIR)/mbedtls apply --check $(MBEDTLS_AES_PATCH_FILE) 2>&1 | wc -l)
 
 AS_SOURCES := sha256_armv8.S simd.S

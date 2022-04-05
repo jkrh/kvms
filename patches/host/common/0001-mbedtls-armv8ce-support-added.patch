@@ -1,9 +1,9 @@
-From 219853cf4365998752dd1e750ddf9263c77e8e87 Mon Sep 17 00:00:00 2001
+From 3f843b15c0b8958ed290327f436c113bd783640f Mon Sep 17 00:00:00 2001
 From: Martti Takala <martti.takala@digital14.com>
 Date: Tue, 29 Mar 2022 11:53:04 +0300
-Subject: [PATCH] mbedtld: armv8ce support added
+Subject: [PATCH] mbedtls: armv8ce support added
 
-The base of this is mbedtls branch: archive/armv8_crypto_extension
+The base of this commit is mbedtls branch: archive/armv8_crypto_extension
 ---
  include/mbedtls/armv8ce_aes.h |  63 ++++++++++++++
  library/Makefile              |   4 +-
