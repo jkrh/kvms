@@ -864,9 +864,9 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
  *
  * Unmap the whole guest stage 2 if the requested range covers the entire guest
  * RAM area. This function can be used to optimize guest reboot and shutdown
- * times. Function requires the guest RAM to be contiguous IPA range - return
- * error if this is not the case and let the default logic to handle the unmap
- * request.
+ * time. Function requires that all the guest RAM slots fit into the given IPA
+ * range - return error if this is not the case and let the default logic to
+ * handle the unmap request.
  *
  * @param guest the guest for which the stage 2 is released
  * @param rangestart unmap range start
@@ -876,9 +876,12 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 static int release_guest_s2(kvm_guest_t *guest, uint64_t rangestart, uint64_t rangeend)
 {
 	int res;
-	uint64_t ram_start = ~0UL, ram_end = ~0UL;
+	uint64_t slot_start = ~0UL, slot_end = ~0UL;
 	kvm_memslots *slots = guest->slots;
 	int i;
+
+	if (rangestart >= rangeend)
+		return -EINVAL;
 
 	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
 		if (!slots[i].slot.npages)
@@ -887,30 +890,14 @@ static int release_guest_s2(kvm_guest_t *guest, uint64_t rangestart, uint64_t ra
 		if (slots[i].slot.flags & KVM_MEM_READONLY)
 			continue;
 
-		/*
-		 * We can continue if RAM slots are in ascending order
-		 * and contiguous.
-		 */
-		if (ram_start < ~0UL) {
-			if (slots[i].region.guest_phys_addr != ram_end)
-				return -ERANGE;
+		slot_start = slots[i].region.guest_phys_addr;
+		slot_end = slot_start + slots[i].region.memory_size;
 
-			ram_end = ram_end + slots[i].region.memory_size;
-
-		} else {
-			ram_start = slots[i].region.guest_phys_addr;
-			ram_end = ram_start + slots[i].region.memory_size;
-		}
+		if ((slot_start < rangestart) || (slot_end > rangeend))
+			return -ERANGE;
 	}
 
-	if (ram_start == ~0UL)
-		return -ERANGE;
-
-	/*
-	 * If the range does not cover the whole guest RAM we can not
-	 * release the whole guest stage 2 map here.
-	 */
-	if ((rangestart > ram_start) || (rangeend < ram_end))
+	if (slot_start == ~0UL)
 		return -ERANGE;
 
 	memset(guest->hyp_page_data, 0, sizeof(guest->hyp_page_data));
