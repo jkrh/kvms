@@ -303,7 +303,7 @@ kvm_guest_t *get_free_guest(uint64_t vmid)
 
 	for (i = 0; i < MAX_VM; i++) {
 		if (guests[i].vmid != INVALID_VMID)
-			last_guest_index = i;
+			last_guest_index = i + 1;
 	}
 
 	return entry;
