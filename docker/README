@@ -42,7 +42,19 @@ cd hyp
 
 make
 
-# Make qemu-for-android.
+# Or debug build with host locks enabled
+
+DEBUG=1 make
+
+# Or debug build with host locks disabled
+
+DEBUG=2 make
+
+# Clean
+
+make clean
+
+# Make qemu-for-android (Optional).
 
 make android-qemu
 
