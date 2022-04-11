@@ -918,6 +918,17 @@ static int release_guest_s2(kvm_guest_t *guest, uint64_t rangestart, uint64_t ra
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
 				    ((uint64_t)guest->vmid << 48));
 
+	/* Restart physical address tracking */
+	res = patrack_stop(guest);
+	if (res)
+		HYP_ABORT();
+
+	res = patrack_start(guest);
+	if (res)
+		HYP_ABORT();
+
+	guest->state = GUEST_STOPPED;
+
 	return 0;
 }
 
@@ -1082,14 +1093,30 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		goto out_error;
 	}
 
-	if (guest->state == GUEST_CRASHING)
-		return -EFAULT;
-
 	if (range_end > guest->ramend)
 		range_end = guest->ramend;
 
-	if (!sec && !release_guest_s2(guest, vaddr, range_end))
+	switch (guest->state) {
+	case GUEST_CRASHING:
+		return -EFAULT;
+	case GUEST_STOPPED:
+		/*
+		 * Guest is stopped. Stage 2 will be released at
+		 * free_guest.
+		 */
 		return 0;
+	case GUEST_RESET:
+		return release_guest_s2(guest, vaddr, guest->ramend);
+	default:
+		/*
+		 * Guest is still in running state. Check if we are about
+		 * to release the whole guest IPA range. This may happen
+		 * when the guest is killed and can't update its own power
+		 * state.
+		 */
+		if (!sec && !release_guest_s2(guest, vaddr, range_end))
+			return 0;
+	}
 
 	map_addr = vaddr;
 	while (map_addr < range_end) {

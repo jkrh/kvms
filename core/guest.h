@@ -35,10 +35,11 @@ typedef int kernel_func_t(uint64_t, ...);
 
 typedef enum {
 	GUEST_INVALID = 0x0,
-	GUEST_STOPPED = 0x1,
-	GUEST_RUNNING = 0x2,
-	GUEST_SLEEPING = 0x3,
-	GUEST_CRASHING = 0x4,
+	GUEST_STOPPED,
+	GUEST_RUNNING,
+	GUEST_SLEEPING,
+	GUEST_CRASHING,
+	GUEST_RESET,
 } guest_state_t;
 
 enum pc_sync {

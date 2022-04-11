@@ -80,7 +80,7 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 	case PSCI_SYSTEM_RESET:
 		if (vmid != HOST_VMID) {
 			LOG("VMID %lu reset\n", vmid);
-			update_guest_state(GUEST_STOPPED);
+			update_guest_state(GUEST_RESET);
 		}
 		break;
 	default:
