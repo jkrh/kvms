@@ -447,6 +447,19 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 	if (!host)
 		HYP_ABORT();
 
+	/*
+	 * TODO ::: FIXME ::: ACHTUNG
+	 *
+	 * Hardening idea: all the VM pages are coming from sections that
+	 * should not be executable for the kernel. Now what if we always
+	 * return the old VM memory to the kernel as RW- and every VM execution
+	 * will automatically harden the kernel memory? Things like BPF may
+	 * need configuration adjustments (disable JIT) and maybe some others.
+	 *
+	 * Changing this to do RW- is not enough, we need to return the entire
+	 * VM memory as such when it exists. Heavy system testing is required
+	 * to see if any issues arise.
+	 */
 	if (guest == host) {
 		/*
 		 * Range must be checked to be physically contiguous.
@@ -458,7 +471,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 			goto out;
 		}
 		if (mmap_range(host, STAGE2, gpa, gpa, len,
-			       (EL1S2_SH|PAGE_HYP_RW),
+			       (EL1S2_SH|PAGE_HYP_RWX),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
 
@@ -482,7 +495,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 
 		phys &= PAGE_MASK;
 		if (mmap_range(host, STAGE2, phys, phys,
-			       PAGE_SIZE, (EL1S2_SH|PAGE_HYP_RW),
+			       PAGE_SIZE, (EL1S2_SH|PAGE_HYP_RWX),
 			       S2_NORMAL_MEMORY))
 			HYP_ABORT();
 

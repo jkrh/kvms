@@ -194,8 +194,8 @@ RNG="-device virtio-rng-pci,id=rng0,max-bytes=1024,period=2000"
 BALLOON="-device virtio-balloon-pci,id=balloon0"
 DRIVE="-drive file=$IMAGE,format=qcow2,if=none,id=ubu-sd -device virtio-blk-device,drive=ubu-sd"
 KERNEL_OPTS="rw root=/dev/vda1 selinux=0 nokaslr console=ttyAMA0 loglevel=8"
+NETOPTS="-device virtio-net-pci,netdev=net0 -netdev user,id=net0,host=192.168.8.1,net=192.168.8.0/24,restrict=off,hostname=guest$PORT,hostfwd=tcp:$LOCALIP:$PORT-192.168.8.3:22"
 QEMUOPTS="${CPU} ${SMP} -M ${MACHINE},${GICV} -m ${MEM} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L . -portrait"
-NETOPTS="-device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest$PORT,hostfwd=tcp:$LOCALIP:$PORT-192.168.7.2:22"
 SCREEN="-nographic -device virtio-gpu-pci -spice $SPICEOPTS $VDAGENT"
 
 #
