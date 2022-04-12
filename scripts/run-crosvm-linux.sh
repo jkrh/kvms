@@ -135,19 +135,23 @@ if [ "$USER" = "root" ]; then
 		ulimit -c unlimited
 	fi
 
-	ip tuntap add mode tap user $USER vnet_hdr crosvm_tap
-	sleep 1
-	ip addr add $TAPGWAY dev crosvm_tap
-	ip link set crosvm_tap up
-	echo 1 > /proc/sys/net/ipv4/ip_forward
-	iptables -t nat -A POSTROUTING -o $LOCALIF -j MASQUERADE
-	iptables -A FORWARD -i $LOCALIF -o crosvm_tap -j ACCEPT
-	iptables -A FORWARD -i crosvm_tap -o $LOCALIF -j ACCEPT
+	status=0
+	ip tuntap add mode tap user $USER vnet_hdr crosvm_tap 2>&1  > /dev/null || status=$?
+	if [ $status -eq 0 ]; then
+		sleep 1
+		ip addr add $TAPGWAY dev crosvm_tap
+		ip link set crosvm_tap up
+		echo 1 > /proc/sys/net/ipv4/ip_forward
+		iptables -t nat -A POSTROUTING -o $LOCALIF -j MASQUERADE
+		iptables -A FORWARD -i $LOCALIF -o crosvm_tap -j ACCEPT
+		iptables -A FORWARD -i crosvm_tap -o $LOCALIF -j ACCEPT
 
-	#guest side example:
-	#sudo ip addr add 192.168.7.2/24 dev enp0s4
-	#sudo ip link set enp0s4 up
-	#sudo ip route add default via 192.168.7.1
+		#guest side example:
+		#sudo ip addr add 192.168.7.2/24 dev enp0s4
+		#sudo ip link set enp0s4 up
+		#sudo ip route add default via 192.168.7.1
+	fi
+
 
 
 	if [ -z "$CPUSET" ]; then
