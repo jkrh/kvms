@@ -384,9 +384,18 @@ int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk);
  *
  * @param guest the guest
  * @param regs, array of the userspace exception registers
- * @return zero in case of success, negative error code otherwise
+ * @return true in case of success, false otherwise
  */
 bool do_process_core(kvm_guest_t *guest, void *regs);
+
+/*
+ * Make the host kernel run its own crash process when illegal access
+ * is detected.
+ *
+ * @param void
+ * @return true in case of success, false otherwise
+ */
+bool do_kernel_crash(void);
 
 #ifdef HOSTBLINDING
 static inline void set_blinding_default(kvm_guest_t *guest)

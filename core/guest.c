@@ -1523,27 +1523,44 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 {
 	kvm_guest_t *guest;
 	uint64_t spsr_el2;
+	uint64_t elr_el2;
 	bool res = false;
 
+	spin_lock(&core_lock);
 	guest = get_guest_by_s1pgd((struct ptable *)(ttbr0_el1 &
 				   TTBR_BADDR_MASK));
-	if (!guest)
-		return res;
-
-	spin_lock(&core_lock);
 	spsr_el2 = read_reg(SPSR_EL2);
+	elr_el2 = read_reg(ELR_EL2);
+
+	ERROR("guest access violation for %p (%p), syndrome %p\n",
+	      far_el2, virt_to_phys((void *)far_el2),
+	      read_reg(ESR_EL2));
+	ERROR("exception was at host virtual address %p (%p)\n",
+		elr_el2, virt_to_phys((void *)elr_el2));
+	print_regs(regs);
+	ERROR("\n");
+
 	switch(spsr_el2 & 0xF) {
 	case 0x0:
+		if (!guest) {
+			ERROR("source was unknown userspace process?\n");
+			res = do_kernel_crash();
+			goto out;
+		}
+
 		res = do_process_core(guest, regs);
 		break;
 	case 0x4:
 	case 0x5:
-		ERROR("please fix qemu guest access at %p, esr_el2: %p\n",
-		       far_el2, read_reg(ESR_EL2));
+		if (!guest) {
+			res = do_kernel_crash();
+			goto out;
+		}
 		print_addr(vmid, STAGE1, far_el2);
 		res = __map_back_host_page(get_guest(vmid), guest, far_el2);
 		break;
 	}
+out:
 	spin_unlock(&core_lock);
 
 	return res;
@@ -1559,6 +1576,28 @@ void set_memory_readable(kvm_guest_t *guest)
 	dsb(); isb();
 }
 
+bool do_kernel_crash()
+{
+	int iival = UNDEFINED;
+	uint64_t elr_el2;
+	void *phys;
+
+	/*
+	 * Crash the kernel with the configured handler
+	 */
+	ERROR("requesting a host kernel crash dump :-/\n");
+
+	elr_el2 = read_reg(ELR_EL2);
+	phys = virt_to_ipa((void *)elr_el2);
+	if (phys == (void *)~0UL)
+		HYP_ABORT();
+
+	memcpy(phys, &iival, 4);
+	write_reg(ELR_EL2, elr_el2);
+
+	return true;
+}
+
 bool do_process_core(kvm_guest_t *guest, void *regs)
 {
 	int iival = UNDEFINED;
@@ -1572,12 +1611,9 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 	/*
 	 * Userspace abort, crash only the process at hand
 	 */
-	elr_el2 = read_reg(ELR_EL2);
-	ERROR("userspace data abort at host virtual address %p(%p)\n",
-	   (void *)elr_el2, virt_to_phys((void *)elr_el2));
-	ERROR("failing address was %p\n", read_reg(FAR_EL2));
-	print_regs(regs);
+	ERROR("requesting a vm manager core dump :-/\n");
 
+	elr_el2 = read_reg(ELR_EL2);
 	phys = virt_to_ipa((void *)elr_el2);
 	if (phys == (void *)~0UL)
 		HYP_ABORT();
