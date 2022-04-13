@@ -804,23 +804,30 @@ int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 	return patrack_gpa_set_share(guest, gpa, len);
 }
 
-int is_any_share(uint64_t gpa)
+int is_any_share(uint64_t paddr)
 {
 	int i = 0;
+	uint64_t gpa;
 
-	while (i < last_guest_index) {
+	if (paddr == ~0UL)
+		return 0;
+
+	for (i = 0; i < last_guest_index; i++) {
 		if (!guests[i].vmid || (guests[i].vmid == INVALID_VMID))
-			goto cont;
+			continue;
 
 		if (guests[i].vmid < GUEST_VMID_START)
-			goto cont;
+			continue;
 
+		/* Check if guest has this address mapped */
+		if (patrack(&guests[i], paddr) != paddr)
+			continue;
+
+		gpa = patrack_hpa2gpa(&guests[i], paddr);
 		if (is_share(&guests[i], gpa, PAGE_SIZE) == 1)
 			return 1;
-
-cont:
-		i++;
 	}
+
 	return 0;
 }
 
@@ -1549,24 +1556,45 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *regs)
 {
 	kvm_guest_t *guest;
-	uint64_t spsr_el2;
-	uint64_t elr_el2;
+	uint64_t spsr_el2, elr_el2, paddr;
 	bool res = false;
 
 	spin_lock(&core_lock);
+
+	paddr = (uint64_t)virt_to_ipa((void *)far_el2);
+	/* Shared page should never abort at host context. */
+	if (is_any_share(paddr))
+		HYP_ABORT();
+
 	guest = get_guest_by_s1pgd((struct ptable *)(ttbr0_el1 &
 				   TTBR_BADDR_MASK));
 	spsr_el2 = read_reg(SPSR_EL2);
 	elr_el2 = read_reg(ELR_EL2);
 
-	ERROR("guest access violation for %p (%p), syndrome %p\n",
-	      far_el2, virt_to_phys((void *)far_el2),
-	      read_reg(ESR_EL2));
+	if (guest && guest->state == GUEST_RESET) {
+		/*
+		 * We arrive here if guest is in reset state and host pages
+		 * has not yet been restored. Make sure the faulting page
+		 * belongs to this guest and map the page back to host.
+		 */
+		if (patrack(guest, paddr) == paddr) {
+			memset((void *)paddr, 0, PAGE_SIZE);
+			res = __map_back_host_page(get_guest(vmid), guest,
+							     far_el2);
+			if (res)
+				goto out;
+			ERROR("failed to restore %p (%p) to the host\n",
+			      far_el2, paddr);
+		}
+	}
+
+	ERROR("guest access violation for %p (%p), syndrome %p\n", far_el2,
+	      paddr, read_reg(ESR_EL2));
 	ERROR("exception was at host virtual address %p (%p)\n",
-		elr_el2, virt_to_phys((void *)elr_el2));
+	      elr_el2, virt_to_phys((void *)elr_el2));
 	print_regs(regs);
 
-	switch(spsr_el2 & 0xF) {
+	switch (spsr_el2 & 0xF) {
 	case 0x0:
 		if (!guest) {
 			ERROR("source was unknown userspace process?\n");

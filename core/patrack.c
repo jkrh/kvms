@@ -37,7 +37,7 @@ static void patrack_context_unload(void)
 	isb();
 }
 
-static uint64_t patrack(struct kvm_guest *guest, uint64_t paddr)
+uint64_t patrack(struct kvm_guest *guest, uint64_t paddr)
 {
 	uint64_t par_el1;
 

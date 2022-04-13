@@ -197,6 +197,15 @@ int patrack_gpa_clear_share(struct kvm_guest *guest, uint64_t gpa,
 int patrack_gpa_is_share(struct kvm_guest *guest, uint64_t gpa, size_t length);
 
 /*
+ * Check if guest owns a physical page
+ *
+ * @param guest to check the ownership for
+ * @param paddr page address to check
+ * @return physical address if guest owns the page, ~0UL otherwise.
+ */
+uint64_t patrack(struct kvm_guest *guest, uint64_t paddr);
+
+/*
  * Check who owns a page
  *
  * @param addr physical memory address
