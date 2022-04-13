@@ -8,6 +8,9 @@
 #include "helpers.h"
 #include "hyplogs.h"
 #include "hvccall.h"
+#include "spinlock.h"
+
+static spinlock_t psci_lock;
 
 /*
  * TODO: Add implementation to UART driver to check whether clocks are
@@ -35,7 +38,19 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 	cpu_map = guest->cpu_map;
 	cpuid = smp_processor_id();
 
+	/*
+	 * Need for this lock is a bit questionable - but for now want to
+	 * play safe so that we can never be turning things on and off in
+	 * parallel.
+	 */
+	if (vmid != HOST_VMID)
+		spin_lock(&psci_lock);
+
 	switch (cn) {
+	case PSCI_FEATURES:
+		if (vmid != HOST_VMID)
+			LOG("VMID %lu psci features\n", vmid);
+		break;
 	case PSCI_VERSION:
 		if (vmid != HOST_VMID) {
 			LOG("VMID %lu running core: %lu\n", vmid, cpuid);
@@ -43,27 +58,28 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 		}
 		set_lockflags(HOST_KVM_TRAMPOLINE_LOCK, 0, 0, 0);
 		break;
+	case PSCI_CPU_SUSPEND:
 	case PSCI_CPU_SUSPEND_SMC64:
 		if (vmid == HOST_VMID) {
 			cpu_map[cpuid] = (kernel_func_t *)a2;
 			hcr_el2 = read_reg(HCR_EL2);
-			if ((hcr_el2 & 0x80000000) == 0) {
+			if ((hcr_el2 & 0x80000000) == 0)
 				LOG("suspend %lx\n", hcr_el2);
-			}
-		} else {
-			ERROR("VMID %lu suspend. Core: %lu\n", vmid, cpuid);
-		}
+		} else
+			LOG("VMID %u core %d suspend\n", vmid, cpuid);
 		break;
 	case PSCI_CPU_OFF:
 		cpu_map[cpuid] = 0x0;
 		break;
+	case PSCI_CPU_ON:
 	case PSCI_CPU_ON_SMC64:
-		if (vmid == HOST_VMID) {
+		if (vmid == HOST_VMID)
 			/* a1: target core MPIDR */
 			target_core = (a1 & (0x700)) >> 8;
-		} else {
+		else {
 			/* a1: the core number */
 			target_core = a1;
+			LOG("VMID %u core %d cpu on\n", vmid, cpuid);
 		}
 		if (target_core < maxcpu) {
 			/* a2 has the core entry address */
@@ -73,18 +89,33 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 		break;
 	case PSCI_SYSTEM_OFF:
 		if (vmid != HOST_VMID) {
-			LOG("VMID %lu stopped\n", vmid);
-			update_guest_state(GUEST_STOPPED);
-		}
-		break;
-	case PSCI_SYSTEM_RESET:
-		if (vmid != HOST_VMID) {
-			LOG("VMID %lu reset\n", vmid);
+			LOG("VMID %lu system power off\n", vmid);
 			update_guest_state(GUEST_RESET);
 		}
 		break;
+	case PSCI_SYSTEM_RESET:
+	case PSCI_SYSTEM_RESET2:
+	case PSCI_SYSTEM_RESET_SMC64:
+		if (vmid != HOST_VMID) {
+			LOG("VMID %lu system reset\n", vmid);
+			update_guest_state(GUEST_RESET);
+		}
+		break;
+	case PSCI_SYSTEM_SUSPEND:
+	case PSCI_SYSTEM_SUSPEND_SMC64:
+		if (vmid != HOST_VMID)
+			LOG("VMID %lu system suspend\n", vmid);
+		break;
+	case PSCI_MIGRATE_INFO_TYPE:
+		if (vmid != HOST_VMID)
+			LOG("VMID %lu migrate info type\n", vmid);
+		break;
 	default:
-		/*LOG("VMID %lu unknown PSCI call %lx\n", vmid, cn);*/
+		if (vmid != HOST_VMID)
+			ERROR("VMID %lu unknown PSCI call %lx\n", vmid, cn);
 		break;
 	}
+
+	if (vmid != HOST_VMID)
+		spin_unlock(&psci_lock);
 }

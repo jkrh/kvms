@@ -962,7 +962,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		goto out_error;
 	}
 
-	if (guest->state == GUEST_CRASHING)
+	if (guest->state > GUEST_RUNNING)
 		return -EFAULT;
 
 	host = get_guest(HOST_VMID);
@@ -1565,7 +1565,6 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	ERROR("exception was at host virtual address %p (%p)\n",
 		elr_el2, virt_to_phys((void *)elr_el2));
 	print_regs(regs);
-	ERROR("\n");
 
 	switch(spsr_el2 & 0xF) {
 	case 0x0:

@@ -35,8 +35,8 @@ typedef int kernel_func_t(uint64_t, ...);
 
 typedef enum {
 	GUEST_INVALID = 0x0,
-	GUEST_STOPPED,
 	GUEST_RUNNING,
+	GUEST_STOPPED,
 	GUEST_SLEEPING,
 	GUEST_CRASHING,
 	GUEST_RESET,
