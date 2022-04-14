@@ -1596,11 +1596,8 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 
 	switch (spsr_el2 & 0xF) {
 	case 0x0:
-		if (!guest) {
+		if (!guest)
 			ERROR("source was unknown userspace process?\n");
-			res = do_kernel_crash();
-			goto out;
-		}
 
 		res = do_process_core(guest, regs);
 		break;
@@ -1639,7 +1636,7 @@ bool do_kernel_crash()
 	/*
 	 * Crash the kernel with the configured handler
 	 */
-	ERROR("requesting a host kernel crash dump :-/\n");
+	ERROR("requesting the host kernel crash dump :-/\n");
 
 	elr_el2 = read_reg(ELR_EL2);
 	phys = virt_to_ipa((void *)elr_el2);
@@ -1658,30 +1655,37 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 	uint64_t elr_el2;
 	void *phys;
 
-	if (guest->state != GUEST_RUNNING)
-		return false;
-	guest->state = GUEST_CRASHING;
-
 	/*
 	 * Userspace abort, crash only the process at hand
 	 */
-	ERROR("requesting a vm manager core dump :-/\n");
+	if (guest) {
+		if (guest->state != GUEST_RUNNING)
+			return false;
+		guest->state = GUEST_CRASHING;
+
+		ERROR("requesting the vm manager core dump :-/\n");
+	} else
+		ERROR("requesting the violating process core dump :-/\n");
 
 	elr_el2 = read_reg(ELR_EL2);
 	phys = virt_to_ipa((void *)elr_el2);
 	if (phys == (void *)~0UL)
 		HYP_ABORT();
 
-	/*
-	 * Make the core dump region readable immediately, either
-	 * as zeroes or data.
-	 */
-	set_memory_readable(guest);
+	if (guest) {
+		/*
+		 * Make the core dump region readable immediately, either as
+		 * zeroes or data.
+		 */
+		set_memory_readable(guest);
 
-	/* Grab the instruction that failed */
-	guest->fail_addr = phys;
-	memcpy(&guest->fail_inst, phys, 4);
+		/*
+		 * Save the instruction and address that failed
+		 */
+		memcpy(&guest->fail_inst, phys, 4);
+		guest->fail_addr = phys;
 
+	}
 	/* Feed invalid instruction */
 	memcpy(phys, &iival, 4);
 
