@@ -69,14 +69,12 @@ guest_exit:
 	tbnz	x2, #8, 1f
 	ret
 
-1:
-	mrs	x2, ELR_EL2
+1:	mrs	x2, ELR_EL2
 	mrs	x3, ESR_EL2
 	mrs	x4, SPSR_EL2
 	mov	x5, x0
 
 	msr	daifclr, #4
-
 	isb
 
 	msr	daifset, #4

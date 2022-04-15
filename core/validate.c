@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
 #include "commondefines.h"
 #include "guest.h"
 #include "armtrans.h"

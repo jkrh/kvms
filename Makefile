@@ -40,11 +40,11 @@ $(FETCH_SOURCES):
 	@echo "Fetching sources.."
 	@git submodule update --init
 
-$(TOOLS_GCC): | $(FETCH_SOURCES)
+$(TOOLS_QEMU): | $(FETCH_SOURCES)
 	@mkdir -p $(TOOLDIR)
 	./scripts/build-tools.sh
 
-tools: $(TOOLS_GCC)
+tools: $(TOOLS_QEMU)
 
 tools-clean:
 	./scripts/build-tools.sh clean
