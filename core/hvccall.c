@@ -342,6 +342,10 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_READ_LOG:
 		res = read_log();
 		break;
+	case HYP_SYNC_GPREGS:
+		res = hyp_sync_gpregs(a1, a2);
+		break;
+
 	/*
 	 * KVM callbacks
 	 */
@@ -565,3 +569,19 @@ void memctrl_exec(uint64_t *sp)
 	spin_unlock(&crash_lock);
 #endif
 }
+
+#ifdef GUESTDEBUG
+int hyp_sync_gpregs(uint64_t a1, uint64_t a2)
+{
+	struct vcpu_context *res;
+
+	res = (struct vcpu_context *)eops.hyp_vcpu_regs(a1, a2);
+	if (res) {
+		memcpy(res->kvm_regs, &res->regs, sizeof(struct user_pt_regs));
+		return 0;
+	}
+
+	return -EFAULT;
+}
+#endif
+

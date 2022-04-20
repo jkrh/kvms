@@ -23,6 +23,14 @@ BUILDOPTS += -DDEBUG=2
 endif
 
 #
+# Use to allow remote debuggers to see secure guest internals.
+# This is of course massively insecure development feature.
+#
+ifeq ($(GUESTDEBUG),1)
+BUILDOPTS += -DGUESTDEBUG
+endif
+
+#
 # Default build will include headers from linux kernel and
 # work as KVM extension. Standalone build on the other hand
 # will compile without the defines from linux kernel headers.

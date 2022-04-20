@@ -78,9 +78,10 @@ struct hyp_extension_ops {
 #define HYP_LAST_GUESTCALL		HYP_GUEST_VCPU_REG_RESET
 
 /*
- * Misc
+ * Optional - for debug only.
  */
 #define HYP_READ_LOG			0xA000
+#define HYP_SYNC_GPREGS			0xA001
 
 #define STR(x) #x
 #define XSTR(s) STR(s)

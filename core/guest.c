@@ -200,7 +200,11 @@ uint64_t guest_enter(void *vcpu)
 			ctxt->regs.regs[reg] = kvm_regs->regs[reg];
 	switch (ctxt->pc_sync_from_kvm) {
 	case PC_SYNC_SKIP:
+#ifdef GUESTDEBUG
+		if (kvm_regs->pc == ctxt->regs.pc + 4)
+#else
 		if (kvm_regs->pc == 4)
+#endif
 			ctxt->regs.pc += 4;
 		break;
 	case PC_SYNC_COPY:
@@ -1505,8 +1509,9 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 	memcpy(&ctxt->regs.regs, &regs->regs, sizeof(ctxt->regs.regs));
 	ctxt->regs.sp = read_reg(SP_EL0);
 	ctxt->regs.pc = read_reg(ELR_EL2);
+#ifndef GUESTDEBUG
 	write_reg(ELR_EL2, 0);
-
+#endif
 	switch (ESR_EC(esr)) {
 	case 0x01:	/* WFx */
 		ctxt->pc_sync_from_kvm = PC_SYNC_SKIP;
@@ -1551,6 +1556,12 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 	default:
 		break;
 	}
+
+#ifdef GUESTDEBUG
+	hyp_sync_gpregs(vmid, vcpuid);
+	ctxt->kvm_regs->sp = read_reg(SP_EL0);
+	ctxt->kvm_regs->pc = read_reg(ELR_EL2);
+#endif
 }
 
 bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *regs)
@@ -1596,6 +1607,11 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 
 	switch (spsr_el2 & 0xF) {
 	case 0x0:
+#ifdef GUESTDEBUG
+		LOG("guest debug: access OK\n");
+		res = __map_back_host_page(get_guest(vmid), guest, far_el2);
+		break;
+#endif
 		if (!guest)
 			ERROR("source was unknown userspace process?\n");
 
