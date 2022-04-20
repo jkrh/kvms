@@ -15,6 +15,13 @@
 
 cp ~/.gitconfig gitconfig
 
+# .gitconfig file should contain at least
+
+# [user]
+#     name = Your name
+#     email = yourname@email.invalid
+
+
 # Build the docker image
 
 docker build --build-arg userid=$(id -u) --build-arg groupid=$(id -g) --build-arg username=$(id -un) -t kvms .
