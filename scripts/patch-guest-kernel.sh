@@ -57,7 +57,9 @@ tar xf /tmp/${UBUNTU_BASE} -C /mnt
 wget -N https://cdn.kernel.org/pub/linux/kernel/v5.x/linux-${KERNEL_VERSION}.tar.xz -P /tmp
 tar xf /tmp/linux-${KERNEL_VERSION}.tar.xz
 cd linux-${KERNEL_VERSION}
-patch -p1 < ${PATCH_FILE}
+# if patch is already applied, return 0
+# if patching fails still returns 0 :(
+patch -p1 --forward < ${PATCH_FILE} || true
 make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=/mnt/usr -j8  defconfig Image modules modules_install
 cd ..
 cp linux-${KERNEL_VERSION}/arch/arm64/boot/Image .
