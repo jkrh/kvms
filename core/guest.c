@@ -651,7 +651,7 @@ int guest_memchunk_alloc(kvm_guest_t *guest,
 
 static int guest_set_table_levels(kvm_guest_t *guest, void *kvm)
 {
-	uint64_t vtcr_el2;
+	uint64_t vtcr_el2, t0sz;
 
 	vtcr_el2 = KVM_GET_VTCR(kvm);
 
@@ -678,9 +678,15 @@ static int guest_set_table_levels(kvm_guest_t *guest, void *kvm)
 		return -ENOTSUP;
 	}
 
-	/* FIXME: do proper detection */
-	guest->table_levels_el1s1 = TABLE_LEVELS;
-	guest->table_levels_el2s1 = TABLE_LEVELS;
+	t0sz = TCR_ELx_T0SZ(read_reg(TCR_EL1));
+	guest->table_levels_el1s1 = s1_t0sz_to_levels(t0sz);
+
+	t0sz = TCR_ELx_T0SZ(read_reg(TCR_EL2));
+	guest->table_levels_el2s1 = s1_t0sz_to_levels(t0sz);
+
+	if ((guest->table_levels_el1s1 == 0) ||
+	    (guest->table_levels_el2s1 == 0))
+		return -ENOTSUP;
 
 	return 0;
 }

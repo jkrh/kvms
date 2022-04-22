@@ -49,6 +49,8 @@
 #define SCTLR_MMU 0
 #define SCTLR_A 1
 #define SCTLR_C 2
+#define SCTLR_SA 3
+#define SCTLR_I 12
 #define SCTLR_NAA 6
 
 /* VTCR */

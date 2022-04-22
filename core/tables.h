@@ -147,6 +147,28 @@ int free_pgd(struct tablepool *tpool, struct ptable *pgd_base);
  */
 int free_table(struct tablepool *tpool, struct ptable *table);
 
+/**
+ * Get table levels for stage1 lookup
+ *
+ * For a stage 1 translation, the required initial lookup level is
+ * determined only by the required input address range specified by
+ * the corresponding TCR_ELx.TnSZ field.
+ *
+ * @param t0sz from a TCR_ELx
+ * @return initial lookup level for page tables, zero if not supported
+ */
+static inline uint8_t s1_t0sz_to_levels(uint64_t t0sz)
+{
+	if (t0sz < 25)
+		return 4;
+	if (t0sz < 34)
+		return 3;
+	if (t0sz < 40)
+		return 2;
+
+	return 0;
+}
+
 /*
  * Internal use only below - keep out.
  */

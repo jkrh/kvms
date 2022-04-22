@@ -1073,6 +1073,8 @@ void enable_mmu(void)
 	bit_set(sctlr, SCTLR_MMU);
 	bit_drop(sctlr, SCTLR_A);
 	bit_set(sctlr, SCTLR_C);
+	bit_set(sctlr, SCTLR_SA);
+	bit_set(sctlr, SCTLR_I);
 	write_reg(SCTLR_EL2, sctlr);
 
 	/*

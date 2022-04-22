@@ -36,8 +36,6 @@ struct ptable
 #define KERNEL_MATTR		(1 << 7)
 #define KEEP_MATTR		(1 << 8)
 
-#define NORMAL_WBACK_LINUX	(0x4 << ATTR_INDX_SHIFT)
-
 /* Stage 2 normal memory attributes */
 #define S2_NORMAL_MEMORY	(S2_OWB | S2_IWB)
 
