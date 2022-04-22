@@ -16,6 +16,7 @@
 #include "spinlock.h"
 #include "validate.h"
 #include "arm-sysregs.h"
+#include "linuxdefines.h"
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -65,6 +66,21 @@ extern uint64_t hyp_guest_enter(void *vcpu, struct user_pt_regs *regs);
 #define ESR_EC(esr)          ((esr) >> 26)
 #define ISS_SYSREG_RT(esr)   (((esr) & 0x3e0) >> 5)
 #define ISS_SYSREG_DIR(esr)  (!!((esr) & 0x1))
+
+#define ISS_SYSREG_OP0(esr)  (((esr) & 0x300000) >> 20)
+#define ISS_SYSREG_OP2(esr)  (((esr) & 0xE0000) >> 17)
+#define ISS_SYSREG_OP1(esr)  (((esr) & 0x1C000) >> 14)
+#define ISS_SYSREG_CRN(esr)  (((esr) & 0x3C00) >> 10)
+#define ISS_SYSREG_CRM(esr)  (((esr) & 0x1E) >> 1)
+/* System register name, encoded in the "o0:op1:CRn:CRm:op2 */
+#define ISS_SYSREG_NAME(esr)  (					\
+			      (ISS_SYSREG_OP0(esr) << 14) |	\
+			      (ISS_SYSREG_OP1(esr) << 10) |	\
+			      (ISS_SYSREG_CRN(esr) << 7) |	\
+			      (ISS_SYSREG_CRM(esr) << 3) |	\
+			      ISS_SYSREG_OP2(esr)		\
+			      )
+
 #define ISS_DABT_ISV(esr)    (!!((esr) & 0x1000000))
 #define ISS_DABT_SRT(esr)    (((esr) & 0x1f0000) >> 16)
 #define ISS_DABT_WNR(esr)    (!!((esr) & 0x40))
@@ -1492,12 +1508,56 @@ int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid)
 	return 0;
 }
 
+#ifdef EXITLOG
+static void guest_exitlog_add(kvm_guest_t *guest, uint32_t esr,
+			      uint64_t exception_index)
+{
+	uint64_t idx;
+
+	if (exception_index == ARM_EXCEPTION_IRQ) {
+		guest->exitlog.interrupts++;
+		return;
+	}
+
+	idx = ESR_EC(esr);
+	guest->exitlog.exceptions[idx]++;
+
+	switch (idx) {
+	case 0x18:
+		for (idx = 0; idx < SYSREG_TRAPLOGITEMS; idx++) {
+			if (guest->exitlog.sysreg_traplog[idx].name == ISS_SYSREG_NAME(esr)) {
+				if (ISS_SYSREG_DIR(esr))
+					guest->exitlog.sysreg_traplog[idx].rcount++;
+				else
+					guest->exitlog.sysreg_traplog[idx].wcount++;
+				break;
+			}
+			if (guest->exitlog.sysreg_traplog[idx].name == 0) {
+				guest->exitlog.sysreg_traplog[idx].name = ISS_SYSREG_NAME(esr);
+				break;
+			}
+		}
+		if (idx >= SYSREG_TRAPLOGITEMS)
+			ERROR("sysreg_traplog full\n");
+		break;
+	default:
+		break;
+	}
+}
+#else
+static inline void guest_exitlog_add(kvm_guest_t *guest, uint32_t esr,
+				     uint64_t exception_index)
+{
+}
+#endif
+
 /*
  * Note that this may bypass core_lock. This is acceptable as long as
  * we only access static guest data or VCPU registers which won't be
  * concurrently accessed by other cores.
  */
-void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_pt_regs *regs)
+void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr,
+		     struct user_pt_regs *regs, uint64_t exception_index)
 {
 	struct vcpu_context *ctxt;
 	uint32_t reg;
@@ -1518,6 +1578,8 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr, struct user_p
 #ifndef GUESTDEBUG
 	write_reg(ELR_EL2, 0);
 #endif
+	guest_exitlog_add(guest, esr, exception_index);
+
 	switch (ESR_EC(esr)) {
 	case 0x01:	/* WFx */
 		ctxt->pc_sync_from_kvm = PC_SYNC_SKIP;

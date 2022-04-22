@@ -9,11 +9,6 @@
 #include "hvccall-defines.h"
 #include "host_defs.h"
 
-#define ARM_EXCEPTION_IRQ 0
-#define ARM_EXCEPTION_EL1_SERROR 1
-#define ARM_EXCEPTION_TRAP 2
-#define ARM_EXCEPTION_IL 3
-
 /*
  * Utility macros
  */

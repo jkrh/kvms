@@ -17,14 +17,14 @@
 #define PRINTREG(...)
 #endif
 
-#ifdef DEBUG
+#ifdef SPINNER
 void spinner(void);
 #else
 static inline void spinner(void)
 {
 
 }
-#endif // DEBUG
+#endif // SPINNER
 
 void log_init(void);
 uint64_t read_log(void);

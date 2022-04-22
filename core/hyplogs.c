@@ -13,7 +13,7 @@ extern int __getchar(void);
 
 static struct timeval boot_ts ALIGN(16);
 
-#ifdef DEBUG
+#ifdef SPINNER
 const char bars[] = { '/', '-', '\\', '|' };
 const int nb = sizeof(bars) / sizeof(char);
 

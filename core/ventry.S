@@ -4,6 +4,7 @@
 
 #include "pt_regs.h"
 #include "linuxmacros.h"
+#include "linuxdefines.h"
 #include <psci.h>
 
 	.global	guest_exit

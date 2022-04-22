@@ -31,6 +31,22 @@ BUILDOPTS += -DGUESTDEBUG
 endif
 
 #
+# Enable to collect per guest statistics on exit reasons for
+# configuration and performance analysis.
+#
+ifeq ($(EXITLOG),1)
+BUILDOPTS += -DEXITLOG
+endif
+
+#
+# Enable to visualize guest mapping operation to console.
+# Useful for example in early stages of platform porting.
+#
+ifeq ($(SPINNER),1)
+BUILDOPTS += -DSPINNER
+endif
+
+#
 # Default build will include headers from linux kernel and
 # work as KVM extension. Standalone build on the other hand
 # will compile without the defines from linux kernel headers.

@@ -82,6 +82,21 @@ struct vcpu_context {
 	struct nvhe_sysregs state;
 };
 
+#ifdef EXITLOG
+#define NUM_EC 64
+#define SYSREG_TRAPLOGITEMS 128
+struct sysreg_traplogitem {
+	uint32_t name;
+	uint64_t rcount;
+	uint64_t wcount;
+};
+struct guest_exitlog {
+	uint64_t exceptions[NUM_EC];
+	uint64_t interrupts;
+	struct sysreg_traplogitem sysreg_traplog[SYSREG_TRAPLOGITEMS];
+};
+#endif /* EXITLOG */
+
 struct kvm_guest {
 	uint32_t vmid;
 	guest_state_t state;
@@ -110,6 +125,9 @@ struct kvm_guest {
 	struct vcpu_context vcpu_ctxt[NUM_VCPUS];
 	void *fail_addr;
 	uint32_t fail_inst;
+#ifdef EXITLOG
+	struct guest_exitlog exitlog;
+#endif
 };
 
 typedef struct kvm_guest kvm_guest_t;

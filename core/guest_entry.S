@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include "linuxmacros.h"
+#include "linuxdefines.h"
 #include "pt_regs.h"
 
 	.global	hyp_guest_enter
@@ -51,6 +52,7 @@ guest_exit:
 	ldr	x1, [x1, #VCPU_VCPUIDX]
 	mov	x2, x18
 	mov	x3, sp
+	mov	x4, x19
 	bl	guest_exit_prep
 	add	sp, sp, #(PT_REGS_SIZE)
 
