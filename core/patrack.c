@@ -164,14 +164,14 @@ int patrack_start(struct kvm_guest *guest)
 	if (res)
 		return res;
 
-	guest->patrack.ctxt.ttbr0_el1 = (uint64_t)pgd;
+	guest->patrack.ctxt.ttbr0_el1 = (uint64_t)pgd | PATRACK_ASID;
 	guest->patrack.EL1S1_0_pgd = pgd;
 
 	pgd = alloc_table(tpool);
 	if (pgd == NULL)
 		return -ENOMEM;
 
-	guest->patrack.ctxt.ttbr1_el1 = (uint64_t)pgd;
+	guest->patrack.ctxt.ttbr1_el1 = (uint64_t)pgd | PATRACK_ASID;
 
 	return 0;
 }
@@ -293,7 +293,7 @@ int patrack_mmap(struct kvm_guest *guest, uint64_t s1_addr, uint64_t ipa,
 	}
 
 	return mmap_range(guest, PATRACK_STAGE1, s1_addr, ipa, length,
-			  PAGE_KERNEL_RO | PATRACK_SH, NORMAL_WBACK_LINUX);
+			  PAGE_KERNEL_RO | PATRACK_SH, NORMAL_MEMORY);
 }
 
 int patrack_unmap(struct kvm_guest *guest, uint64_t s1_addr, size_t length)

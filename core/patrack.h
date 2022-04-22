@@ -72,6 +72,8 @@
  */
 #define PATRACK_HPA_MULTIREF	0x8000000000000000UL
 
+#define PATRACK_ASID	(0xFFUL << 48)
+
 struct patrack_hparef_s {
 	uint64_t hpa;
 	int count;
