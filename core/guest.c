@@ -969,13 +969,17 @@ static int page_is_exec(uint64_t prot)
 {
 	switch (prot & S2_XN_MASK) {
 	case S2_EXEC_EL1EL0:
-		return 1;
 	case S2_EXEC_EL0:
-		return 1;
 	case S2_EXEC_EL1:
 		return 1;
 	}
 	return 0;
+}
+
+static int page_is_cacheable(uint64_t prot)
+{
+	uint64_t attr = prot & TYPE_MASK_STAGE2;
+	return attr == S2_NORMAL_MEMORY;
 }
 
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
@@ -1189,11 +1193,12 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		 * We may have changed the page contents, flush the page just
 		 * in case before changing the permissions.
 		 */
-		if (page_is_exec(*pte))
-			__flush_icache_area((void *)paddr, PAGE_SIZE);
-		else
-			__flush_dcache_area((void *)paddr, PAGE_SIZE);
-
+		if (page_is_cacheable(*pte)) {
+			if (page_is_exec(*pte))
+				__flush_icache_area((void *)paddr, PAGE_SIZE);
+			else
+				__flush_dcache_area((void *)paddr, PAGE_SIZE);
+		}
 		/*
 		 * Detach the page from the guest
 		 */
