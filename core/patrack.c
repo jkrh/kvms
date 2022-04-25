@@ -10,7 +10,7 @@
 extern kvm_guest_t guests[MAX_VM];
 extern uint16_t last_guest_index;
 
-static void patrack_context_load(struct kvm_guest *guest)
+static sys_context_t *patrack_context_load(struct kvm_guest *guest)
 {
 	sys_context_t *host_ctxt;
 
@@ -23,14 +23,12 @@ static void patrack_context_load(struct kvm_guest *guest)
 	write_reg(TTBR1_EL1, guest->patrack.ctxt.ttbr1_el1);
 	write_reg(VTTBR_EL2, guest->ctxt[0].vttbr_el2);
 	isb();
+
+	return host_ctxt;
 }
 
-static void patrack_context_unload(void)
+static void patrack_context_unload(sys_context_t *host_ctxt)
 {
-	sys_context_t *host_ctxt;
-
-	host_ctxt = get_guest_context(HOST_VMID, smp_processor_id());
-
 	write_reg(TTBR0_EL1, host_ctxt->ttbr0_el1);
 	write_reg(TTBR1_EL1, host_ctxt->ttbr1_el1);
 	write_reg(VTTBR_EL2, host_ctxt->vttbr_el2);
@@ -40,12 +38,13 @@ static void patrack_context_unload(void)
 uint64_t patrack(struct kvm_guest *guest, uint64_t paddr)
 {
 	uint64_t par_el1;
+	sys_context_t *host_ctxt;
 
-	patrack_context_load(guest);
+	host_ctxt = patrack_context_load(guest);
 
 	par_el1 = (uint64_t)virt_to_phys((void *)paddr);
 
-	patrack_context_unload();
+	patrack_context_unload(host_ctxt);
 
 	return par_el1;
 }
@@ -376,11 +375,12 @@ int patrack_gpa_is_share(struct kvm_guest *guest, uint64_t gpa, size_t length)
 	int res = 0;
 	uint64_t paddr, tgpa, agpa;
 	ssize_t tlen;
+	sys_context_t *host_ctxt;
 
 	if (!guest || !length)
 		return -EINVAL;
 
-	patrack_context_load(guest);
+	host_ctxt = patrack_context_load(guest);
 
 	tgpa = gpa | PATRACK_SHAREOFFT;
 	agpa = gpa;
@@ -398,7 +398,7 @@ int patrack_gpa_is_share(struct kvm_guest *guest, uint64_t gpa, size_t length)
 		}
 	}
 
-	patrack_context_unload();
+	patrack_context_unload(host_ctxt);
 
 	return res;
 }
