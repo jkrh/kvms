@@ -1643,6 +1643,9 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	uint64_t spsr_el2, elr_el2, paddr;
 	bool res = false;
 
+	if (vmid != HOST_VMID)
+		HYP_ABORT();
+
 	spin_lock(&core_lock);
 
 	paddr = (uint64_t)virt_to_ipa((void *)far_el2);
