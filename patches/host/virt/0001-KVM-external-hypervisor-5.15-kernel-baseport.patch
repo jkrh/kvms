@@ -1,4 +1,4 @@
-From 322a923d593c232dac4ab5f409173389f19ac0fe Mon Sep 17 00:00:00 2001
+From 31823c1ca457aa1b4e8ed5710b765b58a92cb080 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 16 Mar 2022 14:56:47 +0200
 Subject: [PATCH] KVM: external hypervisor 5.15 kernel baseport
@@ -23,7 +23,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/ext-guest.c                    | 424 ++++++++
  arch/arm64/kvm/ext-guest.h                    |  36 +
  arch/arm64/kvm/fpsimd.c                       |   6 +-
- arch/arm64/kvm/hvccall-defines.h              |  91 ++
+ arch/arm64/kvm/hvccall-defines.h              |  94 ++
  arch/arm64/kvm/hyp/Makefile                   |   2 +-
  arch/arm64/kvm/hyp/exception.c                |   2 +
  arch/arm64/kvm/hyp/hyp-entry.S                |   4 +-
@@ -41,7 +41,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/reset.c                        |   1 +
  arch/arm64/kvm/va_layout.c                    |   1 +
  arch/arm64/kvm/vgic/vgic-v2.c                 |   6 +-
- 34 files changed, 927 insertions(+), 1844 deletions(-)
+ 34 files changed, 930 insertions(+), 1844 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -1245,7 +1245,7 @@ index f9c7e4e61b29..7b1ded14e493 100644
  
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..11d3efd1f599
+index 000000000000..2cb1a6d7d75a
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
 @@ -0,0 +1,424 @@
@@ -1316,7 +1316,7 @@ index 000000000000..11d3efd1f599
 +	u32 vmid = vcpu->kvm->arch.mmu.vmid.vmid;
 +	int err;
 +
-+	err = __kvms_hvc_cmd(HYP_MKYOUNG, vmid, fault_ipa);
++	err = __kvms_hvc_cmd(HYP_MKYOUNG, vmid, fault_ipa, PAGE_SIZE);
 +	if (err)
 +		pr_err("kvm: %s failed: %d\n", __func__, err);
 +}
@@ -1744,10 +1744,10 @@ index 5621020b28de..d6dcfa65fd49 100644
  	}
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..ae74ec17096d
+index 000000000000..ae42977a3ddd
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,94 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef __HYP_API__
 +#define __HYP_API__
@@ -1785,6 +1785,8 @@ index 000000000000..ae74ec17096d
 +#define HOST_KVM_CALL_LOCK		0x4
 +#define HOST_PT_LOCK			0x8
 +#define HOST_KVM_TRAMPOLINE_LOCK	0x10
++#define HOST_STAGE1_EXEC_LOCK		0x20
++#define	HOST_LOCKFLAG_MASK		0x3F
 +
 +/*
 + * Host protection support
@@ -1826,9 +1828,10 @@ index 000000000000..ae74ec17096d
 +#define HYP_LAST_GUESTCALL		HYP_GUEST_VCPU_REG_RESET
 +
 +/*
-+ * Misc
++ * Optional - for debug only.
 + */
 +#define HYP_READ_LOG			0xA000
++#define HYP_SYNC_GPREGS			0xA001
 +
 +#define STR(x) #x
 +#define XSTR(s) STR(s)

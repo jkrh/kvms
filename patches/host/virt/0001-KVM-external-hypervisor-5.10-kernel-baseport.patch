@@ -1,4 +1,4 @@
-From b54e32638b39c926474655921b2e530a776f6b31 Mon Sep 17 00:00:00 2001
+From 99add669c7e9c7a9221f00c1ddadbe67befc8409 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 21 Apr 2020 09:45:23 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -21,17 +21,17 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/ext-guest.c           | 454 +++++++++++++++++++++++++++
  arch/arm64/kvm/ext-guest.h           |  31 ++
  arch/arm64/kvm/fpsimd.c              |   4 +-
- arch/arm64/kvm/hvccall-defines.h     |  91 ++++++
+ arch/arm64/kvm/hvccall-defines.h     |  94 ++++++
  arch/arm64/kvm/hyp/Makefile          |   2 +-
  arch/arm64/kvm/hyp/kvms-hvci.S       |  11 +
  arch/arm64/kvm/hyp/nvhe/switch.c     |  15 +-
  arch/arm64/kvm/hyp/nvhe/tlb.c        |  17 +-
  arch/arm64/kvm/hyp/pgtable.c         |  24 +-
  arch/arm64/kvm/hyp/vgic-v3-sr.c      |   6 +
- arch/arm64/kvm/mmu.c                 | 133 +++++---
+ arch/arm64/kvm/mmu.c                 | 127 +++++---
  arch/arm64/kvm/reset.c               |   8 +-
  virt/kvm/kvm_main.c                  |   2 +-
- 24 files changed, 925 insertions(+), 143 deletions(-)
+ 24 files changed, 921 insertions(+), 144 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -700,7 +700,7 @@ index 5bc978be8043..b3cd52794987 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..8881a098723a
+index 000000000000..69ce44e9507b
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
 @@ -0,0 +1,454 @@
@@ -769,7 +769,7 @@ index 000000000000..8881a098723a
 +	u32 vmid = vcpu->kvm->arch.mmu.vmid.vmid;
 +	int err;
 +
-+	err = __kvms_hvc_cmd(HYP_MKYOUNG, vmid, fault_ipa);
++	err = __kvms_hvc_cmd(HYP_MKYOUNG, vmid, fault_ipa, PAGE_SIZE);
 +	if (err)
 +		pr_err("kvm: %s failed: %d\n", __func__, err);
 +}
@@ -1215,10 +1215,10 @@ index 3e081d556e81..bd74c6419f8a 100644
  
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..ae74ec17096d
+index 000000000000..ae42977a3ddd
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,94 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef __HYP_API__
 +#define __HYP_API__
@@ -1256,6 +1256,8 @@ index 000000000000..ae74ec17096d
 +#define HOST_KVM_CALL_LOCK		0x4
 +#define HOST_PT_LOCK			0x8
 +#define HOST_KVM_TRAMPOLINE_LOCK	0x10
++#define HOST_STAGE1_EXEC_LOCK		0x20
++#define	HOST_LOCKFLAG_MASK		0x3F
 +
 +/*
 + * Host protection support
@@ -1297,9 +1299,10 @@ index 000000000000..ae74ec17096d
 +#define HYP_LAST_GUESTCALL		HYP_GUEST_VCPU_REG_RESET
 +
 +/*
-+ * Misc
++ * Optional - for debug only.
 + */
 +#define HYP_READ_LOG			0xA000
++#define HYP_SYNC_GPREGS			0xA001
 +
 +#define STR(x) #x
 +#define XSTR(s) STR(s)
@@ -1575,7 +1578,7 @@ index 452f4cacd674..7afa96f528c3 100644
  	case 7:
  		__vgic_v3_write_ap0rn(cpu_if->vgic_ap0r[3], 3);
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 26068456ec0f..d377a1c5b24d 100644
+index 26068456ec0f..3ae921890812 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
 @@ -31,6 +31,10 @@ static phys_addr_t hyp_idmap_vector;
@@ -1876,24 +1879,15 @@ index 26068456ec0f..d377a1c5b24d 100644
  	if (err)
  		kvm_err("Failed to idmap %lx-%lx\n",
  			hyp_idmap_start, hyp_idmap_end);
-@@ -1301,9 +1324,16 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
- 	bool writable = !(mem->flags & KVM_MEM_READONLY);
- 	int ret = 0;
- 
-+	/*
-+	 * Current linaro gcc7 breaks from this if. Very odd.
-+	 *
-+	 * Register w1 reserved for memslot above gets re-used
-+	 * breaking the (more relevant) memslot check below.
-+
+@@ -1304,7 +1327,6 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	if (change != KVM_MR_CREATE && change != KVM_MR_MOVE &&
  			change != KVM_MR_FLAGS_ONLY)
  		return 0;
-+	*/
- 
+-
  	/*
  	 * Prevent userspace from creating a memory region outside of the IPA
-@@ -1370,6 +1400,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+ 	 * space addressable by the KVM guest IPA space.
+@@ -1370,6 +1392,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	else if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
  		stage2_flush_memslot(kvm, memslot);
  	spin_unlock(&kvm->mmu_lock);
@@ -1913,7 +1907,7 @@ index 26068456ec0f..d377a1c5b24d 100644
  out:
  	mmap_read_unlock(current->mm);
  	return ret;
-@@ -1385,7 +1428,7 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
+@@ -1385,7 +1420,7 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
  
  void kvm_arch_flush_shadow_all(struct kvm *kvm)
  {
