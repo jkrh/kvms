@@ -163,7 +163,7 @@ use_old:
 	res->nonce = nonce;
 	res->vmid = guest->vmid;
 	res->len = len;
-	if (guest->vmid != HOST_VMID) {
+	if (guest->vmid >= GUEST_VMID_START) {
 		mbedtls_sha256_init(&c);
 		ret = mbedtls_sha256_starts_ret(&c, 0);
 		if (ret)
@@ -175,6 +175,7 @@ use_old:
 		if (ret)
 			goto error;
 		ret = mbedtls_sha256_finish_ret(&c, res->sha256);
+
 error:
 		if (ret) {
 			memset(res->sha256, 0, 32);
@@ -237,8 +238,11 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	CHECKRES(ret);
 
 	ret = memcmp(sha256, res->sha256, 32);
-	if (ret != 0)
+	if (ret != 0) {
+		ERROR("range verification failed for guest %u, ipa %p\n",
+		      guest->vmid, ipa);
 		return -EINVAL;
+	}
 
 	return 0;
 }
