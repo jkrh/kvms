@@ -1049,10 +1049,12 @@ new_map:
 		 * the mapping or changing its permissions. We don't want writes
 		 * from the cache on something that changed permissions.
 		 */
-		if (page_is_exec(prot))
-			__flush_icache_area((void *)page_paddr, PAGE_SIZE);
-		else
-			__flush_dcache_area((void *)page_paddr, PAGE_SIZE);
+		if (page_is_cacheable(prot)) {
+			if (page_is_exec(prot))
+				__flush_icache_area((void *)page_paddr, PAGE_SIZE);
+			else
+				__flush_dcache_area((void *)page_paddr, PAGE_SIZE);
+		}
 		/*
 		 * If it wasn't mapped and we are mapping it back, verify
 		 * that the content is still the same. If the page was
