@@ -17,6 +17,7 @@
 #include "hvccall.h"
 #include "kentry.h"
 #include "tables.h"
+#include "heap.h"
 #include "crypto/platform_crypto.h"
 
 #include "mbedtls/entropy.h"
@@ -27,6 +28,7 @@ struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
 
 uint8_t crypto_buf[PAGE_SIZE*2];
+uint8_t key_heap[1024];
 struct timeval tv1 ALIGN(16);
 struct timeval tv2 ALIGN(16);
 uint8_t init_index;
@@ -183,6 +185,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 		tdinfo_init();
 		table_init();
 		res = machine_init(host);
+		set_heap(key_heap, sizeof(key_heap));
 		if (res)
 			return res;
 	} else {

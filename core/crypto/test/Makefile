@@ -11,10 +11,11 @@ CFLAGS := -march=armv8-a+nofp --sysroot=$(TOOLDIR) --no-sysroot-suffix $(INCLUDE
 CFLAGS += -lmbedtls -lmbedcrypto -L$(BASE_DIR)/mbedtls/library --static
 
 all: sha256test aestest
+
 sha256test: sha256test.c
-	 $(CC) sha256test.c $(CFLAGS) ../sha256_process.c ../sha256_armv8.S -o sha256test
+	$(CC) sha256test.c $(CFLAGS) ../sha256_process.c ../sha256_armv8.S -o sha256test
 aestest: aestest.c
-	 $(CC) aestest.c $(CFLAGS) -o aestest
+	$(CC) aestest.c $(CFLAGS) -o aestest
 
 test_vectors:
 	@echo Fetching NIST test vectors for AES and SHA256

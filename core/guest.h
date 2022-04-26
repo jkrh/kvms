@@ -125,6 +125,7 @@ struct kvm_guest {
 	struct vcpu_context vcpu_ctxt[NUM_VCPUS];
 	void *fail_addr;
 	uint32_t fail_inst;
+	void *keybuf;
 #ifdef EXITLOG
 	struct guest_exitlog exitlog;
 #endif

@@ -24,6 +24,7 @@
 #include "gic.h"
 #include "oplocks.h"
 #include "crypto/platform_crypto.h"
+#include "keystore.h"
 
 #define ISS_MASK		0x1FFFFFFUL
 #define ISS_RT_MASK		0x3E0UL
@@ -87,6 +88,15 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		if (res)
 			ERROR("unable to mark region %p/%d as shared\n",
 			      a1, (int)a2);
+		break;
+	case HYP_GENERATE_KEY:
+		res = generate_key(guest, (uint8_t *) a1, (uint32_t *) a2, a3, (char *) a4);
+		break;
+	case HYP_GET_KEY:
+		res = get_key(guest, (uint8_t *) a1, (uint32_t *) a2, a3, (char *) a4);
+		break;
+	case HYP_DELETE_KEY:
+		res = delete_key(guest, a1, (char *) a2);
 		break;
 #ifdef DEBUG
 	case HYP_TRANSLATE:
@@ -345,7 +355,14 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_SYNC_GPREGS:
 		res = hyp_sync_gpregs(a1, a2);
 		break;
-
+	case HYP_SAVE_KEY:
+		guest = get_guest(a1);
+		res = save_vm_key(guest, (uint8_t *)a2, (uint32_t *)a3);
+		break;
+	case HYP_LOAD_KEY:
+		guest = get_guest(a1);
+		res = load_vm_key(guest, (uint8_t *)a2, a3);
+		break;
 	/*
 	 * KVM callbacks
 	 */

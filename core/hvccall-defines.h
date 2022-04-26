@@ -83,6 +83,12 @@ struct hyp_extension_ops {
 #define HYP_READ_LOG			0xA000
 #define HYP_SYNC_GPREGS			0xA001
 
+#define HYP_GENERATE_KEY		0xB000
+#define HYP_GET_KEY			0xB001
+#define HYP_DELETE_KEY			0xB002
+#define HYP_SAVE_KEY			0xB003
+#define HYP_LOAD_KEY			0xB004
+
 #define STR(x) #x
 #define XSTR(s) STR(s)
 
