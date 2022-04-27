@@ -308,6 +308,7 @@ libdrm-common
 libdrm2
 libwayland-server0
 libgbm1
+libgbm-dev
 libepoxy0
 libvirglrenderer1
 libvirglrenderer-dev
