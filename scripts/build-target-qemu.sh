@@ -14,11 +14,19 @@ QEMU_USER=`which qemu-aarch64-static`
 
 if [ -n "$STATIC" ]; then
 echo "Static build"
+SPICE="${SPICE:-1}"
+OPENGL="${OPENGL:-""}"
+SDL="${SDL:-""}"
+VIRGL="${VIRGL:-""}"
 SSTATIC="--enable-static"
 QSTATIC="--disable-libudev --disable-xkbcommon --static"
 SHARED_GLAPI="-Dshared-glapi=disabled -Dglx=disabled"
 else
 echo "Full sysroot build"
+SPICE="${SPICE:-1}"
+OPENGL="${OPENGL:-1}"
+SDL="${SDL:-1}"
+VIRGL="${VIRGL:-1}"
 SSTATIC=""
 QSTATIC=""
 SHARED_GLAPI="-Dshared-glapi=enabled -Dglx=gallium-xlib"
@@ -32,6 +40,7 @@ echo "OpenGL disabled"
 OPENGL="--disable-opengl"
 fi
 
+SPICE_VER="${SPICE_VER:-"spice-0.14.3"}"
 if [ -n "$SPICE" ]; then
 echo "Spice enabled"
 SPICE="--enable-spice"
@@ -96,6 +105,7 @@ do_clean()
 	sudo rm -rf $BASE_DIR/oss/ubuntu
 	cd $BASE_DIR/oss/qemu; sudo git clean -xfd || true
 	sudo rm -rf $BASE_DIR/oss/emu
+	sudo rm -rf $BASE_DIR/oss/ubuntu/build/$SPICE_VER
 }
 
 do_patch()
@@ -130,10 +140,12 @@ do_sysroot()
 do_spice()
 {
 	cd $BASE_DIR/oss/ubuntu/build
-	sudo rm -rf spice-0.14.3
-	wget https://www.spice-space.org/download/releases/spice-server/spice-0.14.3.tar.bz2
-	tar xf spice-0.14.3.tar.bz2
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/spice-0.14.3; ./configure --prefix=/usr $SSTATIC --disable-celt051 ; make -j$NJOBS ; make install"
+	if [ ! -d $BASE_DIR/oss/ubuntu/build/$SPICE_VER ]; then
+		sudo rm -rf $SPICE_VER
+		wget https://www.spice-space.org/download/releases/spice-server/$SPICE_VER.tar.bz2
+		tar xf $SPICE_VER.tar.bz2
+	fi
+	sudo -E chroot $CHROOTDIR sh -c "cd /build/$SPICE_VER; ./configure --prefix=/usr $SSTATIC --disable-celt051 ; make -j$NJOBS ; make install"
 }
 
 do_mesa()
@@ -153,7 +165,7 @@ do_qemu()
 	cd $BASE_DIR/oss/ubuntu/build
 	if [ -n "$STATIC" ]; then
 		STATIC_QEMU_LIBS="-L/usr/lib/aarch64-linux-gnu -lgmodule-2.0 -lgobject-2.0 -lgio-2.0 -lglib-2.0 -lspice-server -lpixman-1 -lgmodule-2.0 -lgobject-2.0 -lgio-2.0 -lglib-2.0 -lpthread -lpcre -ljpeg -lm -lffi -lz -lssl -lcrypto -ldl -lopus -lm"
-		sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --extra-ldflags="$STATIC_QEMU_LIBS" --enable-kvm --audio-drv-list=oss --disable-alsa --disable-pa $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
+		sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --extra-ldflags='$STATIC_QEMU_LIBS' --enable-kvm --audio-drv-list=oss --disable-alsa --disable-pa $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
 	else
 		sudo -E chroot $CHROOTDIR sh -c "cd /build/qemu/build; ../configure --prefix=/usr --target-list=aarch64-softmmu --with-git-submodules=ignore --enable-kvm --extra-cflags=\"-I/usr/local/include\" --extra-ldflags=\"-L/usr/local/lib/aarch64-linux-gnu -lgbm\" $SPICE $OPENGL $SDL $VIRGL $QSTATIC"
 	fi
