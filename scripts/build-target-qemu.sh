@@ -40,7 +40,7 @@ echo "OpenGL disabled"
 OPENGL="--disable-opengl"
 fi
 
-SPICE_VER="spice-0.14.3"
+SPICE_VER="${SPICE_VER:-"spice-0.14.3"}"
 if [ -n "$SPICE" ]; then
 echo "Spice enabled"
 SPICE="--enable-spice"
