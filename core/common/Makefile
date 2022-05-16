@@ -1,5 +1,5 @@
 
-C_SOURCES := heap.c hyplogs.c keystore.c
+C_SOURCES := heap.c  keystore.c hyplogs.c
 LIBNAME := libcommon.a
 
 include $(BASE_DIR)/core/common.mk

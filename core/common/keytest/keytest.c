@@ -6,12 +6,14 @@
 #include "mbedtls/ctr_drbg.h"
 #include "guest.h"
 #include "keystore.h"
+#include "mbedtls/memory_buffer_alloc.h"
 
 typedef struct kvm_guest kvm_guest_t;
 
 int set_heap(void *h, size_t sz);
 
 kvm_guest_t guest[4];
+uint8_t crypto_buf[1024];
 
 struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
@@ -74,21 +76,26 @@ int checkkey(uint8_t *a, uint8_t *b, uint32_t len)
 
 int main(void)
 {
-	uint32_t savebuf_size = 1024;
+	size_t savebuf_size = 1024;
 	keys_t keys[9];
-	uint32_t bufsize = 32;
+	size_t bufsize = 32;
 	uint8_t buf[32];
 	uint8_t savebuf[1024];
+	const uint8_t guest_id[] = "test22test";
 	int ret;
 
 	printf("Start\n");
 	memset(heap, 0, sizeof(heap));
+	mbedtls_memory_buffer_alloc_init(crypto_buf, sizeof(crypto_buf));
+
 	mbedtls_entropy_init(&mbedtls_entropy_ctx);
 	mbedtls_entropy_add_source(&mbedtls_entropy_ctx, mbed_entropy, NULL, 8,
 				   MBEDTLS_ENTROPY_SOURCE_STRONG);
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 			      &mbedtls_entropy_ctx, 0, 0);
+	ret = set_guest_id(guest, guest_id, sizeof(guest_id));
+
 	guest[0].keybuf = NULL;
 	ret = generate_key(&guest[0], keys[0], &bufsize, AES256, "test0");
 	checkret("generate_key() 0", ret, 0);

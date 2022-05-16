@@ -90,10 +90,12 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 			      a1, (int)a2);
 		break;
 	case HYP_GENERATE_KEY:
-		res = generate_key(guest, (uint8_t *) a1, (uint32_t *) a2, a3, (char *) a4);
+		res = generate_key(guest, (uint8_t *)a1, (size_t *)a2,
+				   a3, (char *)a4);
 		break;
 	case HYP_GET_KEY:
-		res = get_key(guest, (uint8_t *) a1, (uint32_t *) a2, a3, (char *) a4);
+		res = get_key(guest, (uint8_t *)a1, (size_t *)a2,
+			      a3, (char *)a4);
 		break;
 	case HYP_DELETE_KEY:
 		res = delete_key(guest, a1, (char *) a2);
@@ -375,13 +377,21 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_SYNC_GPREGS:
 		res = hyp_sync_gpregs(a1, a2);
 		break;
+	case HYP_DEFINE_GUEST_ID:
+		guest = get_guest(a1);
+		res = set_guest_id(guest, (uint8_t *)a2, (size_t)a3);
+		break;
 	case HYP_SAVE_KEY:
 		guest = get_guest(a1);
-		res = save_vm_key(guest, (uint8_t *)a2, (uint32_t *)a3);
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
+		res = save_vm_key(guest, (uint8_t *)a2, (size_t *)a3);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	case HYP_LOAD_KEY:
 		guest = get_guest(a1);
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 		res = load_vm_key(guest, (uint8_t *)a2, a3);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	/*
 	 * KVM callbacks

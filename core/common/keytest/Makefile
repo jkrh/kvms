@@ -11,7 +11,7 @@ INCLUDES += -I$(BASE_DIR)/mbedtls/include -I.. -I$(BASE_DIR)/core  -I.. -I$(BASE
 INCLUDES += -I$(BASE_DIR)/platform/common -I$(BASE_DIR)/platform/virt -I$(BASE_DIR)/oss/linux -I$(BASE_DIR)/stdlib
 
 CFLAGS := -march=armv8-a+nofp --sysroot=$(TOOLDIR) --no-sysroot-suffix $(INCLUDES) $(DEFINES)
-CFLAGS += -lmbedtls -lmbedcrypto -larmv8crypto -lcommon
+CFLAGS += -lcommon -lmbedtls -lmbedcrypto -larmv8crypto -lcommon
 CFLAGS += -L$(BASE_DIR)/mbedtls/library -L$(BASE_DIR)/.objs --static
 
 keytest: keytest.c
