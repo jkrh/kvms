@@ -75,7 +75,10 @@ struct hyp_extension_ops {
 #define HYP_SET_MEMCHUNK		0x9010
 #define HYP_RELEASE_MEMCHUNK		0x9011
 #define HYP_GUEST_VCPU_REG_RESET	0x9012
-#define HYP_LAST_GUESTCALL		HYP_GUEST_VCPU_REG_RESET
+#define HYP_GUEST_MEMMAP		0x9013
+#define HYP_STOP_GUEST			0x9014
+#define HYP_RESUME_GUEST		0x9015
+#define HYP_LAST_GUESTCALL		HYP_RESUME_GUEST
 
 /*
  * Optional - for debug only.

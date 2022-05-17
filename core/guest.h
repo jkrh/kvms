@@ -134,6 +134,19 @@ struct kvm_guest {
 typedef struct kvm_guest kvm_guest_t;
 
 /**
+ * Build an array of existing guest mappings
+ *
+ * @param vmid, the guest
+ * @param gaddr, start address in the guest memory
+ * @param pc, number of pages to map
+ * @param addr, kernel virtual address to build the bitmask to
+ * @param length of the addr in bytes
+ * @return zero on success or negative error code on failure
+ */
+int guest_memmap(uint32_t vmid, void *gaddr, size_t gaddrlen, void *addr,
+		 size_t addrlen);
+
+/**
  * Set a guest memory area as shared. If we ever trap on this
  * area while the guest is executing, we will not remove the
  * corresponding host mapping and the host can keep accessing

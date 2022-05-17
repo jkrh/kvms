@@ -346,6 +346,26 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_GUEST_VCPU_REG_RESET:
 		res = guest_vcpu_reg_reset((void *)a1, a2);
 		break;
+	case HYP_GUEST_MEMMAP:
+		res = guest_memmap((uint32_t)a1, (void *)a2, (size_t)a3, (void *)a4,
+				   (size_t)a5);
+		break;
+	case HYP_STOP_GUEST:
+		guest = get_guest(a1);
+		if (!guest) {
+			res = -EINVAL;
+			break;
+		}
+		guest->state = GUEST_STOPPED;
+		break;
+	case HYP_RESUME_GUEST:
+		guest = get_guest(a1);
+		if (!guest) {
+			res = -EINVAL;
+			break;
+		}
+		guest->state = GUEST_RUNNING;
+		break;
 	/*
 	 * Misc calls, grab lock if you need it
 	 */

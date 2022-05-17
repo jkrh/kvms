@@ -143,6 +143,45 @@ int load_guest_s2(uint64_t vmid)
 	return 0;
 }
 
+int guest_memmap(uint32_t vmid, void *gaddr, size_t pc, void *addr, size_t addrlen)
+{
+	kvm_guest_t *guest;
+	uint64_t paddr;
+	void *tmp;
+	int n = 0;
+
+	if (!gaddr || !pc || !addr || !addrlen)
+		return -EINVAL;
+
+	addr = virt_to_phys(addr);
+	if (addr == (void *)~0UL)
+		return -EINVAL;
+
+	guest = get_guest(vmid);
+	if (!guest)
+		return -ENOENT;
+
+	if (guest->state != GUEST_STOPPED)
+		return -EBUSY;
+
+	if (pc >= (addrlen * 8))
+		return -EINVAL;
+
+	memset(addr, 0, addrlen);
+
+	tmp = gaddr;
+	while (n < pc) {
+		paddr = pt_walk(guest, STAGE2, (uint64_t)tmp, NULL);
+		if (paddr != ~0UL)
+			set_bit_in_mem(n, addr);
+
+		n++;
+		tmp += PAGE_SIZE;
+	}
+
+	return 0;
+}
+
 void save_host_traps(void)
 {
 	sys_context_t *host_ctxt;
@@ -1143,9 +1182,10 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		 * Guest is stopped. Stage 2 will be released at
 		 * free_guest.
 		 */
-		return 0;
+		return -EFAULT;
 	case GUEST_RESET:
-		return release_guest_s2(guest, vaddr, guest->ramend);
+		release_guest_s2(guest, vaddr, guest->ramend);
+		return -EFAULT;
 	default:
 		/*
 		 * Guest is still in running state. Check if we are about
@@ -1154,7 +1194,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		 * state.
 		 */
 		if (!sec && !release_guest_s2(guest, vaddr, range_end))
-			return 0;
+			return -EFAULT;
 	}
 
 	map_addr = vaddr;
@@ -1227,6 +1267,8 @@ do_loop:
 	}
 
 out_error:
+	if (pc == 0)
+		res = -ENOENT;
 	/*
 	 * Log on how many pages were actually unmapped if there is a mismatch
 	 * in between the requested and actual number of pages.
