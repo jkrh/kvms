@@ -14,14 +14,20 @@
 
 #include "mbedtls/platform.h"
 #include "keystore.h"
+#include "mtree.h"
 
-#define GUEST_KEY_STORE_SALT (const unsigned char *)"storesalt89w327"
+#define GUEST_KEK_GENERATION_SALT (const unsigned char *)"storesalt89w327"
 #define KEY_NAME_LEN 16
-#define CHECKRES(x, err_handler) \
-		do {\
-			if ((x) != MBEDTLS_EXIT_SUCCESS) {\
-				x = -EFAULT;\
-				goto err_handler;\
+
+#define KEY_STORAGE_MAGIC 0x11223344
+#define KEY_STORAGE_VERSION 1
+#define KEYSTORAGE_IV_LEN 16
+#define HASH_LEN 32
+
+#define CHECKRES(x, expected, err_handler) \
+		do { \
+			if ((x) != (expected)) { \
+				goto err_handler; \
 			} \
 		} while (0)
 
@@ -35,8 +41,14 @@ typedef struct keybuf {
 	struct keybuf *next;
 	uint32_t dbg;
 	vm_key_t key;
-
 } keybuf_t;
+
+typedef struct {
+	uint32_t magic;
+	uint32_t version;
+	uint8_t hash[HASH_LEN];
+	uint8_t iv[KEYSTORAGE_IV_LEN];
+} keys_header_t;
 
 extern mbedtls_ctr_drbg_context ctr_drbg;
 
@@ -133,7 +145,7 @@ static int __delete_key(keybuf_t **kbuf, key_type_t type, const char *name)
 	return -ENOKEY;
 }
 
-static int __save_vm_key(const keybuf_t *p, uint8_t *buf, uint32_t *buf_size)
+static int __save_vm_key(const keybuf_t *p, uint8_t *buf, size_t *buf_size)
 {
 	uint32_t len = 0;
 	uint32_t copyfail = 0;
@@ -155,7 +167,7 @@ static int __save_vm_key(const keybuf_t *p, uint8_t *buf, uint32_t *buf_size)
 	return copyfail;
 }
 
-int __load_vm_key(keybuf_t **keybuf, uint8_t *buf, uint32_t buf_size)
+int __load_vm_key(keybuf_t **keybuf, uint8_t *buf, size_t buf_size)
 {
 	uint32_t len = 0;
 	uint32_t size;
@@ -171,61 +183,68 @@ int __load_vm_key(keybuf_t **keybuf, uint8_t *buf, uint32_t buf_size)
 	return 0;
 }
 
-static int encrypt_keys(uint8_t *key, uint8_t *ctext,
+static int encrypt_keys(uint8_t *key, uint8_t *iv, uint8_t *ctext,
 			size_t *clen,
 			const uint8_t *ptext, size_t plen)
 {
 	mbedtls_cipher_context_t ctx;
 	const mbedtls_cipher_info_t *cipher;
 	int ret;
+	int err = -EINVAL;
 
 	mbedtls_cipher_init(&ctx);
 	cipher = mbedtls_cipher_info_from_type(MBEDTLS_CIPHER_AES_256_CBC);
 	ret = mbedtls_cipher_setup(&ctx, cipher);
-	CHECKRES(ret, err);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	ret = mbedtls_cipher_set_padding_mode(&ctx, MBEDTLS_PADDING_PKCS7);
-	CHECKRES(ret, err);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	if (*clen < (plen + mbedtls_cipher_get_block_size(&ctx))) {
 		*clen = plen + mbedtls_cipher_get_block_size(&ctx);
-		ret = -EINVAL;
-		goto err;
+		goto err_handler;
 		}
-	CHECKRES(ret, err);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	ret = mbedtls_cipher_setkey(&ctx, key, 256, MBEDTLS_ENCRYPT);
-	CHECKRES(ret, err);
-	ret = mbedtls_cipher_crypt(&ctx, keystore_iv, sizeof(keystore_iv),
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+	ret = mbedtls_cipher_crypt(&ctx, iv, KEYSTORAGE_IV_LEN,
 				   ptext, plen, ctext, clen);
-	CHECKRES(ret, err);
-err:
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+
+	err = 0;
+
+err_handler:
 	mbedtls_cipher_free(&ctx);
-	return ret;
+	return err;
 }
 
-static int decrypt_keys(uint8_t *key, uint8_t **ptext, size_t *plen,
+static int decrypt_keys(uint8_t *key, uint8_t *iv,
+			uint8_t **ptext, size_t *plen,
 			const uint8_t *ctext, size_t clen)
 {
 	mbedtls_cipher_context_t ctx;
 	const mbedtls_cipher_info_t *cipher;
 	int ret;
+	int err = -EINVAL;
 
 	mbedtls_cipher_init(&ctx);
 	cipher = mbedtls_cipher_info_from_type(MBEDTLS_CIPHER_AES_256_CBC);
 	ret = mbedtls_cipher_setup(&ctx, cipher);
-	CHECKRES(ret, err);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	ret = mbedtls_cipher_set_padding_mode(&ctx, MBEDTLS_PADDING_PKCS7);
-	CHECKRES(ret, err);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	*ptext = malloc(clen + mbedtls_cipher_get_block_size(&ctx));
 	if (!*ptext) {
-		ret = -ENOMEM;
-		goto err;
+		err = -ENOMEM;
+		goto err_handler;
 	}
 	ret = mbedtls_cipher_setkey(&ctx, key, 256, MBEDTLS_DECRYPT);
-	CHECKRES(ret, err);
-	ret = mbedtls_cipher_crypt(&ctx, keystore_iv, sizeof(keystore_iv),
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+	ret = mbedtls_cipher_crypt(&ctx, iv, sizeof(keystore_iv),
 				   ctext, clen, *ptext, plen);
-err:
+	err = 0;
+
+err_handler:
 	mbedtls_cipher_free(&ctx);
-	return ret;
+	return err;
 }
 
 int generate_key(kvm_guest_t *guest, uint8_t *key, size_t  *bufsize,
@@ -233,20 +252,20 @@ int generate_key(kvm_guest_t *guest, uint8_t *key, size_t  *bufsize,
 		 const char *name)
 {
 	uint8_t rand[32];
-	int rv;
+	int ret;
 
 	if (*bufsize < key_size(key_type)) {
-		return -1;
+		return -EINVAL;
 	}
 	if (key_type == AES256) {
-		rv = mbedtls_ctr_drbg_random(&ctr_drbg, rand, 32);
-		if (rv != MBEDTLS_EXIT_SUCCESS) {
+		ret = mbedtls_ctr_drbg_random(&ctr_drbg, rand, 32);
+		if (ret != MBEDTLS_EXIT_SUCCESS) {
 			return -EFAULT;
 		}
 	}
-	rv = add_key((keybuf_t **)&guest->keybuf, rand, key_type, name);
-	if (rv) {
-		return rv;
+	ret = add_key((keybuf_t **)&guest->keybuf, rand, key_type, name);
+	if (ret) {
+		return ret;
 	}
 	*bufsize = key_size(key_type);
 	memcpy(key, rand, *bufsize);
@@ -287,39 +306,66 @@ int set_guest_id(kvm_guest_t *guest, const uint8_t *id, size_t idlen)
 
 int save_vm_key(const kvm_guest_t *guest, uint8_t *ctext, size_t *bufsize)
 {
-	uint8_t *ptext;
-	uint32_t ptext_len = 0;
+	uint8_t *ptext = NULL;
+	size_t ptext_len = 0;
+	size_t ctext_len;
 	mbedtls_sha256_context ctx;
 	uint8_t key[32];
+	keys_header_t *keys_header;
 	int ret;
+	int err = -EINVAL;
+
+	keys_header = (keys_header_t *)ctext;
+	if (!keys_header || *bufsize < sizeof(keys_header_t)) {
+		goto err_handler;
+	}
+	keys_header->magic = KEY_STORAGE_MAGIC;
+	keys_header->version = KEY_STORAGE_VERSION;
+
+	ret = mbedtls_ctr_drbg_random(&ctr_drbg,
+				      keys_header->iv, KEYSTORAGE_IV_LEN);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 
 	__save_vm_key(guest->keybuf, NULL, &ptext_len);
 	ptext = malloc(ptext_len);
 	if (!ptext) {
-		printf("malloc error\n");
 		ret = -ENOMEM;
-		goto err;
+		goto err_handler;
 		}
 
 	ret = __save_vm_key(guest->keybuf, ptext, &ptext_len);
-	if (!ret) {
-		ret = mbedtls_sha256_starts_ret(&ctx, 0);
-		CHECKRES(ret, err);
-		ret = mbedtls_sha256_update_ret(&ctx,
-						guest->unique_id,
-						MAX_UNIQUE_ID_LEN);
-		CHECKRES(ret, err);
-		ret =  mbedtls_sha256_update_ret(&ctx,
-						 GUEST_KEY_STORE_SALT,
-						 sizeof(GUEST_KEY_STORE_SALT));
-		CHECKRES(ret, err);
-		ret = mbedtls_sha256_finish_ret(&ctx, key);
-		CHECKRES(ret, err);
-		ret = encrypt_keys(key, ctext, bufsize, ptext, ptext_len);
-	}
-err:
-	free(ptext);
-	return ret;
+	CHECKRES(ret, 0, err_handler);
+	ret = mbedtls_sha256_ret(ptext, ptext_len, keys_header->hash, 0);
+	CHECKRES(ret, 0, err_handler);
+	ret = __save_vm_key(guest->keybuf, ptext, &ptext_len);
+	CHECKRES(ret, 0, err_handler);
+	ret = mbedtls_sha256_starts_ret(&ctx, 0);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+	ret = mbedtls_sha256_update_ret(&ctx,
+					guest->unique_id,
+					MAX_UNIQUE_ID_LEN);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+
+	ret =  mbedtls_sha256_update_ret(&ctx,
+					 GUEST_KEK_GENERATION_SALT,
+					 sizeof(GUEST_KEK_GENERATION_SALT));
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+
+	ret = mbedtls_sha256_finish_ret(&ctx, key);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+	ctext_len = *bufsize - sizeof(keys_header_t);
+	ret = encrypt_keys(key, keys_header->iv, ctext + sizeof(keys_header_t),
+			   &ctext_len, ptext, ptext_len);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+	*bufsize = ctext_len + sizeof(keys_header_t);
+
+	err = 0;
+
+err_handler:
+	if (ptext)
+		free(ptext);
+
+	return err;
 }
 
 int load_vm_key(kvm_guest_t *guest, const uint8_t *ctext, size_t size)
@@ -327,27 +373,51 @@ int load_vm_key(kvm_guest_t *guest, const uint8_t *ctext, size_t size)
 	uint8_t *ptext = NULL;
 	size_t ptext_len;
 	mbedtls_sha256_context ctx;
+	keys_header_t *keys_header;
 	uint8_t key[32];
-	int res;
+	uint8_t hash[HASH_LEN];
+	int ret;
+	int err = -EINVAL;
 
-	res = mbedtls_sha256_starts_ret(&ctx, 0);
-	CHECKRES(res, err);
-
-	res = mbedtls_sha256_update_ret(&ctx,
+	keys_header = (keys_header_t *)ctext;
+	if (!keys_header || size < sizeof(keys_header_t)) {
+		goto err_handler;
+	}
+	if (keys_header->magic != KEY_STORAGE_MAGIC ||
+	    keys_header->version != KEY_STORAGE_VERSION) {
+		goto err_handler;
+	}
+	ret = mbedtls_sha256_starts_ret(&ctx, 0);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+	ret = mbedtls_sha256_update_ret(&ctx,
 					guest->unique_id,
 					MAX_UNIQUE_ID_LEN);
-	CHECKRES(res, err);
-	res = mbedtls_sha256_update_ret(&ctx,
-					GUEST_KEY_STORE_SALT,
-					sizeof(GUEST_KEY_STORE_SALT));
-	res = mbedtls_sha256_finish_ret(&ctx, key);
-	CHECKRES(res, err);
-	res = decrypt_keys(key, &ptext, &ptext_len, ctext, size);
-	if (!res) {
-		res = __load_vm_key((keybuf_t **)&guest->keybuf,
-				    ptext, ptext_len);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+
+	ret = mbedtls_sha256_update_ret(&ctx,
+					GUEST_KEK_GENERATION_SALT,
+					sizeof(GUEST_KEK_GENERATION_SALT));
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+
+	ret = mbedtls_sha256_finish_ret(&ctx, key);
+	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
+	size -= sizeof(keys_header_t);
+	ret = decrypt_keys(key, keys_header->iv, &ptext, &ptext_len,
+			   ctext + sizeof(keys_header_t), size);
+	CHECKRES(ret, 0, err_handler);
+	ret = mbedtls_sha256_ret(ptext, ptext_len, hash, 0);
+	CHECKRES(ret, 0, err_handler);
+
+	if (memcmp(hash, keys_header->hash, HASH_LEN)) {
+		goto err_handler;
 	}
-err:
-	free(ptext);
-	return res;
+
+	ret = __load_vm_key((keybuf_t **)&guest->keybuf,
+			    ptext, ptext_len);
+	CHECKRES(ret, 0, err_handler);
+	err = 0;
+err_handler:
+	if (ptext)
+		free(ptext);
+	return err;
 }

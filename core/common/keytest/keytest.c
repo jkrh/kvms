@@ -7,6 +7,7 @@
 #include "guest.h"
 #include "keystore.h"
 #include "mbedtls/memory_buffer_alloc.h"
+#include "mbedtls/sha256.h"
 
 typedef struct kvm_guest kvm_guest_t;
 
@@ -43,8 +44,13 @@ int mbedtls_hardware_poll(void *data, unsigned char *entropy, size_t len,
 
 void hexdump(uint8_t *p, uint32_t len)
 {
+	int i = 0;
+
+	printf("(%d)\n", len);
 	while (len--) {
 		printf("%02x ", *p++);
+		if ((++i % 32) == 0)
+			printf("\n");
 	}
 	printf("\n");
 }
