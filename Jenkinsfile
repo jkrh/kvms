@@ -77,13 +77,12 @@ pipeline {
                     sshpass -p ubuntu scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -P10022 ubuntu@$HOST_IP:/var/lib/apport/coredump/* /hyp || true
                 '''
                 
-                // sh 'echo GUEST1_IP=$(grep ssh /hyp/guest.log | cut -d" " -f7|cut -d":" -f1) >> host_ips.sh'
-                // sh '''
-                //     source host_ips.sh
-                //     sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -J ubuntu@$HOST_IP:10022 ubuntu@$GUEST1_IP:2000 "dmesg" > /hyp/guest1-dmesg.log || true
-                //     sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -J ubuntu@$HOST_IP:10022 ubuntu@$GUEST1_IP:2000 "sudo shutdown now" || true
-                    
-                // '''
+                sh 'echo GUEST1_IP=$(grep ssh /hyp/guest.log | cut -d" " -f7|cut -d":" -f1) >> host_ips.sh'
+                sh '''
+                    source host_ips.sh
+                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "dmesg" > /hyp/guest1-dmesg.log || true
+                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "sudo shutdown now" || true
+                '''
                 sh 'sleep 30'
                 sh '''
                     source host_ips.sh
