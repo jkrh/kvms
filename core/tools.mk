@@ -14,3 +14,4 @@ export PATH=$(TOOLDIR)/bin:$(TOOLDIR)/usr/bin:/bin:/usr/bin:/usr/local/bin
 export TOOLS_QEMU := $(TOOLDIR)/usr/bin/qemu-system-aarch64
 export FETCH_SOURCES := oss/gcc/configure
 export SED := sed
+export DOXYGEN := doxygen
