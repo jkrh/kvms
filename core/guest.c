@@ -1344,6 +1344,45 @@ int free_guest(void *kvm)
 	return 0;
 }
 
+int delete_memslot(kvm_guest_t *guest, kvm_memslots *slots, short id)
+{
+	int i, ret = -ENOENT;
+	uint64_t gpa, len, ramend;
+
+	if (!slots[id].slot.npages) {
+		ERROR("invalid slot\n");
+		return ret;
+	}
+
+	gpa = slots[id].region.guest_phys_addr;
+	len = slots[id].region.memory_size;
+	ret = guest_unmap_range(guest, gpa, len, 0);
+	if (ret < 0)
+		return ret;
+
+	memset(&slots[id].region, 0, sizeof(kvm_userspace_memory_region));
+	memset(&slots[id].slot, 0, sizeof(kvm_memslot));
+
+	/* Do we need to update ramend? */
+	ramend = gpa + len;
+	if (ramend < guest->ramend)
+		return ret;
+
+	guest->ramend = 0;
+	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
+		if (!slots[i].slot.npages)
+			continue;
+
+		gpa = slots[i].region.guest_phys_addr;
+		ramend = gpa + slots[i].region.memory_size;
+
+		if (guest->ramend < ramend)
+			guest->ramend = ramend;
+	}
+
+	return ret;
+}
+
 int update_memslot(void *kvm, kvm_memslot *slot,
 		   kvm_userspace_memory_region *reg)
 {
@@ -1366,28 +1405,31 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 	if (!guest)
 		return 0;
 
-	if (guest->sn > KVM_MEM_SLOTS_NUM) {
+	if (slot->id > KVM_MEM_SLOTS_NUM) {
 		ERROR("too many guest slots?\n");
 		return -EINVAL;
 	}
 	addr = fn_to_addr(slot->base_gfn);
 	size = slot->npages * PAGE_SIZE;
 
+	/* Check for delete */
+	if (!size)
+		return delete_memslot(guest, guest->slots, slot->id);
+
 	/* Check dupes */
 	if (is_range_valid(addr, size, &guest->slots[0]))
 		return 0;
 
-	memcpy(&guest->slots[guest->sn].region, reg, sizeof(*reg));
-	memcpy(&guest->slots[guest->sn].slot, slot, sizeof(*slot));
+	memcpy(&guest->slots[slot->id].region, reg, sizeof(*reg));
+	memcpy(&guest->slots[slot->id].slot, slot, sizeof(*slot));
 
-	ramend = fn_to_addr(guest->slots[guest->sn].slot.base_gfn);
-	ramend += guest->slots[guest->sn].slot.npages * PAGE_SIZE;
+	ramend = fn_to_addr(guest->slots[slot->id].slot.base_gfn);
+	ramend += guest->slots[slot->id].slot.npages * PAGE_SIZE;
 
 	if (guest->ramend < ramend)
 		guest->ramend = ramend;
 
 	LOG("guest 0x%lx slot 0x%lx - 0x%lx\n", kvm, addr, addr + size);
-	guest->sn++;
 
 	dsb();
 	isb();

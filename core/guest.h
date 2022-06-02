@@ -115,7 +115,6 @@ struct kvm_guest {
 	kvm_page_data hyp_page_data[MAX_PAGING_BLOCKS];
 	uint64_t pd_index;
 	uint64_t ramend;
-	uint32_t sn;
 	uint8_t table_levels_el2s1;
 	uint8_t table_levels_el1s1;
 	uint8_t table_levels_el1s2;
