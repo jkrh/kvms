@@ -3,9 +3,9 @@ export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
 
 ifeq ($(PLATFORM),virt)
-SUBDIRS := stdlib core core/crypto core/common platform/$(PLATFORM) docs
+SUBDIRS := stdlib core core/crypto core/common platform/$(PLATFORM)
 else
-SUBDIRS := platform/$(PLATFORM) stdlib core core/crypto core/common platform/$(PLATFORM)/common docs
+SUBDIRS := platform/$(PLATFORM) stdlib core core/crypto core/common platform/$(PLATFORM)/common
 endif
 include core/tools.mk
 include core/makevars.mk
@@ -50,7 +50,13 @@ tools-clean:
 	./scripts/build-tools.sh clean
 	@rm -rf $(TOOLDIR)
 
-$(OBJDIR): | $(TOOLS_GCC)
+docs:
+	$(MAKE) -C $(TOPDIR)/docs
+
+docs-clean:
+	$(MAKE) -C $(TOPDIR)/docs clean
+
+$(OBJDIR): | $(TOOLS_QEMU)
 	@mkdir -p $(OBJDIR)/$(PLATFORM)
 
 gdb:
@@ -70,4 +76,4 @@ target-qemu:
 package:
 	$(MAKE) -C platform/$(PLATFORM)/tools/sign
 
-.PHONY: all check submodule-update tools tools-clean clean gdb qemu package run $(SUBDIRS)
+.PHONY: all check submodule-update tools tools-clean clean gdb qemu package run docs docs-clean $(SUBDIRS)
