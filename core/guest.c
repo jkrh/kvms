@@ -1184,7 +1184,11 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		 */
 		return -EFAULT;
 	case GUEST_RESET:
-		release_guest_s2(guest, vaddr, guest->ramend);
+		/*
+		 * Guest is in reset state. Release the whole stage 2
+		 * range.
+		 */
+		release_guest_s2(guest, 0, guest->ramend);
 		return -EFAULT;
 	default:
 		/*
