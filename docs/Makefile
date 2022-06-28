@@ -5,8 +5,8 @@ DOC_CONF := $(DOC_DIR)/doxygen.config
 DOC_TARGET := $(DOC_DIR)/refman.pdf
 
 $(DOC_TARGET):
-	$(DOXYGEN) $(DOC_CONF)
-	$(MAKE) -C $(DOC_DIR)/latex
+	$(DOXYGEN) $(DOC_CONF) $(TOPDIR)/doxygen.out
+	$(MAKE) -s -C $(DOC_DIR)/latex
 	@ln -s $(DOC_DIR)/latex/refman.pdf $(DOC_TARGET)
 
 all: $(DOC_TARGET)

@@ -1176,18 +1176,21 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 
 	switch (guest->state) {
 	case GUEST_CRASHING:
+		LOG("unmap on guest crash\n");
 		return -EFAULT;
 	case GUEST_STOPPED:
 		/*
 		 * Guest is stopped. Stage 2 will be released at
 		 * free_guest.
 		 */
+		LOG("unmap while guest has stopped\n");
 		return -EFAULT;
 	case GUEST_RESET:
 		/*
 		 * Guest is in reset state. Release the whole stage 2
 		 * range.
 		 */
+		LOG("unmap on guest reset\n");
 		release_guest_s2(guest, 0, guest->ramend);
 		return -EFAULT;
 	default:
@@ -1197,8 +1200,10 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		 * when the guest is killed and can't update its own power
 		 * state.
 		 */
-		if (!sec && !release_guest_s2(guest, vaddr, range_end))
+		if (!sec && !release_guest_s2(guest, vaddr, range_end)) {
+			LOG("unmap on guest kill\n");
 			return -EFAULT;
+		}
 	}
 
 	map_addr = vaddr;
@@ -1254,8 +1259,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 
 		res = patrack_unmap(guest, paddr, PAGE_SIZE);
 		if (res)
-			ERROR("patrack_unmap error %d\n", res);
-
+			HYP_ABORT();
 		/*
 		 * Give it back to the host
 		 */
@@ -1271,17 +1275,7 @@ do_loop:
 	}
 
 out_error:
-	if (pc == 0)
-		res = -ENOENT;
-	/*
-	 * Log on how many pages were actually unmapped if there is a mismatch
-	 * in between the requested and actual number of pages.
-	 */
-	if ((len/PAGE_SIZE) != pc)
-		LOG("guest %p (%u) %s request %p, %ld pages. Actual: %ld sec:%ld\n",
-		    guest, guest->vmid, __func__, vaddr, (len/PAGE_SIZE), pc, sec);
-
-	return res;
+	return pc;
 }
 
 int free_guest(void *kvm)
@@ -1409,6 +1403,7 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 	if (!guest)
 		return 0;
 
+	guest->state = GUEST_INIT;
 	if (slot->id > KVM_MEM_SLOTS_NUM) {
 		ERROR("too many guest slots?\n");
 		return -EINVAL;
@@ -1765,32 +1760,37 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		}
 	}
 
-	ERROR("guest access violation for %p (%p), syndrome %p\n", far_el2,
-	      paddr, read_reg(ESR_EL2));
+	ERROR("guest access violation for %p (%p), syndrome %p, pstate %p\n",
+	      far_el2, paddr, read_reg(ESR_EL2), spsr_el2);
 	ERROR("exception was at host virtual address %p (%p)\n",
 	      elr_el2, virt_to_phys((void *)elr_el2));
 	print_regs(regs);
 
-	switch (spsr_el2 & 0xF) {
+	switch (spsr_el2 & 0xC) {
 	case 0x0:
 #ifdef GUESTDEBUG
 		LOG("guest debug: access OK\n");
 		res = __map_back_host_page(get_guest(vmid), guest, far_el2);
 		break;
 #endif
-		if (!guest)
-			ERROR("source was unknown userspace process?\n");
+		if (guest)
+			ERROR("appears to be vm manager access violation\n");
+		else
+			ERROR("appears to be unknown userspace process?\n");
 
+		ERROR("requesting violating process core dump\n");
 		res = do_process_core(guest, regs);
 		break;
 	case 0x4:
 	case 0x5:
-		if (!guest) {
-			res = do_kernel_crash();
-			goto out;
-		}
-		print_addr(vmid, STAGE1, far_el2);
-		res = __map_back_host_page(get_guest(vmid), guest, far_el2);
+		ERROR("kernel violation: requesting host kernel crash dump\n");
+
+		res = do_kernel_crash();
+		break;
+	case 0x8:
+	case 0x9:
+		ERROR("trapped el2 crash -- aborting\n");
+		HYP_ABORT();
 		break;
 	}
 out:
@@ -1814,11 +1814,6 @@ bool do_kernel_crash()
 	int iival = UNDEFINED;
 	uint64_t elr_el2;
 	void *phys;
-
-	/*
-	 * Crash the kernel with the configured handler
-	 */
-	ERROR("requesting the host kernel crash dump :-/\n");
 
 	elr_el2 = read_reg(ELR_EL2);
 	phys = virt_to_ipa((void *)elr_el2);
@@ -1844,10 +1839,7 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 		if (guest->state != GUEST_RUNNING)
 			return false;
 		guest->state = GUEST_CRASHING;
-
-		ERROR("requesting the vm manager core dump :-/\n");
-	} else
-		ERROR("requesting the violating process core dump :-/\n");
+	}
 
 	elr_el2 = read_reg(ELR_EL2);
 	phys = virt_to_ipa((void *)elr_el2);

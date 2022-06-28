@@ -35,6 +35,7 @@ typedef int kernel_func_t(uint64_t, ...);
 
 typedef enum {
 	GUEST_INVALID = 0x0,
+	GUEST_INIT,
 	GUEST_RUNNING,
 	GUEST_STOPPED,
 	GUEST_SLEEPING,
@@ -237,7 +238,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
  *  @param addr virtual address (ipa) to unmap
  *  @param len length of the blob
  *  @param sec 1 in case of page encryption required, 0 otherwise
- *  @return zero on success or negative error code on failure
+ *  @return number of unmapped pages or negative error code on failure
  */
 int guest_unmap_range(kvm_guest_t *guest, uint64_t addr, uint64_t len, uint64_t sec);
 

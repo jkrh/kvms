@@ -18,4 +18,9 @@ static inline void clear_bit_in_mem(int n, uint64_t *addr)
         addr[n / (sizeof(uint64_t) * 8)] &= ~(1UL << (n % (sizeof(uint64_t) * 8)));
 }
 
+static inline int get_bit_in_mem(int n, uint64_t *addr)
+{
+	return addr[n / (sizeof(uint64_t) * 8)] & ~(1UL << (n % (sizeof(uint64_t) * 8)));
+}
+
 #endif // __BITMACROS_H__
