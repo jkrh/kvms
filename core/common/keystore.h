@@ -3,7 +3,7 @@
 #ifndef CORE_CRYPTO_KEYSTORE_H_
 #define CORE_CRYPTO_KEYSTORE_H_
 
-typedef enum {NONE = 0, AES256, RSA2048} key_type_t;
+typedef enum {KEY_NONE = 0, AES256, RSA2048} key_type_t;
 
 int generate_key(kvm_guest_t *guest, uint8_t *key, size_t  *bufsize,
 		 key_type_t key_type,

@@ -84,6 +84,7 @@ int main(void)
 {
 	size_t savebuf_size = 1024;
 	keys_t keys[9];
+	keys_t tmp;
 	size_t bufsize = 32;
 	uint8_t buf[32];
 	uint8_t savebuf[1024];
@@ -182,7 +183,6 @@ int main(void)
 	checkret("get_key() 4", ret, 0);
 	if (checkkey(keys[4], buf, 32))
 		pr_error("keys4", keys[4], buf);
-
 	ret = generate_key(&guest[0], keys[6], &bufsize, AES256, "test6");
 	checkret("generate_key() 6", ret, 0);
 	ret = get_key(&guest[0], buf, &bufsize, AES256, "test6");
@@ -216,8 +216,10 @@ int main(void)
 	checkret("generate_key() 0", ret, 0);
 	ret = get_key(&guest[0], buf, &bufsize, AES256, "test0");
 	checkret("get_key() 0", ret, 0);
-
-	load_vm_key(&guest[0], savebuf, savebuf_size);
+	ret = generate_key(&guest[0], tmp, &bufsize, AES256, "test1");
+	checkret("generate_key() 0", ret, 0);
+	ret = load_vm_key(&guest[0], savebuf, savebuf_size);
+	checkret("load keys", ret, 0);
 	ret = get_key(&guest[0], buf, &bufsize, AES256, "test0");
 	checkret("get_key() 0", ret, 0);
 	if (checkkey(keys[0], buf, 32))
