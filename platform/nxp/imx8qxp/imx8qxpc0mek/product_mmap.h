@@ -26,10 +26,9 @@ static const memmap el2_secure_memmap[] = {
  * Stage 2 translation table. Stage 2 host mappings
  *
  * Reference:
- * i.MX 8QuadMax Applications Processor Reference Manual, Rev. 0, 9/2021
+ * i.MX 8QuadXPlus Applications Processor Reference Manual, Rev. 0, 05/2020
  * Table 2-2. System memory map
  *
- * Note: Customized to imx8qm 6Gib DRAM configuration
  */
 static const memmap st2_base_memmap[] = {
 	/* IPA start,  IPA end,     PA start,    Region size, Memory type, Shared, R/W/exec*/
@@ -46,9 +45,9 @@ static const memmap st2_base_memmap[] = {
 	/* DDR */
 	{ 0x80000000, 0xFFFFFFFF, 0x80000000, 0x80000000, S2_NORMAL_MEMORY, SH_INN, PAGE_HYP_RWX }, /* 2GB DDR Main memory */
 	/* HSIO */
-	{ 0x70000000, 0x7FFFFFFF, 0x70000000, 0x10000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 256MB PCIe1 */
-	/* HSIO */
-	/* { 0x60000000, 0x6FFFFFFF, 0x60000000, 0x10000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 256MB PCIe0 */
+	{ 0x70000000, 0x7FFFFFFF, 0x70000000, 0x10000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 256MB PCIe */
+	/* Reserved */
+	/* { 0x60000000, 0x6FFFFFFF, 0x60000000, 0x10000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 256MB Reserved */
 	/* HSIO */
 	{ 0x5F000000, 0x5FFFFFFF, 0x5F000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 16MB High Speed I/O */
 	/* Reserved */
@@ -65,18 +64,18 @@ static const memmap st2_base_memmap[] = {
 	{ 0x59000000, 0x59FFFFFF, 0x59000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 16MB Audio */
 	/* Imaging */
 	{ 0x58000000, 0x58FFFFFF, 0x58000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 16MB Imaging Subsystem */
-	/* DC1 */
-	/* { 0x57000000, 0x57FFFFFF, 0x57000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 16MB Display Controller 1 */
+	/* Reserved */
+	/* { 0x57000000, 0x57FFFFFF, 0x57000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 16MB Reserved */
 	/* DC0 */
 	{ 0x56000000, 0x56FFFFFF, 0x56000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 16MB Display Controller 0 */
-	/* VPU */
-	/* { 0x55000000, 0x55FFFFFF, 0x55000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 16MB Audio DSP */
-	/* GPU1 */
-	/* { 0x54000000, 0x54FFFFFF, 0x54000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 16MB Graphics 1 */
+	/* Reserved */
+	/* { 0x55000000, 0x55FFFFFF, 0x55000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 16MB Reserved */
+	/* Reserved */
+	/* { 0x54000000, 0x54FFFFFF, 0x54000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 16MB Reserved */
 	/* GPU0 */
 	{ 0x53000000, 0x53FFFFFF, 0x53000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 16MB Graphics 0 */
-	/* CCI */
-	/* { 0x52000000, 0x52FFFFFF, 0x52000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 16MB Core Coherent Interconnect */
+	/* Reserved */
+	/* { 0x52000000, 0x52FFFFFF, 0x52000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 16MB Reserved */
 	/* DBLOG */
 	{ 0x51000000, 0x51FFFFFF, 0x51000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 16MB Audio DMA. DB Logic */
 	/* Reserved */
@@ -85,8 +84,8 @@ static const memmap st2_base_memmap[] = {
 	/* { 0x40000000, 0x41FFFFFF, 0x40000000, 0x2000000, type, sh, exec },  32MB Reserved */
 	/* Reserved */
 	/* { 0x3C000000, 0x3FFFFFFF, 0x3C000000, 0x4000000, type, sh, exec },  64MB Reserved */
-	/* CM4-1 */
-	/* { 0x38000000, 0x3BFFFFFF, 0x38000000, 0x4000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 64MB Cortex M4 Platform 1 */
+	/* Reserved  */
+	/* { 0x38000000, 0x3BFFFFFF, 0x38000000, 0x4000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, */ /* 64MB Reserved */
 	/* CM4-0 */
 	{ 0x34000000, 0x37FFFFFF, 0x34000000, 0x4000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 64MB Cortex M4 Platform 0 */
 	/* SCU */
@@ -99,8 +98,6 @@ static const memmap st2_base_memmap[] = {
 	{ 0x19000000, 0x19FFFFFF, 0x19000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 16MB FlexSPI #1 IP TX buffers */
     /* LSIO */
 	 { 0x18000000, 0x18FFFFFF, 0x18000000, 0x1000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW },  /* 16MB FlexSPI #1 IP RX buffers */
-	/* Reserved */
-	/* { 0x1C000000, 0x1FFFFFFF, 0x1C000000, 0x4000000, type, sh, exec },  64MB Reserved */
 	/* LSIO */
 	{ 0x08000000, 0x17FFFFFF, 0x08000000, 0x10000000, S2_DEV_NGNRE, SH_NO, PAGE_HYP_RW }, /* 256MB FlexSPI #0 */
 	/* Reserved */

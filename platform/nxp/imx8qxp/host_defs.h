@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef __HOST_DEFS_H__
 #define __HOST_DEFS_H__
 
