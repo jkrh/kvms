@@ -1799,6 +1799,40 @@ out:
 	return res;
 }
 
+int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len,
+		   uint32_t type)
+{
+	uint64_t phys;
+	int res = -ENOSYS;
+
+	if (!guest || !addr || !len || (type > 2))
+		return -EINVAL;
+
+	phys = pt_walk(guest, STAGE2, addr, NULL);
+	if (phys == ~0UL)
+		return -ENOENT;
+
+	switch (type) {
+	case 0:
+		__flush_dcache_area((void *)phys, len);
+		res = 0;
+		break;
+	case 1:
+		__flush_icache_area((void *)phys, len);
+		res = 0;
+		break;
+	case 2:
+		__inval_dcache_area((void *)phys, len);
+		res = 0;
+		break;
+	default:
+		res = -EINVAL;
+		break;
+	}
+
+	return res;
+}
+
 void set_memory_readable(kvm_guest_t *guest)
 {
 	if (!guest)

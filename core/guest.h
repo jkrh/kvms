@@ -243,6 +243,15 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 int guest_unmap_range(kvm_guest_t *guest, uint64_t addr, uint64_t len, uint64_t sec);
 
 /**
+ *  @param guest
+ *  @param addr guest physical address to flush
+ *  @param len length of the flush in bytes
+ *  @param type 0 for data, 1 for instruction cache flush, 2 for data invalidate
+ *  @return zero on success or negative error code on failure
+ */
+int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len, uint32_t type);
+
+/**
  * Fetch given guest running state.
  *
  * @param vmid of the guest

@@ -368,6 +368,10 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		}
 		guest->state = GUEST_RUNNING;
 		break;
+	case HYP_GUEST_CACHE_OP:
+		res = guest_cache_op(get_guest(a1), (uint64_t)a2,
+				    (size_t)a3, (uint32_t)a4);
+		break;
 	/*
 	 * Misc calls, grab lock if you need it
 	 */
