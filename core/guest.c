@@ -1833,6 +1833,51 @@ int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len,
 	return res;
 }
 
+int guest_region_protect(kvm_guest_t *guest, uint64_t addr, size_t len,
+			 uint64_t prot)
+{
+	uint64_t phys, end, pval = 0, tval = 0;
+	uint64_t *pte;
+	int res;
+
+	if (!guest || !addr || !len || (prot > 7))
+		return -EINVAL;
+
+	end = addr + len;
+	while (addr < end) {
+		phys = pt_walk(guest, STAGE2, addr, &pte);
+		if (phys == ~0UL)
+			goto cont;
+
+		pval = *pte & PROT_MASK_STAGE2;
+		tval = *pte & TYPE_MASK_STAGE2;
+
+		/* Read */
+		if (prot & 0x1)
+			pval &= ~S2AP_READ;
+
+		/* Write */
+		if (prot & 0x2)
+			pval &= ~S2AP_WRITE;
+
+		/* Exec */
+		if (prot & 0x4) {
+			/* 53: 0, 54: 1 */
+			bit_set(pval, S2_XN_SHIFT + 1);
+			bit_drop(pval, S2_XN_SHIFT);
+		}
+		res = mmap_range(guest, STAGE2, addr, phys, PAGE_SIZE,
+				 pval, tval);
+		if (!res)
+			HYP_ABORT();
+
+cont:
+		addr += PAGE_SIZE;
+	}
+
+	return 0;
+}
+
 void set_memory_readable(kvm_guest_t *guest)
 {
 	if (!guest)

@@ -222,34 +222,44 @@ int update_guest_state(guest_state_t state);
 int update_memslot(void *kvm, kvm_memslot *slot, kvm_userspace_memory_region *mem);
 
 /**
- *  @param guest the guest to map to
- *  @param vaddr virtual address (ipa) to map
- *  @param paddr physical address to map to
- *  @param len length of the blob
- *  @param prot memory protection bits of the blob
- *  @param type type of memory
- *  @return zero on success or negative error code on failure
+ * @param guest the guest to map to
+ * @param vaddr virtual address (ipa) to map
+ * @param paddr physical address to map to
+ * @param len length of the blob
+ * @param prot memory protection bits of the blob
+ * @param type type of memory
+ * @return zero on success or negative error code on failure
  */
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		    uint64_t len, uint64_t prot);
 
 /**
- *  @param guest the guest to unmap from
- *  @param addr virtual address (ipa) to unmap
- *  @param len length of the blob
- *  @param sec 1 in case of page encryption required, 0 otherwise
- *  @return number of unmapped pages or negative error code on failure
+ * @param guest the guest to unmap from
+ * @param addr virtual address (ipa) to unmap
+ * @param len length of the blob
+ * @param sec 1 in case of page encryption required, 0 otherwise
+ * @return number of unmapped pages or negative error code on failure
  */
 int guest_unmap_range(kvm_guest_t *guest, uint64_t addr, uint64_t len, uint64_t sec);
 
 /**
- *  @param guest
- *  @param addr guest physical address to flush
- *  @param len length of the flush in bytes
- *  @param type 0 for data, 1 for instruction cache flush, 2 for data invalidate
- *  @return zero on success or negative error code on failure
+ * @param guest
+ * @param addr guest physical address to flush
+ * @param len length of the flush in bytes
+ * @param type 0 for data, 1 for instruction cache flush, 2 for data invalidate
+ * @return zero on success or negative error code on failure
  */
 int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len, uint32_t type);
+
+/**
+ * @param guest
+ * @param addr guest physical address to modify
+ * @param len length of the section in bytes
+ * @param prot protections to drop. bits 0,1,2 are effective: 0 drops read, 1
+ *             drops write, 2 drops exec permission on the region
+ * @return zero on success or negative error code on failure
+ */
+int guest_region_protect(kvm_guest_t *guest, uint64_t addr, size_t len, uint64_t prot);
 
 /**
  * Fetch given guest running state.

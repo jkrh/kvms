@@ -79,7 +79,8 @@ struct hyp_extension_ops {
 #define HYP_STOP_GUEST			0x9014
 #define HYP_RESUME_GUEST		0x9015
 #define HYP_GUEST_CACHE_OP		0x9020
-#define HYP_LAST_GUESTCALL		HYP_GUEST_CACHE_OP
+#define HYP_REGION_PROTECT		0x9021
+#define HYP_LAST_GUESTCALL		HYP_REGION_PROTECT
 
 /*
  * Optional - for debug only.

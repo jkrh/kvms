@@ -15,7 +15,11 @@ Features added over regular KVM configurations are:
 - Kernel memory protection toolchain:
   - Page table locks (including elements inside the P?Ds)
   - Memory region permission adjustments
-- Memory region / permission validation tools for all CPU modes.
+- Memory region / permission validation tools for all CPU modes
+- Hypervisor internal key generation functionality and keyring for guest
+  specific keys (filesystem encryption, integrity, ..)
+- Initial support for secure guest migration via a shared secret
+- Easy hooks into the hardware security features via symbol overrides
 
 
 Building and running on QEMU:
@@ -133,3 +137,4 @@ SHORT TERM TODO
    the guest memory: -cpu=host,protected-guest-support=kvms
 7) IPI based debug stops, backtraces, tlb flushes when needed
 8) Libhybris based GPU access for QEMU
+9) Guest separation via virtio parsing (POC seems promising !)

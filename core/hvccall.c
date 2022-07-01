@@ -89,6 +89,10 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 			ERROR("unable to mark region %p/%d as shared\n",
 			      a1, (int)a2);
 		break;
+	case HYP_REGION_PROTECT:
+		res = guest_region_protect(guest, (uint64_t)a2,
+					  (size_t)a3, (uint64_t)a4);
+		break;
 	case HYP_GENERATE_KEY:
 		res = generate_key(guest, (uint8_t *)a1, (size_t *)a2,
 				   a3, (char *)a4);
@@ -371,6 +375,10 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_GUEST_CACHE_OP:
 		res = guest_cache_op(get_guest(a1), (uint64_t)a2,
 				    (size_t)a3, (uint32_t)a4);
+		break;
+	case HYP_REGION_PROTECT:
+		res = guest_region_protect(get_guest(a1), (uint64_t)a2,
+					  (size_t)a3, (uint64_t)a4);
 		break;
 	/*
 	 * Misc calls, grab lock if you need it
