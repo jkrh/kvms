@@ -2,10 +2,15 @@ pipeline {
     agent none
     stages {
         stage('Clone project and build docker image') {
-            agent any
+            agent { 
+                node { 
+                    label 'runner'
+                    customWorkspace '/var/lib/jenkins/shared_workspace'}
+            }
             steps {
                 script {
-                    sh 'env'
+                    sh 'rm -f *.log'
+                    sh 'rm -f core*.*'
                     sh 'git config --global user.email "you@example.com"'
                     sh 'git config --global user.name "Your Name"'
                     sh 'cp ~/.gitconfig docker/gitconfig'
@@ -17,6 +22,7 @@ pipeline {
         stage('Run make in container'){
             agent {
                 docker {
+                    customWorkspace '/var/lib/jenkins/shared_workspace'
                     image 'kvms:latest'
                     args  '-v /ccache:/ccache -v ${WORKSPACE}:/hyp --env CCACHE_DIR=/ccache --env PLATFORM=virt --entrypoint='
                 }
@@ -32,9 +38,13 @@ pipeline {
             // run this directly in host, running nbd inside container was problematic
             // run this stage only when there are changes in patches folder
             // this is risky as kernel modules from previously patch change will be re-used in next pipeline
-            // it is possible that change meant to be built on top of master versoin of patch gets built from kernel patch from PR
+            // it is possible that change meant to be built on top of master version of patch gets built from kernel patch from PR
             // when { changeset "patches/*"}
-            agent any
+            agent { 
+                node { 
+                    label 'runner'
+                    customWorkspace '/var/lib/jenkins/shared_workspace'}
+            }
             steps {
                 sh 'sudo modprobe nbd max_part=8'
                 sh 'sudo scripts/update_kernel_to_ubuntu_VMs.sh -i /img/ubuntu20-host.qcow2'
@@ -44,6 +54,7 @@ pipeline {
         stage("Launch host and guest VMs") {
             agent {
                 docker {
+                        customWorkspace '/var/lib/jenkins/shared_workspace'
                         image 'kvms:latest'
                         args  '-d -t -v ${WORKSPACE}:/hyp -v /img:/img --env PLATFORM=virt --env BOOTIMG=/img/ubuntu20-host.qcow2 --name kvms_build_container --entrypoint= --privileged'
                     }
@@ -87,10 +98,11 @@ pipeline {
                     ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "ps aux" > /hyp/guest1-ps.log || true
                     ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "sudo shutdown now" || true
                 '''
-                sh 'sleep 30'
+                sh 'sleep 60'
                 sh '''
                     source host_ips.sh
                     ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "ps aux"
+                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "cat vm/ubuntu20/guest.log" >/hyp/guest_before_shutdown.log
                     ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "sudo shutdown now" || true
                 '''
                 sh 'sleep 30'
