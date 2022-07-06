@@ -3,10 +3,8 @@
 
 export OPTS := -g3 -Os
 
-obj-m := hvc-t.o
-hvc-t-y := hvc-test.o
-
-ccflags-y := -I$(src)/../common/arm64
+obj-m := kvms-t-common.o
+kvms-t-common-y := kvms-test-common.o kvms-test-asm.o
 
 all:
 	make ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_DIR) M=$(PWD) \

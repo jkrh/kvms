@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -5,37 +6,37 @@
 #include <linux/fs.h>
 
 #include <../arch/arm64/kvm/hvccall-defines.h>
-#include "kvms-test.h"
+#include "kvms-test-common.h"
 
 /**
  * @brief kvms test module
  *
  * Usage:
- * Compile against host kernel
- * eg.: make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 KERNEL_DIR=/hyp/oss/linux
- * Copy the module to the target file system
+ * Copy the module hvc-t.ko with its dependency kvms-t-common.ko to the target
+ * file system.
  *
  * Create device:
  * At the location where the module is copied to:
- * insmod kvms-t.ko
+ * insmod kvms-t-common.ko
+ * insmod hvc-t.ko
  * cat /proc/devices |grep kvms (get down major number)
- * mknod "/dev/kvms-t" c <the major number above> 0
- * like : "mknod "/dev/kvms-t" c 510 0"
+ * mknod "/dev/hvc-t" c <the major number above> 0
+ * like : "mknod "/dev/hvc-t" c 510 0"
  *
  * Use device:
  *
- * echo 0x8004 0xbeef > /dev/kvms-t
- * cat /dev/kvms-t
- * rm /dev/kvms-t
- * rmmod demo-h.ko
+ * echo 0x8004 0xbeef > /dev/hvc-t
+ * cat /dev/hvc-t
+ * rm /dev/hvc-t
+ * rmmod hvc-t.ko
  */
 
-#define NAME "kvms-t"
+#define NAME "hvc-t"
 #define MAX_CMD_PARAMS 8
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("memyselfandi");
-MODULE_DESCRIPTION("KVMS test module");
+MODULE_DESCRIPTION("KVMS HVC test module");
 
 static int major;
 uint64_t datalocation;
@@ -59,22 +60,6 @@ static ssize_t device_read(struct file *filp, char __user *buf, size_t len, loff
 		}
 	}
 	return ret;
-}
-
-uint64_t at_s1e1r(uint64_t s1addr)
-{
-
-	uint64_t paddr;
-
-	paddr = __demo_s1e1r(s1addr);
-
-	if ((paddr & 1) == 0) {
-		paddr = (paddr & 0x0000FFFFFFFFF000);
-		paddr |= (((uint64_t)s1addr) & (PAGE_SIZE - 1));
-	} else
-		paddr = ~0UL;
-
-	return paddr;
 }
 
 static ssize_t device_write(struct file *filp, const char __user *buf, size_t len, loff_t *off)
@@ -169,7 +154,7 @@ static ssize_t device_write(struct file *filp, const char __user *buf, size_t le
 		/* Just pass the rest to KVMs as they are */
 		printk(KERN_INFO "hvc: 0x%llx 0x%llx 0x%llx 0x%llx 0x%llx 0x%llx 0x%llx 0x%llx\n",
 			   cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7] );
-		err = __kvms_hvc_cmd(cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7]);
+		err = kvms_hyp_call(cmd[0], cmd[1], cmd[2], cmd[3], cmd[4], cmd[5], cmd[6], cmd[7]);
 		if (err)
 			pr_err("kvm: %s failed: %d\n", __func__, err);
 		break;
