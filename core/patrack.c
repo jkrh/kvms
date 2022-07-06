@@ -219,7 +219,7 @@ int patrack_hpa_set_multiref(struct kvm_guest *guest, uint64_t hpa)
 	pt_walk(guest, PATRACK_STAGE1, hpa, &pte);
 
 	if (pte == NULL)
-		HYP_ABORT();
+		panic("");
 
 	/*
 	 * FIXME: If you see the abort below add a reference count
@@ -228,7 +228,7 @@ int patrack_hpa_set_multiref(struct kvm_guest *guest, uint64_t hpa)
 	 * with PATRACK_HPA_MULTIREF gets unmapped).
 	 */
 	if (*pte & PATRACK_HPA_MULTIREF)
-		HYP_ABORT();
+		panic("");
 
 	*pte |= PATRACK_HPA_MULTIREF;
 
@@ -352,7 +352,7 @@ int patrack_gpa_set_share(struct kvm_guest *guest, uint64_t gpa, size_t length)
 	tgpa = gpa | PATRACK_SHAREOFFT;
 
 	if (patrack_mmap(guest, tgpa, gpa, length))
-		HYP_ABORT();
+		panic("patrack_mmap failed\n");
 
 	return 0;
 }

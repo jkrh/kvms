@@ -4,5 +4,5 @@
 
 void exit(int v)
 {
-	HYP_ABORT();
+	panic("exit called with code %d\n", v);
 }

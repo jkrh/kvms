@@ -100,7 +100,7 @@ static void setup_hyp_stage1(void)
 			}
 		}
 		if (j >= 8)
-			HYP_ABORT();
+			panic("out of bounds\n");
 	}
 
 }
@@ -203,7 +203,7 @@ uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host?\n");
 
 	if (guest == host) {
 		host->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
@@ -255,7 +255,7 @@ uint64_t pt_walk_el2(uint64_t vaddr, uint64_t **ptep)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host?\n");
 
 	lvl = host->table_levels_el2s1;
 	return __pt_walk(host->EL2S1_pgd, vaddr, ptep, &lvl, NULL);
@@ -294,7 +294,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 
 	guest = get_guest(HOST_VMID);
 	if (!guest)
-		HYP_ABORT();
+		panic("no host?\n");
 
 	/*
 	 * Don't go changing anything that's not there.
@@ -371,7 +371,7 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 	struct entryinfo einfo;
 
 	if (!block->guest)
-		HYP_ABORT();
+		panic("block with no owner?\n");
 
 	if (block->stage == STAGE2)
 		block->level = block->guest->table_levels_el1s2;
@@ -403,7 +403,7 @@ bool get_block_info(const uint64_t addr, mblockinfo_t *block)
 		if (i < MAX_CONTIGUOUS)
 			block->contiguous[i] = NULL;
 		if (*block->ptep != einfo.ttbl->entries[einfo.idx])
-			HYP_ABORT();
+			panic("invalid pte\n");
 	} else
 		block->contiguous[0] = NULL;
 
@@ -676,7 +676,7 @@ static void __clear_contiguous_range(mblockinfo_t *block)
 		dsbish();
 	}
 	if (i % MAX_CONTIGUOUS_4KGRANULE)
-			HYP_ABORT();
+		panic("invalid range\n");
 }
 
 int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
@@ -706,7 +706,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 	 */
 	if (!machine_init_ready()) {
 		if (type == KEEP_MATTR)
-			HYP_ABORT();
+			panic("invalid type\n");
 		res = __mmap_range(block, vaddr, paddr, len,
 				   prot, type, pgd_levels, vmid);
 		goto out_done;
@@ -758,7 +758,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 			 */
 			tbl = alloc_table(block->tpool);
 			if (!tbl)
-				HYP_ABORT();
+				panic("table allocation failed\n");
 
 			/*
 			 * Break. This should make the concurrent threads in
@@ -789,7 +789,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 					   tlen, block->prot, block->type,
 					   pgd_levels, vmid);
 			if (res)
-				HYP_ABORT();
+				panic("__mmap_range failed with error %d\n", res);
 
 			block->vaddr += tlen;
 			block->paddr += tlen;
@@ -818,7 +818,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 						   mlen, prot, type,
 						   pgd_levels, vmid);
 			if (res)
-				HYP_ABORT();
+				panic("__mmap_range failed with error %d\n", res);
 
 			tvaddr += mlen;
 			tpaddr += mlen;
@@ -833,7 +833,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 					   tlen, block->prot, block->type,
 					   pgd_levels, vmid);
 			if (res)
-				HYP_ABORT();
+				panic("__mmap_range failed with error %d\n", res);
 		} else {
 			if (mlen == 0)
 				mlen = bsize;
@@ -844,7 +844,7 @@ int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 						   prot, type, pgd_levels, vmid);
 			}
 			if (res)
-				HYP_ABORT();
+				panic("__mmap_range failed with error %d\n", res);
 
 			tvaddr += mlen;
 			tpaddr += mlen;
@@ -872,7 +872,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host\n");
 
 	_zeromem16(&block, sizeof(block));
 
@@ -998,7 +998,7 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host\n");
 
 	switch (stage) {
 	case STAGE2:

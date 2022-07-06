@@ -2,13 +2,17 @@
 #ifndef __HVCCALL_H__
 #define __HVCCALL_H__
 
+#include <stdio.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include "hvccall-defines.h"
 
-#define HYP_ABORT() hyp_abort(__func__, __FILE__, __LINE__)
+void hyp_abort(const char *func, const char *file, int line,
+	       const char *fmt, ...);
 
-void hyp_abort(const char *func, const char *file, int line);
+#define panic(fmt, ...) \
+	hyp_abort (__func__, __FILE__, __LINE__, fmt, ## __VA_ARGS__)
 
 /**
  * Print registers at address

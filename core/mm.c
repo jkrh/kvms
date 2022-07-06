@@ -392,7 +392,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host\n");
 
 	if (guest == host) {
 		/*
@@ -405,7 +405,8 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		}
 
 		if (unmap_range(host, STAGE2, gpa, len))
-			HYP_ABORT();
+			panic("unmap_range failed\n");
+
 		return 0;
 	}
 
@@ -420,7 +421,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 
 		phys &= PAGE_MASK;
 		if (unmap_range(host, STAGE2, phys, PAGE_SIZE))
-			HYP_ABORT();
+			panic("unmap_range failed\n");
 cont:
 		gpap += PAGE_SIZE;
 	}
@@ -449,7 +450,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host\n");
 
 	/*
 	 * TODO ::: FIXME ::: ACHTUNG
@@ -477,7 +478,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		if (mmap_range(host, STAGE2, gpa, gpa, len,
 			       (EL1S2_SH|PAGE_HYP_RWX),
 			       S2_NORMAL_MEMORY))
-			HYP_ABORT();
+			panic("mmap_range failed\n");
 
 		goto out;
 	}
@@ -501,7 +502,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		if (mmap_range(host, STAGE2, phys, phys,
 			       PAGE_SIZE, (EL1S2_SH|PAGE_HYP_RWX),
 			       S2_NORMAL_MEMORY))
-			HYP_ABORT();
+			panic("mmap_range failed\n");
 
 cont:
 		gpap += PAGE_SIZE;
@@ -533,7 +534,7 @@ int restore_host_mappings(void *gp)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("");
 
 	gettimeofday(&tv1, NULL);
 
@@ -601,7 +602,7 @@ int restore_host_mappings(void *gp)
 					 (EL1S2_SH | PAGE_HYP_RWX),
 					 S2_NORMAL_MEMORY);
 			if (res)
-				HYP_ABORT();
+				panic("mmap_range returned %d\n", res);
 			rcount++;
 cont:
 			slot_end += PAGE_SIZE;
@@ -652,7 +653,7 @@ bool __map_back_host_page(void *h, void *g, uint64_t far_el2)
 	/* 1:1 mapping - TODO the parameters from platform map */
 	if (mmap_range(host, STAGE2, ipa, ipa,
 		       PAGE_SIZE, ((SH_NO<<8)|PAGE_HYP_RWX), S2_NORMAL_MEMORY))
-		HYP_ABORT();
+		panic("mmap_range returned %d\n", res);
 
 map_back_out:
 	return res;

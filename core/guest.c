@@ -624,7 +624,7 @@ int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host\n");
 	/*
 	 * Walk through the provided range to verify it is contiguous
 	 * and physically mapped by the calling host context. This will also
@@ -668,7 +668,7 @@ int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len)
 
 	host = get_guest(HOST_VMID);
 	if (host == NULL)
-		HYP_ABORT();
+		panic("no host\n");
 
 	res = guest_validate_range(host, paddr, paddr, len);
 	if (res)
@@ -975,17 +975,17 @@ static int release_guest_s2(kvm_guest_t *guest, uint64_t rangestart, uint64_t ra
 	memset(guest->hyp_page_data, 0, sizeof(guest->hyp_page_data));
 	res = restore_host_mappings(guest);
 	if (res)
-		HYP_ABORT();
+		panic("restore_host_mappings failed with error %d\n", res);
 
 	/* Trash pgd */
 	res = free_pgd(&guest->s2_tablepool, NULL);
 	if (res)
-		HYP_ABORT();
+		panic("free_pgd failed\n");
 
 	/* Get new one in to prepare for possible reboot */
 	guest->EL1S2_pgd = alloc_pgd(guest, &guest->s2_tablepool);
 	if (res)
-		HYP_ABORT();
+		panic("alloc_pgd failed\n");
 
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
 				    ((uint64_t)guest->vmid << 48));
@@ -993,11 +993,11 @@ static int release_guest_s2(kvm_guest_t *guest, uint64_t rangestart, uint64_t ra
 	/* Restart physical address tracking */
 	res = patrack_stop(guest);
 	if (res)
-		HYP_ABORT();
+		panic("patrack stop failed with error %d\n", res);
 
 	res = patrack_start(guest);
 	if (res)
-		HYP_ABORT();
+		panic("patrack start failed with error %d\n", res);
 
 	guest->state = GUEST_STOPPED;
 
@@ -1043,7 +1043,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host\n");
 
 	/*
 	 * Permission(s) are integrity verified, so always disable the
@@ -1122,14 +1122,14 @@ cont:
 	res = mmap_range(guest, STAGE2, vaddr, paddr, len, prot,
 			 KERNEL_MATTR);
 	if (res)
-		HYP_ABORT();
+		panic("mmap_range failed with error %d\n", res);
 
 	/*
 	 * Mark the region ownership
 	 */
 	res = patrack_mmap(guest, paddr, vaddr, len);
 	if (res)
-		HYP_ABORT();
+		panic("patrack_mmap failed with error %d\n", res);
 
 	/*
 	 * If it's a normal region that is mapped on the host, remove it.
@@ -1141,11 +1141,11 @@ cont:
 				 (EL1S2_SH | PAGE_HYP_RW),
 				 S2_NORMAL_MEMORY);
 		if (res)
-			 HYP_ABORT();
+			panic("mmap_range failed with error %d\n", res);
 	} else  {
 		res = remove_host_range(guest, vaddr, len, false);
 		if (res)
-			 HYP_ABORT();
+			panic("remove_host_range failed with error %d\n", res);
 	}
 
 out_error:
@@ -1161,7 +1161,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host\n");
 
 	range_end = vaddr + len;
 	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr)) {
@@ -1226,7 +1226,8 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 							 paddr,
 							 *pte & PROT_MASK_STAGE2);
 				if (res)
-					HYP_ABORT();
+					panic("encrypt_guest_page returned %d\n",
+					      res);
 			} else {
 				/* The page is read-only or clean */
 				res = add_range_info(guest, map_addr,
@@ -1255,17 +1256,17 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		 */
 		res = unmap_range(guest, STAGE2, map_addr, PAGE_SIZE);
 		if (res)
-			HYP_ABORT();
+			panic("unmap_range failed with %d\n", res);
 
 		res = patrack_unmap(guest, paddr, PAGE_SIZE);
 		if (res)
-			HYP_ABORT();
+			panic("patrack_unmap failed with %d\n", res);
 		/*
 		 * Give it back to the host
 		 */
 		res = restore_host_range(host, paddr, PAGE_SIZE, true);
 		if (res)
-			HYP_ABORT();
+			panic("restore_host_range failed with %d\n", res);
 
 		pc += 1;
 do_loop:
@@ -1289,14 +1290,14 @@ int free_guest(void *kvm)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("no host\n");
 
 	guest = __get_guest_by_kvm(&kvm, NULL);
 	if (guest == NULL)
 		return 0;
 
 	if (guest->EL1S2_pgd == host->EL1S2_pgd)
-		HYP_ABORT();
+		panic("not host pgd\n");
 
 	if (guest->vmid == HOST_VMID)
 		return 0;
@@ -1307,7 +1308,7 @@ int free_guest(void *kvm)
 
 	res = patrack_stop(guest);
 	if (res)
-		ERROR("patrack_stop error: %d\n",res);
+		panic("patrack_stop error: %d\n",res);
 
 	free_pgd(&guest->s2_tablepool, NULL);
 	free_pgd(&guest->el2_tablepool, host->EL2S1_pgd);
@@ -1486,33 +1487,35 @@ int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
 	pte = NULL;
 
 	/* We only support page granularity at the moment */
-	if ((size != PAGE_SIZE) && (size != 0))
+	if ((size != PAGE_SIZE) && (size != 0)) {
+		res = -EINVAL;
 		goto out_no_entry;
-
+	}
 	guest = get_guest(vmid);
-	if (guest == NULL)
+	if (guest == NULL) {
+		res = -EINVAL;
 		goto out_no_entry;
-
+	}
 	addr = pt_walk(guest, STAGE2, ipa, &pte);
-
-	if (addr == ~0UL)
+	if (addr == ~0UL) {
+		res = -ENOENT;
 		goto out_no_entry;
-
+	}
 	switch (operation) {
 	case HYP_MKYOUNG:
 		bit_set(*pte, AF_BIT);
 		break;
 	case HYP_MKOLD:
 		res = !!(*pte & bit_to_mask(AF_BIT));
-		if (res) {
+		if (res)
 			bit_drop(*pte, AF_BIT);
-		}
 		break;
 	case HYP_ISYOUNG:
 		res = !!(*pte & bit_to_mask(AF_BIT));
 		break;
 	default:
-		HYP_ABORT();
+		res = -ENOSYS;
+		break;
 	}
 
 out_no_entry:
@@ -1729,14 +1732,14 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	bool res = false;
 
 	if (vmid != HOST_VMID)
-		HYP_ABORT();
+		panic("host_data_abort for non-host");
 
 	spin_lock(&core_lock);
 
 	paddr = (uint64_t)virt_to_ipa((void *)far_el2);
 	/* Shared page should never abort at host context. */
 	if (is_any_share(paddr))
-		HYP_ABORT();
+		panic("host should not have shares\n");
 
 	guest = get_guest_by_s1pgd((struct ptable *)(ttbr0_el1 &
 				   TTBR_BADDR_MASK));
@@ -1789,8 +1792,7 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		break;
 	case 0x8:
 	case 0x9:
-		ERROR("trapped el2 crash -- aborting\n");
-		HYP_ABORT();
+		panic("trapped el2 crash -- aborting\n");
 		break;
 	}
 out:
@@ -1869,7 +1871,7 @@ int guest_region_protect(kvm_guest_t *guest, uint64_t addr, size_t len,
 		res = mmap_range(guest, STAGE2, addr, phys, PAGE_SIZE,
 				 pval, tval);
 		if (!res)
-			HYP_ABORT();
+			panic("mmap_range returned %d\n", res);
 
 cont:
 		addr += PAGE_SIZE;
@@ -1897,7 +1899,7 @@ bool do_kernel_crash()
 	elr_el2 = read_reg(ELR_EL2);
 	phys = virt_to_ipa((void *)elr_el2);
 	if (phys == (void *)~0UL)
-		HYP_ABORT();
+		panic("");
 
 	memcpy(phys, &iival, 4);
 	write_reg(ELR_EL2, elr_el2);
@@ -1923,7 +1925,7 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 	elr_el2 = read_reg(ELR_EL2);
 	phys = virt_to_ipa((void *)elr_el2);
 	if (phys == (void *)~0UL)
-		HYP_ABORT();
+		panic("");
 
 	if (guest) {
 		/*

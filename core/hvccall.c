@@ -259,7 +259,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		*eop = &eops;
 
 		if (hyp_text_end <= hyp_text_start)
-			HYP_ABORT();
+			panic("hyp_text_end <= hyp_text_start\n");
 
 		LOG("hyp text is at 0x%lx - 0x%lx\n", hyp_text_start,
 						      hyp_text_end);
@@ -458,9 +458,21 @@ void print_abort(void)
 }
 
 NORETURN
-void hyp_abort(const char *func, const char *file, int line)
+void hyp_abort(const char *func, const char *file, int line,
+               const char *fmt, ...)
 {
-	ERROR("Aborted: %s:%lu func %s\n", file, line, func);
+	va_list args;
+	char buf[128];
+
+	ERROR("===========================================================\n");
+	ERROR("Hypervisor aborted at %s:%lu in function %s:\n",
+	       file, line, func);
+
+	va_start(args, fmt);
+	vsnprintf(buf, sizeof(buf) - 1, fmt, args);
+	va_end(args);
+	ERROR(buf);
+	ERROR("===========================================================\n");
 
 #if defined(CRASHDUMP) && defined(DEBUG)
 	print_mappings(get_current_vmid(), STAGE2);
@@ -620,7 +632,7 @@ void memctrl_exec(uint64_t *sp)
 		inst = (uint32_t)*(uint64_t *)ipa;
 		ERROR("Failing instruction was 0x%x\t'n", inst);
 		ERROR("https://armconverter.com/?disasm&code=%x\n", inst);
-		HYP_ABORT();
+		panic("");
 		break;
 	}
 

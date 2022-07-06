@@ -93,12 +93,11 @@ int crypto_init(void)
 				    &mbedtls_entropy_ctx, 0, 0);
 	RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 	if (res)
-		HYP_ABORT();
+		panic("mbedtls_ctr_drbg_seed returned %d\n", res);
 
 	return 0;
 }
 
-NORETURN
 void enter_el1_cold(void)
 {
 	kernel_func_t *start_addr;
@@ -116,10 +115,6 @@ void enter_el1_cold(void)
 
 	stack = platfrom_get_stack_ptr(core_index);
 	__enter_el1_cold(start_addr, (void *)stack);
-
-	HYP_ABORT();
-	while(1)
-		wfi();
 }
 
 void enter_el1_warm(kernel_func_t *entry_addr)
@@ -130,8 +125,7 @@ void enter_el1_warm(kernel_func_t *entry_addr)
 	core_index = smp_processor_id();
 	stack = platfrom_get_stack_ptr(core_index);
 	__enter_el1_warm(entry_addr, (void *)stack);
-
-	HYP_ABORT();
+	panic("");
 }
 
 void hyp_warm_entry(uint64_t core_index)
@@ -153,7 +147,7 @@ void __stack_chk_guard_setup(void)
 
 void __stack_chk_fail(void)
 {
-	HYP_ABORT();
+	panic("stack check failed\n");
 }
 
 int main(int argc UNUSED, char **argv UNUSED)
@@ -178,10 +172,10 @@ int main(int argc UNUSED, char **argv UNUSED)
 		log_init();
 		init_guest_array();
 		if (HOST_VMID == 0)
-			HYP_ABORT();
+			panic("");
 		host = get_free_guest(HOST_VMID);
 		if (!host)
-			HYP_ABORT();
+			panic("");
 		tdinfo_init();
 		table_init();
 		res = machine_init(host);
@@ -206,7 +200,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 	 */
 	if (init_index == 0) {
 		if (crypto_init() != 0)
-			HYP_ABORT();
+			panic("crypto init failed\n");
 	}
 	gettimeofday(&tv2, NULL);
 	LOG("HYP: core %ld initialization latency was %ldms\n",
@@ -215,4 +209,6 @@ int main(int argc UNUSED, char **argv UNUSED)
 	spin_unlock(&entrylock);
 
 	enter_el1_cold();
+	panic("end of main reached\n");
+	return -EFAULT;
 }

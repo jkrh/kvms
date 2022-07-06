@@ -38,7 +38,7 @@ int count_shared(uint32_t vmid, bool lock)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("");
 
 	guest = get_guest(vmid);
 	if (!guest)
@@ -440,7 +440,7 @@ int print_mappings_el2()
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("");
 	/* HYP mappings */
 	total += __print_mappings_el2(0, host->ramend);
 	/* Generic KVM HYP mappings */
@@ -460,7 +460,7 @@ int validate_host_mappings(void)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("");
 
 	vmid = get_current_vmid();
 	if (vmid != HOST_VMID) {

@@ -34,10 +34,9 @@ void table_init(void)
 	kvm_guest_t *host;
 
 	/* Clean up everything */
-	if (_zeromem16(guest_tables, sizeof(guest_tables))) {
-		ERROR("guest_tables not initialized, check alignment!\n");
-		HYP_ABORT();
-	}
+	if (_zeromem16(guest_tables, sizeof(guest_tables)))
+		panic("guest_tables not initialized, check alignment!\n");
+
 	__flush_dcache_area((void *)guest_tables, sizeof(guest_tables));
 
 	isb();
@@ -45,7 +44,7 @@ void table_init(void)
 	host = get_guest(HOST_VMID);
 	/* Init host side tables */
 	if (platform_init_host_pgd(host))
-		HYP_ABORT();
+		panic("host pgd init failed\n");
 
 	LOG("HOST INFO: VMID %x, EL2 S1 PGD 0x%lx, EL1 S2 PGD 0x%lx\n",
 	    HOST_VMID, (uint64_t)host->EL2S1_pgd, (uint64_t)host->EL1S2_pgd);
@@ -66,7 +65,7 @@ void tdinfo_init(void)
 	int granule_size;
 
 	if (PLATFORM_VTCR_EL2 == 0)
-		HYP_ABORT();
+		panic("PLATFORM_VTCR_EL2 is not set\n");
 
 	granule_size = VTCR_GET_GRANULE_SIZE(PLATFORM_VTCR_EL2);
 	switch (granule_size) {
@@ -82,7 +81,7 @@ void tdinfo_init(void)
 	case GRANULE_SIZE_16KB:
 	case GRANULE_SIZE_64KB:
 	default:
-		HYP_ABORT();
+		panic("");
 	break;
 	}
 }
@@ -129,10 +128,8 @@ static int free_static_ttbl_chunk(struct tablepool *tpool)
 	chunk.size = tpool->guest->mempool[tpool->currentchunk].size;
 	chunk.type = tpool->guest->mempool[tpool->currentchunk].type;
 
-	if (guest_table_user[i] != tpool->guest) {
-		ERROR("guest mismatch!\n");
-		HYP_ABORT();
-	}
+	if (guest_table_user[i] != tpool->guest)
+		panic("guest mismatch!\n");
 
 	err = __guest_memchunk_remove(tpool->guest, &chunk);
 	if (err)
@@ -190,7 +187,7 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 	if (c < 0) {
 		ERROR("out of memory chunks\n");
 		if (tpool->guest->vmid == HOST_VMID)
-			HYP_ABORT();
+			panic("non host memory pool?");
 
 		return NULL;
 	}
@@ -251,7 +248,7 @@ next_pool:
 
 		if (c <	GUEST_MEMCHUNKS_MAX) {
 			if (get_tablepool(tpool, c))
-				HYP_ABORT();
+				panic("get tablepool failed\n");
 			goto next_pool;
 		}
 	}
@@ -333,7 +330,6 @@ static tbl_search_t pte_from_tbl_by_oaddr(uint64_t *tbl, uint64_t *tblpos,
 			}
 		}
 	}
-
 	*tblpos = desci;
 
 	return res;
@@ -349,7 +345,7 @@ static uint64_t *pte_from_pgd_by_oaddr(struct ptable *pgd, uint64_t oaddr,
 	uint64_t *tpte = NULL;
 
 	if (levels > MAX_TABLE_LEVELS || lastlevel >= 3)
-		HYP_ABORT();
+		panic("");
 
 	firstlevel = MAX_TABLE_LEVELS - levels;
 	pte[firstlevel] = pgd->entries;
@@ -392,7 +388,7 @@ static uint64_t *pte_from_pgd_by_oaddr(struct ptable *pgd, uint64_t oaddr,
 			 */
 			return tpte;
 		default:
-			HYP_ABORT();
+			panic("");
 			break;
 		}
 	}
@@ -413,7 +409,7 @@ static int clean_parentpgd(struct tablepool *tpool, struct ptable *ppgd)
 	else if (tpool == &tpool->guest->s2_tablepool)
 		pgd_levels = tpool->guest->table_levels_el1s2;
 	else
-		HYP_ABORT();
+		panic("");
 
 	for (table = 0; table < tpool->num_tables; table++) {
 		tableptr = &tpool->pool[table];

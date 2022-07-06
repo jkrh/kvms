@@ -215,7 +215,7 @@ void platform_mmu_prepare(void)
 
 	host = get_guest(HOST_VMID);
 	if (!host)
-		HYP_ABORT();
+		panic("");
 
 	write_reg(TTBR0_EL2, (uint64_t)host->EL2S1_pgd);
 	write_reg(VTTBR_EL2, (uint64_t)host->EL1S2_pgd);
