@@ -189,3 +189,8 @@ echo "- Host ip $LOCALIP"
 echo $CROSVMDIR/crosvm run --rwdisk $IMAGE --tap-name crosvm_tap -m $MEM $GPUWFW -p "$KERNEL_OPTS" $KERNEL
 
 $CROSVMDIR/crosvm run --rwdisk $IMAGE --tap-name crosvm_tap -m $MEM $GPUWFW -p "$KERNEL_OPTS" $KERNEL
+
+echo "Delete this machine network tap"
+ip link delete crosvm_tap
+
+
