@@ -94,8 +94,8 @@ struct hyp_extension_ops {
 #define HYP_GENERATE_KEY		0xB000
 #define HYP_GET_KEY			0xB001
 #define HYP_DELETE_KEY			0xB002
-#define HYP_SAVE_KEY			0xB003
-#define HYP_LOAD_KEY			0xB004
+#define HYP_SAVE_KEYS			0xB003
+#define HYP_LOAD_KEYS			0xB004
 #define HYP_DEFINE_GUEST_ID		0xB005
 
 #define STR(x) #x

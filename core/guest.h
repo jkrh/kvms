@@ -99,7 +99,7 @@ struct guest_exitlog {
 #endif /* EXITLOG */
 
 #define MIN_UNIQUE_ID_LEN 8
-#define MAX_UNIQUE_ID_LEN 32
+#define GUEST_UNIQUE_ID_LEN 32
 
 struct kvm_guest {
 	uint32_t vmid;
@@ -129,7 +129,7 @@ struct kvm_guest {
 	void *fail_addr;
 	uint32_t fail_inst;
 	void *keybuf;
-	uint8_t unique_id[MAX_UNIQUE_ID_LEN];
+	uint8_t unique_id[GUEST_UNIQUE_ID_LEN];
 #ifdef EXITLOG
 	struct guest_exitlog exitlog;
 #endif

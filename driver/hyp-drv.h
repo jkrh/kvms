@@ -22,16 +22,35 @@ struct log_frag {
 	u64 frag;
 };
 
+struct guest_key {
+	u32 type;
+	char name[16];
+	unsigned char key[32];
+};
+struct encrypted_keys {
+	u64 vmid;
+	u32 len;
+	char buf[1024];
+};
+
 #define KERNEL_LOCK	1
 #define KERNEL_MMAP	2
 #define KERNEL_WRITE	3
 #define READ_LOG	4
+#define GENERATE_KEY	5
+#define READ_KEY	6
+#define SAVE_KEYS	7
+#define LOAD_KEYS	8
 
 #define HYPDRV_IOCTL_BASE 0xDE
 #define HYPDRV_KERNEL_LOCK _IO(HYPDRV_IOCTL_BASE, 1)
 #define HYPDRV_KERNEL_MMAP _IOW(HYPDRV_IOCTL_BASE, 2, struct hypdrv_mem_region)
 #define HYPDRV_KERNEL_WRITE _IOW(HYPDRV_IOCTL_BASE, 3, struct hypdrv_mem_region)
 #define HYPDRV_READ_LOG _IOR(HYPDRV_IOCTL_BASE, 4, struct log_frag)
+#define HYPDRV_GENERATE_KEY _IOWR(HYPDRV_IOCTL_BASE, 5, struct guest_key)
+#define HYPDRV_READ_KEY _IOWR(HYPDRV_IOCTL_BASE, 6, struct guest_key)
+#define HYPDRV_SAVE_KEYS _IOWR(HYPDRV_IOCTL_BASE, 7, struct encrypted_keys)
+#define HYPDRV_LOAD_KEYS _IOW(HYPDRV_IOCTL_BASE, 8, struct encrypted_keys)
 
 #define _XN(A, B)	(A<<54|B<<53)
 #define _SH(A, B)	(A<<9|B<<8)

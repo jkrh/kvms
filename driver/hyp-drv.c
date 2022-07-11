@@ -18,7 +18,7 @@
 #include <asm-generic/ioctls.h>
 #include <linux/mm.h>
 #include <asm/memory.h>
-
+#include <linux/slab.h>
 #include "hvccall-defines.h"
 #include "kaddr.h"
 #include "hyp-drv.h"
@@ -269,6 +269,122 @@ do_write(struct hypdrv_mem_region *reg)
 #endif
 
 static ssize_t
+do_savekeys(void __user *argp)
+{
+	uint64_t ret = -ENODATA;
+	struct encrypted_keys *p;
+	u64 len = 1024;
+	uint8_t guest_id[32] = "dummy name";
+
+	p = kmalloc(sizeof(struct encrypted_keys), GFP_KERNEL);
+	if (!p)
+		return -ENOMEM;
+	ret = copy_from_user(p, argp, sizeof(struct encrypted_keys));
+	if (ret)
+		return -EIO;
+	/* FIXME:
+	 * Current implementation requires that kernel gives an unique value
+	 * for each VM. Unique value should be generated secure way.
+	 */
+	ret = call_hyp(HYP_DEFINE_GUEST_ID, p->vmid,
+		      (u64) &guest_id, (u64) sizeof(guest_id), 0);
+	if (ret)
+		return ret;
+
+
+
+	p->len = sizeof(p->buf);
+	ret = call_hyp(HYP_SAVE_KEYS, p->vmid,
+		      (u64) p->buf, (u64) &len, 0);
+	p->len = (u32) len;
+	ret = copy_to_user(argp, p, sizeof(struct encrypted_keys));
+	if (ret)
+		return ret;
+	kfree(p);
+	return 0;
+
+}
+
+static ssize_t
+do_loadkeys(void __user *argp)
+{
+	uint64_t ret = -ENODATA;
+	struct encrypted_keys *p;
+	uint8_t guest_id[] = "dummy name";
+
+	p = kmalloc(sizeof(struct encrypted_keys), GFP_KERNEL);
+	if (!p)
+		return -ENOMEM;
+	ret = copy_from_user(p, argp, sizeof(struct encrypted_keys));
+	if (ret)
+		return -EIO;
+
+	/* FIXME:
+	 * Current implementation requires that kernel gives an unique value
+	 * for each VM. Unique value should be generated secure way.
+	 */
+	ret = call_hyp(HYP_DEFINE_GUEST_ID, p->vmid,
+		      (u64) &guest_id, (u64) sizeof(guest_id), 0);
+	if (ret)
+		return ret;
+
+	ret = call_hyp(HYP_LOAD_KEYS, p->vmid, (u64) &p->buf, (u64) p->len, 0);
+	if (ret)
+		return ret;
+
+	kfree(p);
+	return 0;
+}
+
+static ssize_t
+do_keygen(void __user *argp)
+{
+	struct guest_key gkeys;
+	uint64_t ret;
+	u32 bsize = 32;
+
+	ret = copy_from_user(&gkeys, argp, sizeof(struct guest_key));
+	if (ret)
+		return -EIO;
+
+	ret = call_hyp(HYP_GENERATE_KEY,
+		      (u64) &gkeys.key, (u64) &bsize, 1,
+		      (u64)&gkeys.name);
+	if (ret)
+		return ret;
+
+	ret = copy_to_user(argp, &gkeys, sizeof(struct guest_key));
+	if (ret)
+		return ret;
+
+	return 0;
+
+}
+
+static ssize_t
+do_getkey(void __user *argp)
+{
+	struct guest_key gkeys;
+	uint64_t ret;
+	u32 bsize = 32;
+
+	ret = copy_from_user(&gkeys, argp, sizeof(struct guest_key));
+	if (ret)
+		return -EIO;
+
+	ret = call_hyp(HYP_GET_KEY, (u64) &gkeys.key, (u64) &bsize, 1,
+		      (u64) &gkeys.name);
+	if (ret)
+		return ret;
+
+	ret = copy_to_user(argp, &gkeys, sizeof(struct guest_key));
+	if (ret)
+		return -EIO;
+
+	return 0;
+}
+
+static ssize_t
 do_read(void __user *argp)
 {
 	struct log_frag log = { 0 };
@@ -321,6 +437,18 @@ device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 	case HYPDRV_READ_LOG:
 		ret = do_read(argp);
+		break;
+	case HYPDRV_GENERATE_KEY:
+		ret =  do_keygen(argp);
+		break;
+	case HYPDRV_READ_KEY:
+		ret =  do_getkey(argp);
+		break;
+	case HYPDRV_SAVE_KEYS:
+		ret =  do_savekeys(argp);
+		break;
+	case HYPDRV_LOAD_KEYS:
+		ret =  do_loadkeys(argp);
 		break;
 	case TCGETS:
 #ifdef DEBUG

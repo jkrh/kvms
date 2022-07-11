@@ -814,6 +814,7 @@ int init_guest(void *kvm)
 	guest->vmid = KVM_GET_VMID(kvm);
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
 				    ((uint64_t)guest->vmid << 48));
+	memset(guest->unique_id, 0, GUEST_UNIQUE_ID_LEN);
 
 	/* Save the current VM process stage1 PGDs */
 	guest->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);

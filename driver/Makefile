@@ -2,12 +2,17 @@
 ifeq ($(DEBUG),1)
 export OPTS := -g -O1 -DDEBUG
 endif
-KERNEL_DIR := $(PWD)/../oss/linux
+TOOLDIR=$TOPDIR/buildtools
+CROSS_COMPILE=aarch64-linux-gnu-
+
+export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin
+export PKG_CONFIG_PATH=$TOOLDIR/usr/local/lib/x86_64-linux-gnu/pkgconfig
+
 
 obj-m += hyp-drv.o
 
 all:
-	$(PWD)/gen_kaddr.sh $(KERNEL_DIR)
+	$(TOPDIR)/driver/gen_kaddr.sh $(KERNEL_DIR)
 	make ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) -C $(KERNEL_DIR) M=$(PWD) \
 	"KCFLAGS=$(OPTS)" modules
 

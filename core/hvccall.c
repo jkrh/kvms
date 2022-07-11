@@ -94,15 +94,24 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 					  (size_t)a3, (uint64_t)a4);
 		break;
 	case HYP_GENERATE_KEY:
-		res = generate_key(guest, (uint8_t *)a1, (size_t *)a2,
-				   a3, (char *)a4);
+		res = generate_key(guest, virt_to_phys((void *) a1),
+				   virt_to_phys((void *) a2),
+				   a3,
+				   virt_to_phys((void *) a4));
 		break;
 	case HYP_GET_KEY:
-		res = get_key(guest, (uint8_t *)a1, (size_t *)a2,
-			      a3, (char *)a4);
+		res = get_key(guest, virt_to_phys((void *) a1),
+			     virt_to_phys((void *) a2),
+			     a3,
+			     virt_to_phys((void *) a4));
 		break;
 	case HYP_DELETE_KEY:
-		res = delete_key(guest, a1, (char *) a2);
+		res = delete_key(guest, a1, virt_to_phys((void *) a2));
+		break;
+	case HYP_DEFINE_GUEST_ID:
+		guest = get_guest(a1);
+		res = set_guest_own_id(guest, virt_to_phys((void *) a2),
+				      (size_t) a3);
 		break;
 #ifdef DEBUG
 	case HYP_TRANSLATE:
@@ -391,21 +400,34 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		break;
 	case HYP_DEFINE_GUEST_ID:
 		guest = get_guest(a1);
-		res = set_guest_id(guest, (uint8_t *)a2, (size_t)a3);
+		res = set_guest_id(guest, virt_to_phys((void *)a2), (size_t)a3);
 		break;
-	case HYP_SAVE_KEY:
+	case HYP_SAVE_KEYS:
 		guest = get_guest(a1);
 		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
-		res = save_vm_key(guest, (uint8_t *)a2, (size_t *)a3);
+		res = save_vm_key(guest, virt_to_phys((void *)a2), virt_to_phys((void *)a3));
 		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
-	case HYP_LOAD_KEY:
+	case HYP_LOAD_KEYS:
 		guest = get_guest(a1);
 		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
-		res = load_vm_key(guest, (uint8_t *)a2, a3);
+		res = load_vm_key(guest, virt_to_phys((void *)a2), a3);
 		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
-	/*
+
+	case HYP_GENERATE_KEY:
+		res = generate_host_key(virt_to_phys((void *) a1),
+				   virt_to_phys((void *) a2),
+				   a3,
+				   virt_to_phys((void *) a4));
+		break;
+	case HYP_GET_KEY:
+		res = get_host_key(virt_to_phys((void *) a1),
+				virt_to_phys((void *) a2),
+				a3,
+				virt_to_phys((void *) a4));
+		break;
+		/*
 	 * KVM callbacks
 	 */
 	default:
