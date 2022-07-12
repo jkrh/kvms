@@ -1,0 +1,84 @@
+From 7e246873cf3e9afe559e50c7027f7873accaa2b3 Mon Sep 17 00:00:00 2001
+From: Jouni Ukkonen <jouni.ukkonen@unikie.com>
+Date: Fri, 8 Jul 2022 12:14:23 +0300
+Subject: [PATCH] crosvm:  optee support in fdt
+
+optee reserved memory and smc node defined
+NOTE: hard coded values for memory regions
+only for imx8qm
+
+Signed-off-by: Jouni Ukkonen <jouni.ukkonen@unikie.com>
+---
+ aarch64/src/fdt.rs | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/aarch64/src/fdt.rs b/aarch64/src/fdt.rs
+index 1ab35f3f..8f463eb9 100644
+--- a/aarch64/src/fdt.rs
++++ b/aarch64/src/fdt.rs
+@@ -90,6 +90,34 @@ fn create_resv_memory_node(fdt: &mut FdtWriter, resv_size: Option<u64>) -> Resul
+     }
+ }
+ 
++fn create_optee_memory_node(fdt: &mut FdtWriter) -> Result<()> {
++
++    let resv_memory_node = fdt.begin_node("reserved-memory")?;
++    fdt.property_u32("#address-cells", 0x2)?;
++    fdt.property_u32("#size-cells", 0x2)?;
++    fdt.property_null("ranges")?;
++
++    // Op-tee shared memory imx 8qm 
++    let optee_shared_mem = fdt.begin_node("optee_shm@ffc00000")?;
++    let mem_shm_prop = [0xffc00000, 0x400000];
++    fdt.property_null("no-map")?;
++    fdt.property_array_u64("reg", &mem_shm_prop)?;
++    fdt.end_node(optee_shared_mem)?;    
++
++    let optee_core_mem = fdt.begin_node("optee_core@fe000000")?;
++    let mem_core_prop = [0xfe000000, 0x01C00000];
++    fdt.property_null("no-map")?;
++    fdt.property_array_u64("reg", &mem_core_prop)?;
++    fdt.end_node(optee_core_mem)?;
++    fdt.end_node(resv_memory_node)?;
++
++    Ok(())
++
++}
++
++
++
++
+ fn create_cpu_nodes(
+     fdt: &mut FdtWriter,
+     num_cpus: u32,
+@@ -226,6 +254,18 @@ fn create_serial_nodes(fdt: &mut FdtWriter) -> Result<()> {
+     Ok(())
+ }
+ 
++
++fn create_firmware_node(fdt: &mut FdtWriter) -> Result<()> {
++    let firmware_node = fdt.begin_node("firmware")?;
++    let optee_node = fdt.begin_node("optee")?;
++    fdt.property_string("compatible", "linaro,optee-tz")?;
++    fdt.property_string("method", "smc")?;
++    fdt.end_node(optee_node)?;
++    fdt.end_node(firmware_node)?;
++
++    Ok(())
++}
++
+ fn psci_compatible(version: &PsciVersion) -> Vec<&str> {
+     // The PSCI kernel driver only supports compatible strings for the following
+     // backward-compatible versions.
+@@ -522,6 +562,8 @@ pub fn create_fdt(
+         create_pmu_node(&mut fdt, num_cpus)?;
+     }
+     create_serial_nodes(&mut fdt)?;
++    create_firmware_node(&mut fdt)?;
++    create_optee_memory_node(&mut fdt)?;
+     create_psci_node(&mut fdt, &psci_version)?;
+     create_pci_nodes(&mut fdt, pci_irqs, pci_cfg, pci_ranges, dma_pool_phandle)?;
+     create_rtc_node(&mut fdt)?;
+-- 
+2.17.1
+
