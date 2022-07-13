@@ -61,7 +61,11 @@ pipeline {
                 }
             steps {
                 sh 'cd /hyp && make KERNEL_DIR=/hyp/oss/linux GRAPHICS=1 run > /hyp/host.log &'
-                sh 'sleep 240'
+
+                sh 'echo wait for Host VM to reach Network Online state'
+                sh 'timeout 240s grep -q "Network is Online" <(tail -f /hyp/host.log) || exit 1'
+                // host VM is now accepting connections but it is better to give it more time to finalize startup
+                sh 'sleep 45'
 
                 sh 'echo HOST_IP=$(grep ssh /hyp/host.log | cut -d" " -f7|cut -d":" -f1) > host_ips.sh'
                 sh 'cat host_ips.sh'
@@ -75,13 +79,23 @@ pipeline {
                     ssh-keyscan -p 10022 \$HOST_IP >> ~/.ssh/known_hosts
                     sshpass -p ubuntu ssh-copy-id -i hostkey -p 10022 ubuntu@\$HOST_IP
 
+                    echo stop unattended-upgrades process 
+                    ssh -i hostkey ubuntu@\$HOST_IP -p 10022 "sudo systemctl stop unattended-upgrades"
+
                     ssh -i hostkey ubuntu@\$HOST_IP -p 10022 "sudo rm -rf /var/lib/apport/coredump/*"
                     scp -P 10022 -i hostkey linux-5.10.108/arch/arm64/boot/Image ubuntu@\$HOST_IP:~/vm/ubuntu20
+                    ssh -i hostkey ubuntu@\$HOST_IP -p 10022 "rm -f vm/ubuntu20/guest.log"
                     ssh -i hostkey ubuntu@\$HOST_IP -p 10022 "cd vm/ubuntu20 && ulimit -c unlimited && sudo ./run-qemu6-linux.sh > guest.log" &
                     echo $?
                 '''
 
-                sh 'sleep 480'
+                sh 'echo wait for Guest VM to reach Network Online state'
+                sh '''
+                    source host_ips.sh
+                    sleep 240
+                    timeout 240s grep -q "Network is Online" <(ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "tail -f vm/ubuntu20/guest.log") || exit 1
+                    sleep 60
+                '''
                 sh '''
                     source host_ips.sh
 
@@ -94,15 +108,20 @@ pipeline {
                 sh 'echo GUEST1_IP=$(grep ssh /hyp/guest.log | cut -d" " -f7|cut -d":" -f1) >> host_ips.sh'
                 sh '''
                     source host_ips.sh
-                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "dmesg" > /hyp/guest1-dmesg.log || true
-                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "ps aux" > /hyp/guest1-ps.log || true
-                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "sudo shutdown now" || true
+                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "dmesg" > /hyp/guest1-dmesg.log
+                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "sudo systemctl stop unattended-upgrades"
+                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "ps aux" > /hyp/guest1-ps.log
+                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 ssh ubuntu@$GUEST1_IP -p 2000 "sudo shutdown now || true"
                 '''
-                sh 'sleep 60'
+                sh 'echo wait for Guest VM to reach Power-Offstate'
+                sh '''
+                    source host_ips.sh
+                    timeout 60s grep -q "Power-Off" <(ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "tail -f vm/ubuntu20/guest.log") || exit 1
+                '''
                 sh '''
                     source host_ips.sh
                     ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "ps aux"
-                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "cat vm/ubuntu20/guest.log" >/hyp/guest_before_shutdown.log
+                    ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "cat vm/ubuntu20/guest.log" >/hyp/guest_shutdown.log
                     ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "sudo shutdown now" || true
                 '''
                 sh 'sleep 30'
