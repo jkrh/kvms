@@ -1,6 +1,6 @@
-From 651aa31b1af70be6a5d08f0a3c61f4f3a11de002 Mon Sep 17 00:00:00 2001
+From f4a7b4f4f2a22aac6c69898213569efa2463d0d3 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
-Date: Tue, 21 Apr 2020 09:45:23 +0300
+Date: Fri, 15 Jul 2022 11:06:11 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
@@ -38,7 +38,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  create mode 100644 arch/arm64/kvm/hyp/kvms-hvci.S
 
 diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
-index 5cfe3cf6f2ac..ce42a76b640c 100644
+index 2bdf38d05fa5..fb8c320897d9 100644
 --- a/arch/arm64/configs/defconfig
 +++ b/arch/arm64/configs/defconfig
 @@ -139,18 +139,18 @@ CONFIG_IP_PNP_DHCP=y
@@ -114,10 +114,10 @@ index 7f532b2d7bbc..588a457ac3ee 100644
  
  /* TCR_EL2 Registers bits */
 diff --git a/arch/arm64/include/asm/kvm_asm.h b/arch/arm64/include/asm/kvm_asm.h
-index 044bb9e2cd74..5e2c5dc028da 100644
+index ada24a20a567..9b9b919789a0 100644
 --- a/arch/arm64/include/asm/kvm_asm.h
 +++ b/arch/arm64/include/asm/kvm_asm.h
-@@ -180,23 +180,44 @@ DECLARE_KVM_HYP_SYM(__bp_harden_hyp_vecs);
+@@ -183,23 +183,44 @@ DECLARE_KVM_HYP_SYM(__bp_harden_hyp_vecs);
  #define __bp_harden_hyp_vecs	CHOOSE_HYP_SYM(__bp_harden_hyp_vecs)
  
  extern void __kvm_flush_vm_context(void);
@@ -161,7 +161,7 @@ index 044bb9e2cd74..5e2c5dc028da 100644
 +DECLARE_KVM_NVHE_SYM(__kvm_get_mdcr_el2);
  
  extern char __smccc_workaround_1_smc[__SMCCC_WORKAROUND_1_SMC_SZ];
- 
+ extern char __smccc_workaround_3_smc[__SMCCC_WORKAROUND_3_SMC_SZ];
 diff --git a/arch/arm64/include/asm/kvm_emulate.h b/arch/arm64/include/asm/kvm_emulate.h
 index 472122d731b0..c856f4dde9b6 100644
 --- a/arch/arm64/include/asm/kvm_emulate.h
@@ -292,7 +292,7 @@ index 123e67cb8505..598501251341 100644
  #ifdef __KVM_NVHE_HYPERVISOR__
  void __noreturn __hyp_do_panic(struct kvm_cpu_context *host_ctxt, u64 spsr,
 diff --git a/arch/arm64/include/asm/kvm_mmu.h b/arch/arm64/include/asm/kvm_mmu.h
-index 331394306cce..37d706fb6ee3 100644
+index 47dafd6ab3a3..852f3c92cf4c 100644
 --- a/arch/arm64/include/asm/kvm_mmu.h
 +++ b/arch/arm64/include/asm/kvm_mmu.h
 @@ -49,6 +49,8 @@
@@ -388,7 +388,7 @@ index 331394306cce..37d706fb6ee3 100644
  #define kvm_flush_dcache_to_poc(a,l)	__flush_dcache_area((a), (l))
  
  static inline bool vcpu_has_cache_enabled(struct kvm_vcpu *vcpu)
-@@ -273,8 +286,8 @@ static __always_inline u64 kvm_get_vttbr(struct kvm_s2_mmu *mmu)
+@@ -274,8 +287,8 @@ static __always_inline u64 kvm_get_vttbr(struct kvm_s2_mmu *mmu)
   */
  static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
  {
@@ -398,7 +398,7 @@ index 331394306cce..37d706fb6ee3 100644
  
  	/*
  	 * ARM errata 1165522 and 1530923 require the actual execution of the
-@@ -284,5 +297,36 @@ static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
+@@ -285,5 +298,36 @@ static __always_inline void __load_guest_stage2(struct kvm_s2_mmu *mmu)
  	asm(ALTERNATIVE("nop", "isb", ARM64_WORKAROUND_SPECULATIVE_AT));
  }
  
@@ -504,7 +504,7 @@ index 1504c81fbf5d..66558ce2f53b 100644
  
  kvm-$(CONFIG_KVM_ARM_PMU)  += pmu-emul.o
 diff --git a/arch/arm64/kvm/arm.c b/arch/arm64/kvm/arm.c
-index 5bc978be8043..b3cd52794987 100644
+index 4d63fcd7574b..d733a5bb42e7 100644
 --- a/arch/arm64/kvm/arm.c
 +++ b/arch/arm64/kvm/arm.c
 @@ -37,10 +37,12 @@
@@ -620,7 +620,7 @@ index 5bc978be8043..b3cd52794987 100644
  
  		check_vcpu_requests(vcpu);
  
-@@ -1368,6 +1379,11 @@ static void cpu_init_hyp_mode(void)
+@@ -1369,6 +1380,11 @@ static void cpu_init_hyp_mode(void)
  	unsigned long tpidr_el2;
  	struct arm_smccc_res res;
  
@@ -632,7 +632,7 @@ index 5bc978be8043..b3cd52794987 100644
  	/* Switch from the HYP stub to our own HYP init vector */
  	__hyp_set_vectors(kvm_get_idmap_vector());
  
-@@ -1407,8 +1423,6 @@ static void cpu_init_hyp_mode(void)
+@@ -1408,8 +1424,6 @@ static void cpu_init_hyp_mode(void)
  
  static void cpu_hyp_reset(void)
  {
@@ -641,7 +641,7 @@ index 5bc978be8043..b3cd52794987 100644
  }
  
  static void cpu_hyp_reinit(void)
-@@ -1627,21 +1641,24 @@ static int init_hyp_mode(void)
+@@ -1628,21 +1642,24 @@ static int init_hyp_mode(void)
  	 * Map the Hyp-code called directly from the host
  	 */
  	err = create_hyp_mappings(kvm_ksym_ref(__hyp_text_start),
@@ -669,7 +669,7 @@ index 5bc978be8043..b3cd52794987 100644
  	if (err) {
  		kvm_err("Cannot map bss section\n");
  		goto out_err;
-@@ -1659,7 +1676,7 @@ static int init_hyp_mode(void)
+@@ -1660,7 +1677,7 @@ static int init_hyp_mode(void)
  	for_each_possible_cpu(cpu) {
  		char *stack_page = (char *)per_cpu(kvm_arm_hyp_stack_page, cpu);
  		err = create_hyp_mappings(stack_page, stack_page + PAGE_SIZE,
@@ -678,7 +678,7 @@ index 5bc978be8043..b3cd52794987 100644
  
  		if (err) {
  			kvm_err("Cannot map hyp stack\n");
-@@ -1674,7 +1691,7 @@ static int init_hyp_mode(void)
+@@ -1675,7 +1692,7 @@ static int init_hyp_mode(void)
  		char *percpu_begin = (char *)kvm_arm_hyp_percpu_base[cpu];
  		char *percpu_end = percpu_begin + nvhe_percpu_size();
  
@@ -687,7 +687,7 @@ index 5bc978be8043..b3cd52794987 100644
  
  		if (err) {
  			kvm_err("Cannot map hyp percpu region\n");
-@@ -1791,7 +1808,10 @@ int kvm_arch_init(void *opaque)
+@@ -1792,7 +1809,10 @@ int kvm_arch_init(void *opaque)
  		return err;
  
  	if (!in_hyp_mode) {
@@ -2034,10 +2034,10 @@ index 204c62debf06..b548b33bbf15 100644
  
  	/*
 diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index d22de4392507..08ff2d8947e0 100644
+index 9cd8ca2d8bc1..6fa0a4672344 100644
 --- a/virt/kvm/kvm_main.c
 +++ b/virt/kvm/kvm_main.c
-@@ -4891,7 +4891,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
+@@ -4904,7 +4904,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
  	if (!vcpu_align)
  		vcpu_align = __alignof__(struct kvm_vcpu);
  	kvm_vcpu_cache =
