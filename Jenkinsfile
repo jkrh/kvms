@@ -116,7 +116,7 @@ pipeline {
                 sh 'echo wait for Guest VM to reach Power-Offstate'
                 sh '''
                     source host_ips.sh
-                    timeout 60s grep -q "Power-Off" <(ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "tail -f vm/ubuntu20/guest.log") || exit 1
+                    timeout 240s grep -q "Power-Off" <(ssh -i ./hostkey ubuntu@\$HOST_IP -p 10022 "tail -f vm/ubuntu20/guest.log") || exit 1
                 '''
                 sh '''
                     source host_ips.sh
