@@ -18,6 +18,14 @@ int debugstop(void);
 int debugstart(void);
 
 /**
+ * Dump the vm page encryption state
+ *
+ * @param vmid to query
+ * @return void
+ */
+void print_encryption_state(uint32_t vmid);
+
+/**
  * Count the amount of guest ram visible to the host
  *
  * @param vmid to query
@@ -33,7 +41,14 @@ int count_shared(uint32_t vmid, bool lock);
  * @param stage STAGE1 or STAGE2 of the address translation
  * @return total number of pages in the guest or -errno
  */
+#ifdef DEBUG
 int print_mappings(uint32_t vmid, uint64_t stage);
+#else
+static inline int print_mappings(uint32_t vmid, uint64_t stage)
+{
+	return 0;
+}
+#endif
 
 /**
  * Print one address mapping for given guest to console/log
@@ -67,7 +82,14 @@ uint64_t translate_addr(uint64_t vaddr);
  * @param void
  * @return total number of mapped pages or -errno
  */
+#ifdef DEBUG
 int print_mappings_el2(void);
+#else
+static inline int print_mappings_el2(void)
+{
+	return 0;
+}
+#endif
 
 /**
  * Print shared areas to console/log

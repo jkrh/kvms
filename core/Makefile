@@ -4,8 +4,13 @@ AS_SOURCES := ventry.S kentry.S spinlock.S cache.S \
 C_SOURCES := armtrans.c main.c hvccall.c \
 	smccall.c guest.c psci.c mm.c \
 	mtree.c kjump.c \
-	validate.c tables.c gic.c patrack.c \
+	tables.c gic.c patrack.c \
 	oplocks.c
+
+ifdef DEBUG
+C_SOURCES += validate.c
+endif
+
 LIBNAME := libcore.a
 
 include $(BASE_DIR)/core/common.mk

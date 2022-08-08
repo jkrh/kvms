@@ -561,6 +561,42 @@ void print_tables(uint64_t vmid)
 	} while (c < GUEST_MEMCHUNKS_MAX);
 }
 
+
+void print_encryption_state(uint32_t vmid)
+{
+	kvm_guest_t *guest;
+	kvm_page_data *pd;
+	uint64_t ipa;
+	int i;
+
+	guest = get_guest(vmid);
+	if (!guest) {
+		ERROR("No such guest %u?\n", vmid);
+		return;
+	}
+
+	printf("\nScanning guest ram range 0 - 0x%lx\n", guest->ramend);
+
+	printf("Address\t\tIntegrity\t\tEncrypted\n");
+	for (ipa = 0; ipa < guest->ramend; ipa += PAGE_SIZE) {
+		pd = get_range_info(guest, ipa);
+		if (!pd)
+			continue;
+		printf("0x%lx\t\t", ipa);
+
+		for(i = 0; i < 8; i++)
+			puts((const char*)&pd->sha256[i]);
+		printf("..\t");
+
+		if (pd->nonce)
+			puts("y");
+		else
+			puts("n");
+		puts("\n");
+
+	}
+}
+
 void validate_keys(uint64_t vmid)
 {
 	kvm_guest_t *guest;
