@@ -7,8 +7,9 @@
 #ifndef __PLATFORM_API_H__
 #define __PLATFORM_API_H__
 
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <sys/types.h>
 
 #include "guest.h"
 
@@ -25,7 +26,7 @@
  *
  * @host: Virtual machine (kvm) structure for the host.
  * @return zero if succesfully initialized,
- * 	   other than zero in case of error.
+ *	   other than zero in case of error.
  */
 int machine_init(kvm_guest_t *host);
 
@@ -50,7 +51,7 @@ bool machine_init_ready(void);
  *
  * @host: Virtual machine (kvm) structure for the host.
  * @return zero if succesfully initialized,
- * 	   other than zero in case of error.
+ *	   other than zero in case of error.
  */
 int platform_init_host_pgd(kvm_guest_t *host);
 
@@ -126,5 +127,24 @@ int platform_range_permitted(uint64_t pstart, size_t len);
  * @return 0 on success, nonzero otherwise
  */
 int platform_entropy(uint8_t *entropy, size_t len);
+
+/**
+ * platform_init_guest - platform specific guest initialization
+ *
+ * @param vmid, empty buffer to fill with entropy
+ * @return 0 on success, nonzero otherwise
+ */
+int platform_init_guest(uint32_t vmid);
+
+/**
+ * platform_allow_guest_smc - ask if it is allowed to forward smc
+ *
+ * @param cn smc call id
+ * @param a1-a7 argument registers
+ * @return 1 if smc can be forwarded, zero otherwise
+ */
+int platform_allow_guest_smc(register_t cn, register_t a1, register_t a2,
+			     register_t a3, register_t a4, register_t a5,
+			     register_t a6, register_t a7);
 
 #endif /* __PLATFORM_API_H__ */

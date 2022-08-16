@@ -245,7 +245,6 @@ guest_instruction_abort:
 smc_trap:
 	cmp	x0, #GUEST_VMID_START
 	blt	host_smc_trap
-	load_all_regs
 	b	guest_smc_trap
 
 host_smc_trap:
@@ -260,7 +259,20 @@ host_smc_trap:
 	b	forward_aarch64sync
 
 guest_smc_trap:
-	mov	x0, #3
+	ldp	x0, x1, [sp, #(8 * 0)]
+	save_all_regs
+	bl	platform_allow_guest_smc
+	cmp	x0, #0
+	beq	1f
+	mrs	x0, ELR_EL2
+	add	x0, x0, #4
+	msr	ELR_EL2, x0
+	ldr	x0, [sp, #(8 * 0)]
+	load_all_regs
+	add	sp, sp, #(PT_REGS_SIZE)
+	smc	#0
+	eret
+1:	mov	x0, #3
 	mov	x1, sp
 	b	dump_state
 

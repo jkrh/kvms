@@ -929,6 +929,8 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 		res = patrack_start(guest);
 	}
 
+	res = platform_init_guest(guest->vmid);
+
 	return res;
 }
 

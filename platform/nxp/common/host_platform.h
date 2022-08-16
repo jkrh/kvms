@@ -20,6 +20,10 @@ extern uintptr_t __RO_START__;
 
 #define TABLE_LEVELS    3
 
+/* OPTEE */
+#define OPTEE_SHM_START		0xffc00000
+#define OPTEE_SHM_SIZE		0x400000
+
 #define PLATFORM_SMP_CORE_INDEX	((read_reg(mpidr_el1) & MPIDR_AFF0_MASK) + \
 				((read_reg(mpidr_el1) & MPIDR_AFF1_MASK) >> 6))
 

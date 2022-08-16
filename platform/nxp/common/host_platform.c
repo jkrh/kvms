@@ -1,17 +1,20 @@
+// SPDX-License-Identifier: GPL-2.0-only
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
 
-#include "platform_api.h"
-#include "host_platform.h"
-#include "product_api.h"
-#include "product.h"
 #include "armtrans.h"
-#include "helpers.h"
-#include "hvccall.h"
 #include "bits.h"
+#include "helpers.h"
+#include "host_platform.h"
+#include "host_defs.h"
+#include "hvccall.h"
+#include "mhelpers.h"
+#include "platform_api.h"
+#include "product.h"
+#include "product_api.h"
 
 #define PHYS_OFFSET 0x40000000UL
 
@@ -230,8 +233,20 @@ uint32_t platform_get_next_vmid(uint32_t next_vmid)
 	int i;
 	kvm_guest_t *guest;
 
-	if (next_vmid <= GUEST_VMID_START)
-		next_vmid = GUEST_VMID_START;
+	/*
+	 * This implementation grants the first guest in the system with TEE
+	 * interface.
+	 *
+	 * In the future implementation a more elegant system may be needed to
+	 * identify the guest that should be provided with the TEE access.
+	 */
+	if (next_vmid <= TEE_VMID) {
+		guest = get_guest(TEE_VMID);
+		if (!guest)
+			return TEE_VMID;
+		else
+			next_vmid = (TEE_VMID + 1);
+	}
 
 	for (i = next_vmid; i < PRODUCT_VMID_MAX; i++) {
 		guest = get_guest(i);
@@ -300,4 +315,32 @@ int platform_range_permitted(uint64_t pstart, size_t len)
 		res = 1;
 
 	return res;
+}
+
+int platform_init_guest(uint32_t vmid)
+{
+	kvm_guest_t *guest;
+	uint64_t attrs;
+
+	LOG("vmid %ld\n", vmid);
+	if (vmid != TEE_VMID)
+		return 0;
+
+	guest = get_guest(TEE_VMID);
+	if (!guest)
+		panic("TEE VM not present!\n");
+
+	attrs = EL1S2_SH | PAGE_HYP_RW | S2_NORMAL_MEMORY;
+
+	return guest_map_range(guest, OPTEE_SHM_START, OPTEE_SHM_START, OPTEE_SHM_SIZE, attrs);
+}
+
+int platform_allow_guest_smc(register_t cn, register_t a1, register_t a2,
+			     register_t a3, register_t a4, register_t a5,
+			     register_t a6, register_t a7)
+{
+	if (get_current_vmid() == TEE_VMID)
+		return 1;
+
+	return 0;
 }
