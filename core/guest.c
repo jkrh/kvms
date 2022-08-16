@@ -1055,9 +1055,12 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	end = vaddr + len - 1;
 	slot1 = gfn_to_memslot(guest, addr_to_fn(vaddr));
 	slot2 = gfn_to_memslot(guest, addr_to_fn(end));
-	if (!slot1 || (slot1 != slot2) || (slot1->flags & KVM_MEM_READONLY)) {
-		ERROR("invalid memory slot %p, %p, %p\n",
-		      slot1, slot2, slot1->flags);
+	if (!slot1) {
+		ERROR("no slot for 0x%llx\n", vaddr);
+		return -EINVAL;
+	}
+ 	if ((slot1 != slot2) || (slot1->flags & KVM_MEM_READONLY)) {
+ 		ERROR("invalid slot %p, %p, 0x%lx\n", slot1, slot2, slot1->flags);
 		return -EINVAL;
 	}
 	newtype = (prot & TYPE_MASK_STAGE2);
