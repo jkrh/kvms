@@ -21,9 +21,9 @@ int debugstart(void);
  * Dump the vm page encryption state
  *
  * @param vmid to query
- * @return void
+ * @return number of pages in the stash
  */
-void print_encryption_state(uint32_t vmid);
+int print_encryption_state(uint32_t vmid);
 
 /**
  * Count the amount of guest ram visible to the host

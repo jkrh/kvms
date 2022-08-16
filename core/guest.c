@@ -146,8 +146,7 @@ int load_guest_s2(uint64_t vmid)
 int guest_memmap(uint32_t vmid, void *gaddr, size_t pc, void *addr, size_t addrlen)
 {
 	kvm_guest_t *guest;
-	uint64_t paddr;
-	void *tmp;
+	uint64_t paddr, tmp;
 	int n = 0;
 
 	if (!gaddr || !pc || !addr || !addrlen)
@@ -169,9 +168,9 @@ int guest_memmap(uint32_t vmid, void *gaddr, size_t pc, void *addr, size_t addrl
 
 	memset(addr, 0, addrlen);
 
-	tmp = gaddr;
+	tmp = (uint64_t)gaddr;
 	while (n < pc) {
-		paddr = pt_walk(guest, STAGE2, (uint64_t)tmp, NULL);
+		paddr = pt_walk(guest, STAGE2, tmp, NULL);
 		if (paddr != ~0UL)
 			set_bit_in_mem(n, addr);
 
@@ -1100,6 +1099,7 @@ new_map:
 			else
 				__flush_dcache_area((void *)page_paddr, PAGE_SIZE);
 		}
+#ifndef HOST_SWAP_ENCRYPTION
 		/*
 		 * If it wasn't mapped and we are mapping it back, verify
 		 * that the content is still the same. If the page was
@@ -1109,6 +1109,7 @@ new_map:
 					 prot & PROT_MASK_STAGE2);
 		if (res)
 			goto out_error;
+#endif
 cont:
 		page_vaddr += PAGE_SIZE;
 		page_paddr += PAGE_SIZE;
@@ -1219,6 +1220,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 			goto do_loop;
 
 		if ((guest->state == GUEST_RUNNING) && sec) {
+#ifndef HOST_SWAP_ENCRYPTION
 			/*
 			 * This is a mmu notifier chain call and the
 			 * blob may get swapped out and freed. Take
@@ -1243,6 +1245,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 					ERROR("add_range_info(%u): %lx:%d\n",
 					      guest->vmid, map_addr, res);
 			}
+#endif
 		} else {
 			memset((void *)paddr, 0, PAGE_SIZE);
 			free_range_info(guest, map_addr);

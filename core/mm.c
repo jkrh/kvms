@@ -145,6 +145,11 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (is_share(g, ipa, PAGE_SIZE) == 1)
 		return 0;
 
+	if ((guest->vmid == HOST_VMID) && (ipa != addr)) {
+		ERROR("host address mismatch: 0x%lx != 0x%lx\n", ipa, addr);
+		return -EINVAL;
+	}
+
 	res = get_range_info(guest, ipa);
 	if (res)
 		goto use_old;
@@ -163,27 +168,22 @@ use_old:
 	res->nonce = nonce;
 	res->vmid = guest->vmid;
 	res->len = len;
-	if (guest->vmid >= GUEST_VMID_START) {
-		mbedtls_sha256_init(&c);
-		ret = mbedtls_sha256_starts_ret(&c, 0);
-		if (ret)
-			goto error;
-		ret = mbedtls_sha256_update_ret(&c, (void *)addr, len);
-		if (ret)
-			goto error;
-		ret = mbedtls_sha256_update_ret(&c, (void *)&prot, sizeof(uint64_t));
-		if (ret)
-			goto error;
-		ret = mbedtls_sha256_finish_ret(&c, res->sha256);
+	res->prot = prot;
+
+	mbedtls_sha256_init(&c);
+	ret = mbedtls_sha256_starts_ret(&c, 0);
+	if (ret)
+		goto error;
+	ret = mbedtls_sha256_update_ret(&c, (void *)addr, len);
+	if (ret)
+		goto error;
+	ret = mbedtls_sha256_finish_ret(&c, res->sha256);
 
 error:
-		if (ret) {
-			memset(res->sha256, 0, 32);
-			res->vmid = 0;
-		}
-	} else
+	if (ret) {
 		memset(res->sha256, 0, 32);
-
+		res->vmid = 0;
+	}
 	if (s)
 		qsort(guest->hyp_page_data, guest->pd_index, sizeof(kvm_page_data),
 		      compfunc);
@@ -203,6 +203,7 @@ void free_range_info(void *g, uint64_t ipa)
 		return;
 
 	res->vmid = 0;
+	res->nonce = 0;
 	memset(res->sha256, 0, 32);
 	dsb();
 	isb();
@@ -217,21 +218,30 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	uint8_t sha256[32];
 	int ret;
 
+	if ((guest->vmid == HOST_VMID) && (ipa != addr)) {
+		ERROR("host address mismatch: 0x%lx != 0x%lx\n", ipa, addr);
+		return -EINVAL;
+	}
+
 	res = get_range_info(guest, ipa);
 	if (!res)
 		return -ENOENT;
 
-	if (res->vmid != guest->vmid)
+	if (res->vmid != guest->vmid) {
+		ERROR("page owner fault: %u != %u\n", res->vmid, guest->vmid);
 		return -EFAULT;
+	}
+
+	if (res->prot != prot) {
+		ERROR("page permissions: 0xlx != 0xlx\n", res->prot, prot);
+		return -EPERM;
+	}
 
 	mbedtls_sha256_init(&c);
 	ret = mbedtls_sha256_starts_ret(&c, 0);
 	CHECKRES(ret);
 
 	ret = mbedtls_sha256_update_ret(&c, (void *)addr, len);
-	CHECKRES(ret);
-
-	ret = mbedtls_sha256_update_ret(&c, (void *)&prot, sizeof(uint64_t));
 	CHECKRES(ret);
 
 	ret = mbedtls_sha256_finish_ret(&c, sha256);
@@ -241,7 +251,7 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (ret != 0) {
 		ERROR("range verification failed for guest %u, ipa %p\n",
 		      guest->vmid, ipa);
-		return -EINVAL;
+		return -EPERM;
 	}
 
 	return 0;
@@ -318,13 +328,14 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 		ERROR("fault encrypting data: %d / %s\n", res, ciphertext);
 		return -EFAULT;
 	}
+	memcpy((void *)addr, ciphertext, PAGE_SIZE);
 	res = add_range_info(guest, ipa, addr, PAGE_SIZE, nonce, prot);
 	if (res)
 		return res;
 
-	memcpy((void *)addr, ciphertext, PAGE_SIZE);
-
 	set_guest_page_dirty(g, addr_to_fn(ipa));
+	dsb(); isb();
+
 	return 0;
 }
 
@@ -363,11 +374,10 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 		return -EFAULT;
 	}
 
-	/* Add the integrity of the cleartext. */
-	res = add_range_info(guest, ipa, addr, PAGE_SIZE, 0, prot);
-	CHECKRES(res);
-
 	memcpy((void *)addr, cleartext, PAGE_SIZE);
+	free_range_info(g, ipa);
+	dsb(); isb();
+
 	return 0;
 }
 

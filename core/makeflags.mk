@@ -17,7 +17,7 @@ export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(CORE_DIR)/common -I$(BA
 		-I$(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)
 
 ARMV8_NOSIMD := -march=armv8-a+nosimd -mgeneral-regs-only
-ARMV8_SIMD := -march=armv8-a+crypto
+ARMV8_SIMD := -march=armv8-a+crypto -DUSE_HW_CRYPTO=1
 
 CFLAGS_COMMON := --sysroot=$(TOOLDIR) --no-sysroot-suffix \
 		-fstack-protector-strong -mstrict-align -static -ffreestanding \
@@ -38,7 +38,7 @@ export SUBMAKEFLAGS := $(SUBMAKETOOLS) CFLAGS='$(CFLAGS)'
 # External
 #
 export MBEDCONFIG := -DMBEDTLS_USER_CONFIG_FILE=\"$(BASE_DIR)/core/mbedconfig.h\"
-ifeq ($(PLATFORM),virt)
+ifeq ($(USE_HW_CRYPTO),1)
 # If platform uses armv8 crypto extention then CLAGS must not contain -mgeneral-regs-only flag
 # and it should contain -march=armv8-a+crypto
 export MBEDCFLAGS := '$(MBEDCONFIG) $(CFLAGS_SIMD) -U_GNU_SOURCE -Wno-implicit-function-declaration -include "config.h"'

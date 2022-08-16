@@ -17,6 +17,12 @@
 #define PRINTREG(...)
 #endif
 
+void hyp_abort(const char *func, const char *file, int line,
+	       const char *fmt, ...);
+
+#define panic(fmt, ...) \
+	hyp_abort (__func__, __FILE__, __LINE__, fmt, ## __VA_ARGS__)
+
 #ifdef SPINNER
 void spinner(void);
 #else

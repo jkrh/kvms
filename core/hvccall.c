@@ -25,6 +25,7 @@
 #include "oplocks.h"
 #include "crypto/platform_crypto.h"
 #include "keystore.h"
+#include "host.h"
 
 #define ISS_MASK		0x1FFFFFFUL
 #define ISS_RT_MASK		0x3E0UL
@@ -248,6 +249,16 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		break;
 	case HYP_HOST_SET_LOCKFLAGS:
 		res = set_lockflags(a1, a2, a3, a4);
+		break;
+	case HYP_HOST_SWAP_PAGE:
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
+		res = host_swap_page(a1);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
+		break;
+	case HYP_HOST_RESTORE_SWAP_PAGE:
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
+		res = host_restore_swap_page(a1);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	/*
 	 * Control functions

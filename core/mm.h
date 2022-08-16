@@ -56,6 +56,7 @@ typedef struct {
 
 typedef struct {
 	uint64_t phys_addr;
+	uint64_t prot;
 	uint32_t len;
 	uint32_t vmid;
 	uint32_t nonce;

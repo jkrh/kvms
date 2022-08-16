@@ -3,7 +3,7 @@ AS_SOURCES := ventry.S kentry.S spinlock.S cache.S \
 	mhelpers.S guest_entry.S
 C_SOURCES := armtrans.c main.c hvccall.c \
 	smccall.c guest.c psci.c mm.c \
-	mtree.c kjump.c \
+	mtree.c kjump.c host.c \
 	tables.c gic.c patrack.c \
 	oplocks.c
 
