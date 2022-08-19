@@ -594,7 +594,7 @@ int restore_host_mappings(void *gp)
 			 * Shared communication channel data is always left
 			 * intact, even in the core dumps.
 			 */
-			if (phy_addr != ~0UL)
+			if (phy_addr == ~0UL)
 				clean_guest_page((void *)slot_addr);
 
 			res = mmap_range(host, STAGE2, slot_addr, slot_addr,
