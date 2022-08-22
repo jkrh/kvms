@@ -131,7 +131,6 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		   uint32_t nonce, uint64_t prot)
 {
 	kvm_guest_t *guest = (kvm_guest_t *)g;
-	mbedtls_sha256_context c;
 	kvm_page_data *res;
 	bool s = false;
 	int ret = 0;
@@ -170,20 +169,14 @@ use_old:
 	res->len = len;
 	res->prot = prot;
 
-	mbedtls_sha256_init(&c);
-	ret = mbedtls_sha256_starts_ret(&c, 0);
-	if (ret)
-		goto error;
-	ret = mbedtls_sha256_update_ret(&c, (void *)addr, len);
-	if (ret)
-		goto error;
-	ret = mbedtls_sha256_finish_ret(&c, res->sha256);
-
-error:
+	ret = calc_hash(res->sha256, (void *)addr, len);
 	if (ret) {
 		memset(res->sha256, 0, 32);
+		res->len = 0;
 		res->vmid = 0;
+		res->nonce = 0;
 	}
+
 	if (s)
 		qsort(guest->hyp_page_data, guest->pd_index, sizeof(kvm_page_data),
 		      compfunc);
@@ -213,7 +206,6 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		 uint64_t prot)
 {
 	kvm_guest_t *guest = (kvm_guest_t *)g;
-	mbedtls_sha256_context c;
 	kvm_page_data *res;
 	uint8_t sha256[32];
 	int ret;
@@ -237,15 +229,9 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		return -EPERM;
 	}
 
-	mbedtls_sha256_init(&c);
-	ret = mbedtls_sha256_starts_ret(&c, 0);
-	CHECKRES(ret);
-
-	ret = mbedtls_sha256_update_ret(&c, (void *)addr, len);
-	CHECKRES(ret);
-
-	ret = mbedtls_sha256_finish_ret(&c, sha256);
-	CHECKRES(ret);
+	ret = calc_hash(sha256, (void *)addr, len);
+	if (ret)
+		return ret;
 
 	ret = memcmp(sha256, res->sha256, 32);
 	if (ret != 0) {

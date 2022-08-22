@@ -8,7 +8,12 @@
 
 int calc_hash(uint8_t hash[32], uint8_t *data, size_t len)
 {
-	return mbedtls_sha256_ret(data, len, hash, 0);
+	int res;
+
+	res = mbedtls_sha256_ret(data, len, hash, 0);
+	CHECKRES(res);
+
+	return 0;
 }
 
 int build_mtree(mtree_t *t, uint8_t *data, size_t len)
