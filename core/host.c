@@ -12,13 +12,13 @@
 #include "guest.h"
 #include "mm.h"
 
-int host_swap_page(uint64_t addr)
+int host_swap_page(uint64_t addr, uint64_t paddr)
 {
 	kvm_guest_t *host;
 	uint64_t ipa;
 	uint64_t *pte;
 
-	if (addr % PAGE_SIZE) {
+	if ((addr % PAGE_SIZE) || (paddr % PAGE_SIZE)) {
 		ERROR("unaligned swap request\n");
 		return -EINVAL;
 	}
@@ -28,18 +28,20 @@ int host_swap_page(uint64_t addr)
 		panic("no host\n");
 
 	/* Host, so yes it's IPA */
-	ipa = pt_walk(host, STAGE2, addr, &pte);
+	ipa = pt_walk(host, STAGE2, paddr, &pte);
 	if (ipa == ~0UL) {
 		ERROR("address 0x%lx not translatable?\n", addr);
 		return -EINVAL;
 	}
-	if (ipa != addr)
+	if (ipa != paddr)
 		panic("host address mismatch?\n");
 
-	return encrypt_guest_page(host, addr, addr, *pte & PROT_MASK_STAGE2);
+	LOG("encrypting 0x%lx\n", addr);
+
+	return encrypt_guest_page(host, addr, paddr, *pte & PROT_MASK_STAGE2);
 }
 
-int host_restore_swap_page(uint64_t addr)
+int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 {
 	kvm_guest_t *host;
 	kvm_page_data *pd;
@@ -58,10 +60,10 @@ int host_restore_swap_page(uint64_t addr)
 	if (!pd)
 		return 0;
 
-	res = decrypt_guest_page(host, addr, addr, pd->prot);
+	res = decrypt_guest_page(host, addr, paddr, pd->prot);
 	if (res)
 		panic("failed to decrypt host page\n");
 
-	free_range_info(host, addr);
+	LOG("decrypting 0x%lx\n", addr);
 	return 0;
 }

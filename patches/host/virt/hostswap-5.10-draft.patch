@@ -1,0 +1,41 @@
+diff --git a/arch/arm64/include/asm/pgtable.h b/arch/arm64/include/asm/pgtable.h
+index 3f74db7b0a31..33bd5a480b1a 100644
+--- a/arch/arm64/include/asm/pgtable.h
++++ b/arch/arm64/include/asm/pgtable.h
+@@ -36,6 +36,8 @@
+ #include <linux/mm_types.h>
+ #include <linux/sched.h>
+ 
++#include "../../../arch/arm64/kvm/hvccall-defines.h"
++
+ #ifdef CONFIG_TRANSPARENT_HUGEPAGE
+ #define __HAVE_ARCH_FLUSH_PMD_TLB_RANGE
+ 
+@@ -920,6 +922,27 @@ extern int kern_addr_valid(unsigned long addr);
+ 
+ #ifdef CONFIG_ARM64_MTE
+ 
++#define __HAVE_ARCH_DO_SWAP_PAGE
++static inline void arch_do_swap_page(struct mm_struct *mm,
++				     struct vm_area_struct *vma,
++				     unsigned long addr,
++				     pte_t pte, pte_t oldpte)
++{
++	u64 paddr = pte_val(pte) & 0xfffffffff000UL;
++	__kvms_hvc_cmd(HYP_HOST_RESTORE_SWAP_PAGE, addr, paddr);
++
++}
++
++#define __HAVE_ARCH_UNMAP_ONE
++static inline int arch_unmap_one(struct mm_struct *mm,
++				 struct vm_area_struct *vma,
++				 unsigned long addr,
++				 pte_t orig_pte)
++{
++	u64 paddr = pte_val(orig_pte) & 0xfffffffff000UL;
++	return __kvms_hvc_cmd(HYP_HOST_SWAP_PAGE, addr, paddr);
++}
++
+ #define __HAVE_ARCH_PREPARE_TO_SWAP
+ static inline int arch_prepare_to_swap(struct page *page)
+ {

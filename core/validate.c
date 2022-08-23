@@ -14,11 +14,7 @@
 bool at_debugstop = false;
 extern spinlock_t core_lock;
 
-#include "mbedtls/platform.h"
-#include "mbedtls/sha256.h"
-#include "mbedtls/error.h"
-
-#define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
+#include "mtree.h"
 
 int debugstop(void)
 {
@@ -570,12 +566,10 @@ void print_tables(uint64_t vmid)
 
 int print_encryption_state(uint32_t vmid)
 {
-	mbedtls_sha256_context c;
 	kvm_guest_t *guest;
 	kvm_page_data *pd;
-	uint8_t sha256[32];
 	uint64_t ipa;
-	int z = 0, ret;
+	int z = 0;
 
 	guest = get_guest(vmid);
 	if (!guest) {
@@ -599,28 +593,9 @@ int print_encryption_state(uint32_t vmid)
 		printf("..\t");
 
 		if (pd->nonce)
-			printf("y\t");
+			printf("y\n");
 		else
-			printf("n\t");
-
-		if (vmid == HOST_VMID) {
-			mbedtls_sha256_init(&c);
-			ret = mbedtls_sha256_starts_ret(&c, 0);
-			CHECKRES(ret);
-
-			ret = mbedtls_sha256_update_ret(&c, (void *)pd->phys_addr,
-							PAGE_SIZE);
-			CHECKRES(ret);
-
-			ret = mbedtls_sha256_finish_ret(&c, sha256);
-			CHECKRES(ret);
-
-			ret = memcmp(sha256, pd->sha256, 32);
-			if (ret != 0)
-				printf("FAIL\n");
-			else
-				printf("OK\n");
-		}
+			printf("n\n");
 
 		z++;
 	}

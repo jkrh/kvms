@@ -137,7 +137,7 @@ kvm_page_data *get_range_info(void *guest, uint64_t ipa);
  * Encrypt a given guest page and record the activity
  *
  * @param guest, the guest
- * @param ipa, the base ipa to add integrity information for
+ * @param ipa, the base address to add integrity information for
  * @param addr, the host physical address the data is on
  * @param prot, permission bits of the page
  * @return zero on success, negative errno on error
@@ -148,7 +148,7 @@ int encrypt_guest_page(void *guest, uint64_t ipa, uint64_t addr, uint64_t prot);
  * Decrypt a given guest page and record the activity
  *
  * @param guest, the guest
- * @param ipa, the base ipa to add integrity information for
+ * @param ipa, the base address to add integrity information for
  * @param addr, the host physical address the data is on
  * @param prot, permission bits of the page
  * @return zero on success, negative errno on error

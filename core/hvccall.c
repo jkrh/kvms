@@ -252,12 +252,12 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		break;
 	case HYP_HOST_SWAP_PAGE:
 		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
-		res = host_swap_page(a1);
+		res = host_swap_page(a1, a2);
 		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	case HYP_HOST_RESTORE_SWAP_PAGE:
 		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
-		res = host_restore_swap_page(a1);
+		res = host_restore_swap_page(a1, a2);
 		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	/*

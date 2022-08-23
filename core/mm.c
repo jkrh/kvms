@@ -144,11 +144,6 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (is_share(g, ipa, PAGE_SIZE) == 1)
 		return 0;
 
-	if ((guest->vmid == HOST_VMID) && (ipa != addr)) {
-		ERROR("host address mismatch: 0x%lx != 0x%lx\n", ipa, addr);
-		return -EINVAL;
-	}
-
 	res = get_range_info(guest, ipa);
 	if (res)
 		goto use_old;
@@ -160,7 +155,7 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 
 	s = true;
 	res = &guest->hyp_page_data[guest->pd_index];
-	res->phys_addr = addr;
+	res->phys_addr = ipa;
 	guest->pd_index += 1;
 
 use_old:
@@ -209,11 +204,6 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	kvm_page_data *res;
 	uint8_t sha256[32];
 	int ret;
-
-	if ((guest->vmid == HOST_VMID) && (ipa != addr)) {
-		ERROR("host address mismatch: 0x%lx != 0x%lx\n", ipa, addr);
-		return -EINVAL;
-	}
 
 	res = get_range_info(guest, ipa);
 	if (!res)
@@ -339,9 +329,10 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	res = verify_range(g, ipa, addr, PAGE_SIZE, prot);
 	if (res == -ENOENT)
 		return 0;
-	if (res)
-		return res;
-
+	if (res) {
+		res = -EFAULT;
+		goto out_error;
+	}
 	/* Check if it was ciphertext we verified */
 	pd = get_range_info(guest, ipa);
 	if (!pd->nonce)
@@ -357,10 +348,12 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	if (res != MBEDTLS_EXIT_SUCCESS) {
 		mbedtls_strerror(res, (char *)cleartext, 256);
 		ERROR("fault decrypting data: %d / %s\n", res, cleartext);
-		return -EFAULT;
+		res = -EFAULT;
+		goto out_error;
 	}
-
 	memcpy((void *)addr, cleartext, PAGE_SIZE);
+
+out_error:
 	free_range_info(g, ipa);
 	dsb(); isb();
 
