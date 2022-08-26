@@ -11,6 +11,7 @@ Features added over regular KVM configurations are:
 - Nearly full guest and host memory space separation
 - Complete, linear guest memory integrity protection. Guest pages remain
   intact and unmovable but they can still be swapped in/out when needed.
+- Host swap encryption
 - Guest memory AES encrypted swapping
 - Kernel memory protection toolchain:
   - Page table locks (including elements inside the P?Ds)
@@ -51,7 +52,7 @@ Host <-> Guest separation
 - Guest is always responsible for opening the shared communication channels
 
 
-Secure swapping
+Secure guest swap
 -----------------
 - The support is experimental. High level logic is as follows:
   - When the linux mm evicts a clean page, we measure it (sha256) to make sure
@@ -62,17 +63,14 @@ Secure swapping
     swap. We don't use the authenticated encryption as the measurement code has
     to be in place anyway to handle the clean / RO pages.
 
-Now, be warned, there are some rough corners. When a page has migrated away
-from the host, the host mm looses visibility to the page state and all the
-software and even the hardware managed dirty state it is able to perform go out
-of sync. Thus, the mm might not know what to sync to the media when the page
-eventually finds its way back to the host. Moreover, we also make the pages
-dirty behind the scenes every time we encrypt a writable guest page, but we do
-try to mark our changes in the qemu dirty log when the logging is active. It is
-yet to be sorted what the mm does when it scans an area where the pages may seem
-clean, but yet they might not be. Similar virtualization solutions (Intel TDX
-and AMD SEV) probably don't suffer from this potential pithole as the mm remains
-up to date about the page state, encrypted or not.
+
+Secure host swap
+----------------
+- Hooks into kernel arch_do_swap_page, arch_unmap_one as full-swap encryption
+  alternative to plain guest swap encryption
+- Encrypts all pages going out to swap and decrypts them during swap-in
+- Works in STANDALONE mode as well without virtualization support enabled
+- Support is experimental
 
 
 VCPU protection

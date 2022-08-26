@@ -163,6 +163,10 @@ use_old:
 	res->vmid = guest->vmid;
 	res->len = len;
 	res->prot = prot;
+#ifdef DEBUG
+	res->ttbr0_el1 = read_reg(TTBR0_EL1) & TTBR_BADDR_MASK;
+	res->ttbr1_el1 = read_reg(TTBR1_EL1) & TTBR_BADDR_MASK;
+#endif
 
 	ret = calc_hash(res->sha256, (void *)addr, len);
 	if (ret) {
@@ -284,9 +288,14 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	/*
 	 * FIXME: we need to re-key every 2^32 swaps.
 	 */
+retry:
 	res = platform_entropy((uint8_t *)&nonce, 4);
 	if (res)
 		return -EFAULT;
+	if (!nonce) {
+		ERROR("received zero entropy, retrying\n");
+		goto retry;
+	}
 	memset(&nonce_counter, 0, 16);
 	memcpy(&nonce_counter[0], &nonce, 4);
 	memcpy(&nonce_counter[4], &ipa, 8);
@@ -323,7 +332,7 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	uint8_t cleartext[PAGE_SIZE];
 	kvm_page_data *pd;
 	size_t ns = 0;
-	int res;
+	int res = 0;
 
 	/* Verify the block integrity */
 	res = verify_range(g, ipa, addr, PAGE_SIZE, prot);
@@ -357,7 +366,7 @@ out_error:
 	free_range_info(g, ipa);
 	dsb(); isb();
 
-	return 0;
+	return res;
 }
 
 int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)

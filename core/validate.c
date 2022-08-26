@@ -11,10 +11,12 @@
 #include "imath.h"
 #include "tables.h"
 #include "keystore.h"
-bool at_debugstop = false;
-extern spinlock_t core_lock;
 
+#include "host.h"
 #include "mtree.h"
+
+extern bool at_debugstop;
+extern spinlock_t core_lock;
 
 int debugstop(void)
 {
@@ -566,10 +568,11 @@ void print_tables(uint64_t vmid)
 
 int print_encryption_state(uint32_t vmid)
 {
+	int x = 0, y = 0, z = 0, i, res;
+	uint64_t ipa, phys, pgd0, pgd1;
 	kvm_guest_t *guest;
-	kvm_page_data *pd;
-	uint64_t ipa;
-	int z = 0;
+	uint8_t sha256[32];
+	uint64_t *pte;
 
 	guest = get_guest(vmid);
 	if (!guest) {
@@ -577,28 +580,59 @@ int print_encryption_state(uint32_t vmid)
 		return -EINVAL;
 	}
 
-	printf("\nScanning guest ram range 0 - 0x%lx\n", guest->ramend);
+	pgd0 = read_reg(TTBR0_EL1) & TTBR_BADDR_MASK;
+	pgd1 = read_reg(TTBR1_EL1) & TTBR_BADDR_MASK;
 
-	printf("Address\t\tIntegrity\t\t\tEncr\tIntegrity\n");
-	for (ipa = 0; ipa < guest->ramend; ipa += PAGE_SIZE) {
-		pd = get_range_info(guest, ipa);
-		if (!pd)
-			continue;
+	printf("Address\t\tIntegrity\t\t\tEncr\tState\t\tIntegrity\n");
+	for (i = 0; i < guest->pd_index; i++) {
+		ipa = guest->hyp_page_data[i].phys_addr;
+		write_reg(TTBR0_EL1, guest->hyp_page_data[i].ttbr0_el1);
+		write_reg(TTBR1_EL1, guest->hyp_page_data[i].ttbr1_el1);
 
 		printf("0x%lx\t", ipa);
 
-		for (int i = 0; i < 8; i++)
-			printf("%02hhx:", pd->sha256[i]);
+		for (int j = 0; j < 8; j++)
+			printf("%02hhx:", guest->hyp_page_data[i].sha256[j]);
 
 		printf("..\t");
 
-		if (pd->nonce)
-			printf("y\n");
+		if (guest->hyp_page_data[i].nonce) {
+			printf("y\t");
+			x++;
+		} else {
+			printf("n\t");
+			y++;
+		}
+
+		if (vmid == HOST_VMID)
+			phys = (uint64_t)virt_to_phys((void *)ipa);
 		else
-			printf("n\n");
+			phys = pt_walk(guest, STAGE2, ipa, &pte);
+		if (phys != ~0UL) {
+			printf("0x%lx\t", phys);
+			res = calc_hash(sha256, (void *)phys, PAGE_SIZE);
+			if (!res) {
+				res = memcmp(sha256,
+					     guest->hyp_page_data[i].sha256,
+					     32);
+				if (!res)
+					printf("OK\n");
+				else
+					printf("FAIL\n");
+			} else
+				printf("HASHERR\n");
+		} else
+			printf("SWAPPED\n");
 
 		z++;
 	}
+	write_reg(TTBR0_EL1, pgd0);
+	write_reg(TTBR1_EL1, pgd1);
+
+	printf("Total of %lu pages in the stash for guest %u\n"
+	       "%lu pages are encrypted, %lu integrity only.\n",
+	       z, vmid, x, y);
+
 	return z;
 }
 

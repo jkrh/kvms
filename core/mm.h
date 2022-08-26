@@ -55,7 +55,15 @@ typedef struct {
 } kvm_memslots;
 
 typedef struct {
+	/*
+	 * Umm; this is IPA for the KVM guests and kswapd stage1 kernel
+	 * linear addess for the host.
+	 */
 	uint64_t phys_addr;
+#ifdef DEBUG
+	uint64_t ttbr0_el1;
+	uint64_t ttbr1_el1;
+#endif
 	uint64_t prot;
 	uint32_t len;
 	uint32_t vmid;

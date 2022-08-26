@@ -6,9 +6,11 @@
 #include <errno.h>
 #include <stdlib.h>
 
+#include "host.h"
 #include "hvccall.h"
 #include "armtrans.h"
 #include "hyplogs.h"
+#include "helpers.h"
 #include "guest.h"
 #include "mm.h"
 
@@ -36,8 +38,6 @@ int host_swap_page(uint64_t addr, uint64_t paddr)
 	if (ipa != paddr)
 		panic("host address mismatch?\n");
 
-	LOG("encrypting 0x%lx\n", addr);
-
 	return encrypt_guest_page(host, addr, paddr, *pte & PROT_MASK_STAGE2);
 }
 
@@ -47,7 +47,7 @@ int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 	kvm_page_data *pd;
 	int res;
 
-	if (addr % PAGE_SIZE) {
+	if ((addr % PAGE_SIZE) || (paddr % PAGE_SIZE)) {
 		ERROR("unaligned swap request\n");
 		return -EINVAL;
 	}
@@ -64,6 +64,5 @@ int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 	if (res)
 		panic("failed to decrypt host page\n");
 
-	LOG("decrypting 0x%lx\n", addr);
 	return 0;
 }
