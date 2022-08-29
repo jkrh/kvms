@@ -23,6 +23,15 @@ BUILDOPTS += -DDEBUG=2
 endif
 
 #
+# Add validate.c tests into the build. These symbols are for
+# hypervisor internal state validation and can be called via
+# the debugger.
+#
+ifeq ($(TESTS),1)
+BUILDOPTS += -DTESTS=1
+endif
+
+#
 # Use to allow remote debuggers to see secure guest internals.
 # This is of course massively insecure development feature.
 #

@@ -16,6 +16,8 @@ int calc_hash(uint8_t hash[32], uint8_t *data, size_t len)
 	return 0;
 }
 
+#ifdef MTREE
+
 int build_mtree(mtree_t *t, uint8_t *data, size_t len)
 {
 	mbedtls_sha256_context s;
@@ -195,3 +197,5 @@ int check_page(mtree_t *t, uint8_t *data)
 
 	return 0;
 }
+
+#endif

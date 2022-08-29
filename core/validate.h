@@ -41,7 +41,7 @@ int count_shared(uint32_t vmid, bool lock);
  * @param stage STAGE1 or STAGE2 of the address translation
  * @return total number of pages in the guest or -errno
  */
-#ifdef DEBUG
+#ifdef TESTS
 int print_mappings(uint32_t vmid, uint64_t stage);
 #else
 static inline int print_mappings(uint32_t vmid, uint64_t stage)
@@ -82,7 +82,7 @@ uint64_t translate_addr(uint64_t vaddr);
  * @param void
  * @return total number of mapped pages or -errno
  */
-#ifdef DEBUG
+#ifdef TESTS
 int print_mappings_el2(void);
 #else
 static inline int print_mappings_el2(void)

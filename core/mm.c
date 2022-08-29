@@ -163,7 +163,7 @@ use_old:
 	res->vmid = guest->vmid;
 	res->len = len;
 	res->prot = prot;
-#ifdef DEBUG
+#ifdef TESTS
 	res->ttbr0_el1 = read_reg(TTBR0_EL1) & TTBR_BADDR_MASK;
 	res->ttbr1_el1 = read_reg(TTBR1_EL1) & TTBR_BADDR_MASK;
 #endif

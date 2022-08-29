@@ -7,7 +7,7 @@ C_SOURCES := armtrans.c main.c hvccall.c \
 	tables.c gic.c patrack.c \
 	oplocks.c
 
-ifdef DEBUG
+ifdef TESTS
 C_SOURCES += validate.c
 endif
 

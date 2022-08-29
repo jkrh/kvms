@@ -21,13 +21,14 @@ ARMV8_SIMD := -march=armv8-a+crypto -DUSE_HW_CRYPTO=1
 
 CFLAGS_COMMON := --sysroot=$(TOOLDIR) --no-sysroot-suffix \
 		-fstack-protector-strong -mstrict-align -static -ffreestanding \
-		-fno-hosted -std=c99  -mno-omit-leaf-frame-pointer \
+		-fno-hosted -std=c99  -mno-omit-leaf-frame-pointer -fno-data-sections \
 		$(DEFINES) $(OPTS) $(INCLUDES) $(WARNINGS)
 
 export CFLAGS := $(ARMV8_NOSIMD) $(CFLAGS_COMMON)
 export CFLAGS_SIMD := $(ARMV8_SIMD) $(CFLAGS_COMMON)
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
-export LDFLAGS := -nostdlib \
+export LDFLAGS := -nostdlib -O1 \
+		--gc-sections --build-id=none \
 		-L$(BASE_DIR)/mbedtls/library \
 		-L$(BASE_DIR)/.objs
 export SUBMAKETOOLS := CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC) LD=$(LD) \

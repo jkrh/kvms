@@ -60,7 +60,7 @@ typedef struct {
 	 * linear addess for the host.
 	 */
 	uint64_t phys_addr;
-#ifdef DEBUG
+#ifdef TESTS
 	uint64_t ttbr0_el1;
 	uint64_t ttbr1_el1;
 #endif

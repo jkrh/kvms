@@ -44,7 +44,13 @@ typedef struct {
 } mtree_t;
 
 int calc_hash(uint8_t hash[32], uint8_t *data, size_t len);
+
+#ifdef MTREE
 int build_mtree(mtree_t *t, uint8_t *data, size_t len);
 int check_page(mtree_t *t, uint8_t *data);
+#else
+static inline int build_mtree(mtree_t *t, uint8_t *data, size_t len) { return 0; }
+static inline int check_page(mtree_t *t, uint8_t *data) { return 0; }
+#endif
 
 #endif
