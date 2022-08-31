@@ -120,6 +120,8 @@ int load_host_s2(void)
 
 	write_reg(VTCR_EL2, host_ctxt->vtcr_el2);
 	write_reg(VTTBR_EL2, host_ctxt->vttbr_el2);
+	speculative_at_isb();
+
 	return 0;
 }
 
@@ -139,6 +141,7 @@ int load_guest_s2(uint64_t vmid)
 	host_ctxt->vtcr_el2 = read_reg(VTCR_EL2);
 	host_ctxt->vttbr_el2 = read_reg(VTTBR_EL2);
 	write_reg(VTTBR_EL2, guest->ctxt[0].vttbr_el2);
+	speculative_at_isb();
 
 	return 0;
 }
@@ -191,6 +194,7 @@ void save_host_traps(void)
 	host_ctxt->cptr_el2 = read_reg(CPTR_EL2);
 	host_ctxt->mdcr_el2 = read_reg(MDCR_EL2);
 	host_ctxt->hstr_el2 = read_reg(HSTR_EL2);
+	speculative_at_isb();
 }
 
 void restore_host_traps(void)
@@ -205,6 +209,7 @@ void restore_host_traps(void)
 	write_reg(HSTR_EL2, host_ctxt->hstr_el2 | (1 << 15));
 	write_reg(PMUSERENR_EL0, ARMV8_PMU_USERENR_MASK);
 	write_reg(PMSELR_EL0, 0);
+	speculative_at_isb();
 }
 
 sys_context_t *get_guest_context(uint32_t vmid, uint32_t cpuid)

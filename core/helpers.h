@@ -263,7 +263,13 @@ static inline void hexdump(const char *token, uint8_t *data, int len)
 
 #define dsbish() __asm__ __volatile__("dsb	ish\n" : : : "memory");
 
-#define isb() __asm__ __volatile__("isb	sy\n" : : : "memory");
+#define isb() __asm__ __volatile__("isb		sy\n" : : : "memory");
+
+#ifdef SPECULATIVE_AT
+#define speculative_at_isb() __asm__ __volatile__("isb	sy\n" : : : "memory");
+#else
+#define speculative_at_isb()
+#endif
 
 #define smc() __asm__ __volatile__("smc	#0\n" : : :);
 
