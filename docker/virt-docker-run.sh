@@ -2,7 +2,7 @@ if [ $# -lt 2 ]; then
     echo "Input arguments missing."
     echo "arg1: hyp root directory."
     echo "arg2: host kernel build output root directory."
-    echo "Fex. ./imx8qmmek-docker-run.sh <path>/kvms <path to kernel build output root>"
+    echo "Fex. ./virt-docker-run.sh <path>/kvms <path to kernel build output root>"
     exit 1
 fi
 
