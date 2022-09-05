@@ -32,13 +32,9 @@ Build the docker image
 ```
 docker build --build-arg userid=$(id -u) --build-arg groupid=$(id -g) --build-arg username=$(id -un) -t kvms .
 ```
-Building kvms for virt machine:
+Building kvms for virt machine use virt-docker-run.sh:
 ```
-export HYP_BUILD_ROOT=<kvms root folder>
-docker run -it --rm \
-		-v $HYP_BUILD_ROOT:/hyp \
-		--env PLATFORM=virt \
-		kvms
+./virt-docker-run.sh /home/me/kvms /home/me/kvms/oss/linux
 ```
 
 For building NXP imx8qmmek use the imx8qmmek-docker-run.sh:
