@@ -13,6 +13,7 @@
 #include "pt_regs.h"
 #include "sys_context.h"
 #include "patrack.h"
+#include "spinlock.h"
 
 #include "mbedtls/aes.h"
 
@@ -113,6 +114,7 @@ struct kvm_guest {
 	struct tablepool s2_tablepool;
 	void *kvm;	/* struct kvm */
 	kvm_memslots slots[KVM_MEM_SLOTS_NUM];
+	spinlock_t page_data_lock;
 	kvm_page_data hyp_page_data[MAX_PAGING_BLOCKS];
 	uint64_t pd_index;
 	uint64_t ramend;

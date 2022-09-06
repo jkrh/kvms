@@ -17,6 +17,7 @@
 #include "hvccall.h"
 #include "bits.h"
 #include "platform_api.h"
+#include "spinlock.h"
 
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
@@ -176,9 +177,12 @@ use_old:
 		res->nonce = 0;
 	}
 
-	if (s)
+	if (s) {
+		spin_lock(&guest->page_data_lock);
 		qsort(guest->hyp_page_data, guest->pd_index, sizeof(kvm_page_data),
 		      compfunc);
+		spin_unlock(&guest->page_data_lock);
+	}
 	dsb();
 	isb();
 
@@ -338,10 +342,9 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	res = verify_range(g, ipa, addr, PAGE_SIZE, prot);
 	if (res == -ENOENT)
 		return 0;
-	if (res) {
-		res = -EFAULT;
+	if (res)
 		goto out_error;
-	}
+
 	/* Check if it was ciphertext we verified */
 	pd = get_range_info(guest, ipa);
 	if (!pd->nonce)

@@ -34,6 +34,7 @@
 #define CALL_TYPE_KVMCALL	0
 #define CALL_TYPE_HOSTCALL	1
 #define CALL_TYPE_GUESTCALL	2
+#define CALL_TYPE_SWAPCALL	4
 
 typedef int hyp_func_t(void *, ...);
 typedef int kvm_func_t(uint64_t, ...);
@@ -50,6 +51,9 @@ spinlock_t crash_lock;
 
 int is_apicall(uint64_t cn)
 {
+	if ((cn == HYP_HOST_SWAP_PAGE) ||
+	    (cn == HYP_HOST_RESTORE_SWAP_PAGE))
+		return CALL_TYPE_SWAPCALL;
 	if (unlikely((cn >= HYP_FIRST_GUESTCALL) &&
 		     (cn <= HYP_LAST_GUESTCALL)))
 		return CALL_TYPE_GUESTCALL;
@@ -158,7 +162,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	if (unlikely(vmid != HOST_VMID))
 		return guest_hvccall(cn, a1, a2, a3, a4, a5, a6, a7, a8, a9);
 
-	if (unlikely((ct > CALL_TYPE_KVMCALL)))
+	if (unlikely((ct == CALL_TYPE_GUESTCALL) || (ct == CALL_TYPE_HOSTCALL)))
 		spin_lock(&core_lock);
 
 	switch (cn) {
@@ -461,7 +465,7 @@ do_retry:
 		}
 		break;
 	}
-	if (unlikely((ct > CALL_TYPE_KVMCALL)))
+	if (unlikely((ct == CALL_TYPE_GUESTCALL) || (ct == CALL_TYPE_HOSTCALL)))
 		spin_unlock(&core_lock);
 
 	return res;

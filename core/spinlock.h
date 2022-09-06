@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-#include "helpers.h"
+#include "commondefines.h"
 
 typedef uint64_t spinlock_t ALIGN(8);
 

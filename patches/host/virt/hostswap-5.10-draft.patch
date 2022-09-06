@@ -45,3 +45,15 @@ index 3f74db7b0a31..b5dd13c60117 100644
  #define __HAVE_ARCH_PREPARE_TO_SWAP
  static inline int arch_prepare_to_swap(struct page *page)
  {
+diff --git a/mm/rmap.c b/mm/rmap.c
+index 44ad7bf2e563..5b645f79a6d9 100644
+--- a/mm/rmap.c
++++ b/mm/rmap.c
+@@ -1689,6 +1689,7 @@ static bool try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
+ 				break;
+ 			}
+ 			if (arch_unmap_one(mm, vma, address, pteval) < 0) {
++				swap_free(entry);
+ 				set_pte_at(mm, address, pvmw.pte, pteval);
+ 				ret = false;
+ 				page_vma_mapped_walk_done(&pvmw);
