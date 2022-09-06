@@ -213,6 +213,11 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 		i = tpool->guest->mempool[i].next;
 	}
 
+	if ((pool_start + tpool->num_tables) > GUEST_MAX_TABLES) {
+		ERROR("out of table accounting memory!\n");
+		return NULL;
+	}
+
 	tpool->used = &tpool->props[pool_start];
 	tpool->hint = 0;
 
