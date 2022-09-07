@@ -1,4 +1,4 @@
-From 4340daef5add17166c60f9943454074c085c7c26 Mon Sep 17 00:00:00 2001
+From abcba4c75965036c0b0ed4e95ba4ade1a7d55711 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 10 May 2021 14:02:47 +0300
 Subject: [PATCH] kvm: 'encrypted memory' draft for arm64 - development
@@ -7,25 +7,27 @@ Variant with:
 - in-kernel irqchip
 - (somewhat insecure) usb3
 - virtio-gpu
+- support for vcpu stolen time
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 ---
- arch/arm/include/asm/set_memory.h       |  6 ++
- arch/arm64/Kconfig                      |  2 +
- arch/arm64/configs/defconfig            | 12 ++-
- arch/arm64/include/asm/mem_encrypt.h    | 13 ++++
- arch/arm64/kvm/hvccall-defines.h        | 71 ++++++++++++++++++
- arch/arm64/mm/Makefile                  |  3 +-
- arch/arm64/mm/set_memory.c              | 98 +++++++++++++++++++++++++
- drivers/gpu/drm/virtio/virtgpu_object.c | 31 +++++++-
- drivers/gpu/drm/virtio/virtgpu_vq.c     |  4 +-
- drivers/irqchip/irq-gic-v3-its.c        | 37 ++++++++++
- drivers/usb/core/message.c              | 10 ++-
- drivers/usb/host/xhci-mem.c             | 33 +++++++--
- drivers/virtio/virtio_ring.c            | 30 +++++++-
- include/asm-generic/set_memory.h        |  5 ++
- 14 files changed, 335 insertions(+), 20 deletions(-)
+ arch/arm/include/asm/set_memory.h       |   6 ++
+ arch/arm64/Kconfig                      |   2 +
+ arch/arm64/configs/defconfig            |  12 ++-
+ arch/arm64/include/asm/mem_encrypt.h    |  14 ++++
+ arch/arm64/kernel/paravirt.c            |   9 ++
+ arch/arm64/kvm/hvccall-defines.h        |  71 ++++++++++++++++
+ arch/arm64/mm/Makefile                  |   3 +-
+ arch/arm64/mm/set_memory.c              | 106 ++++++++++++++++++++++++
+ drivers/gpu/drm/virtio/virtgpu_object.c |  31 ++++++-
+ drivers/gpu/drm/virtio/virtgpu_vq.c     |   4 +-
+ drivers/irqchip/irq-gic-v3-its.c        |  37 +++++++++
+ drivers/usb/core/message.c              |  10 ++-
+ drivers/usb/host/xhci-mem.c             |  33 ++++++--
+ drivers/virtio/virtio_ring.c            |  30 ++++++-
+ include/asm-generic/set_memory.h        |   5 ++
+ 15 files changed, 353 insertions(+), 20 deletions(-)
  create mode 100644 arch/arm64/include/asm/mem_encrypt.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
  create mode 100644 arch/arm64/mm/set_memory.c
@@ -46,7 +48,7 @@ index a1ceff4295d3..3a9a5d301664 100644
 +
 +#endif // _ASMARM_SET_MEMORY_H
 diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
-index 3da71fe56b92..ca2c407ec172 100644
+index 7c7906e9dafd..3b1e026ee3da 100644
 --- a/arch/arm64/Kconfig
 +++ b/arch/arm64/Kconfig
 @@ -37,6 +37,8 @@ config ARM64
@@ -59,7 +61,7 @@ index 3da71fe56b92..ca2c407ec172 100644
  	select ARCH_HAVE_NMI_SAFE_CMPXCHG
  	select ARCH_INLINE_READ_LOCK if !PREEMPTION
 diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
-index 5cfe3cf6f2ac..36addfcc8b80 100644
+index 2bdf38d05fa5..03d11c3d7540 100644
 --- a/arch/arm64/configs/defconfig
 +++ b/arch/arm64/configs/defconfig
 @@ -71,7 +71,7 @@ CONFIG_KEXEC_FILE=y
@@ -101,10 +103,10 @@ index 5cfe3cf6f2ac..36addfcc8b80 100644
 +CONFIG_VIRTIO_INPUT=y
 diff --git a/arch/arm64/include/asm/mem_encrypt.h b/arch/arm64/include/asm/mem_encrypt.h
 new file mode 100644
-index 000000000000..d75c682abd53
+index 000000000000..06682f03841a
 --- /dev/null
 +++ b/arch/arm64/include/asm/mem_encrypt.h
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +
 +#ifndef _ASMARM_MEMENC_H
@@ -112,12 +114,47 @@ index 000000000000..d75c682abd53
 +
 +int set_memory_encrypted(unsigned long addr, int numpages);
 +int set_memory_decrypted(unsigned long addr, int numpages);
++int set_gpa_decrypted(unsigned long gpa, int numpages);
 +
 +static inline bool mem_encrypt_active(void)
 +{
 +	return true;
 +};
 +#endif
+diff --git a/arch/arm64/kernel/paravirt.c b/arch/arm64/kernel/paravirt.c
+index 69ec670bcc70..864cf6c0f37d 100644
+--- a/arch/arm64/kernel/paravirt.c
++++ b/arch/arm64/kernel/paravirt.c
+@@ -22,6 +22,7 @@
+ #include <asm/paravirt.h>
+ #include <asm/pvclock-abi.h>
+ #include <asm/smp_plat.h>
++#include <asm/mem_encrypt.h>
+ 
+ struct static_key paravirt_steal_enabled;
+ struct static_key paravirt_steal_rq_enabled;
+@@ -91,6 +92,8 @@ static int stolen_time_cpu_online(unsigned int cpu)
+ 	struct pvclock_vcpu_stolen_time *kaddr = NULL;
+ 	struct pv_time_stolen_time_region *reg;
+ 	struct arm_smccc_res res;
++	unsigned long addr;
++	int err, numpages;
+ 
+ 	reg = this_cpu_ptr(&stolen_time_region);
+ 
+@@ -103,6 +106,12 @@ static int stolen_time_cpu_online(unsigned int cpu)
+ 			      sizeof(struct pvclock_vcpu_stolen_time),
+ 			      MEMREMAP_WB);
+ 
++	numpages = round_up(sizeof(struct pvclock_vcpu_stolen_time), PAGE_SIZE) >> PAGE_SHIFT;
++	addr = round_down((u64)res.a0, PAGE_SIZE);
++	err = set_gpa_decrypted((unsigned long)addr, numpages);
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	rcu_assign_pointer(reg->kaddr, kaddr);
+ 
+ 	if (!reg->kaddr) {
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
 index 000000000000..07bbff10b825
@@ -211,10 +248,10 @@ index 5ead3c3de3b6..ab8419f715c2 100644
  obj-$(CONFIG_PTDUMP_DEBUGFS)	+= ptdump_debugfs.o
 diff --git a/arch/arm64/mm/set_memory.c b/arch/arm64/mm/set_memory.c
 new file mode 100644
-index 000000000000..9ac1990e9535
+index 000000000000..b700c855063a
 --- /dev/null
 +++ b/arch/arm64/mm/set_memory.c
-@@ -0,0 +1,98 @@
+@@ -0,0 +1,106 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +
 +#include <linux/kernel.h>
@@ -289,21 +326,29 @@ index 000000000000..9ac1990e9535
 +	return ret;
 +}
 +
-+int set_memory_decrypted(unsigned long addr, int numpages)
++int set_gpa_decrypted(unsigned long gpa, int numpages)
 +{
-+	unsigned long gpa, phys;
++	unsigned long phys;
 +	int res;
 +
-+	gpa = virt_to_phys((void *)addr);
 +	numpages *= PAGE_SIZE;
 +
 +	res = __set_memory_decrypted(gpa, numpages);
 +	if (res) {
 +		phys = __translate(gpa);
 +		pr_err("set_memory_decrypted() %lx/%lx/%lx len %d = %d\n",
-+		       addr, gpa, phys, numpages, res);
++		       gpa, gpa, phys, numpages, res);
 +	}
 +	return 0;
++}
++
++int set_memory_decrypted(unsigned long addr, int numpages)
++{
++	unsigned long gpa;
++
++	gpa = virt_to_phys((void *)addr);
++
++	return set_gpa_decrypted(gpa, numpages);
 +}
 +
 +bool force_dma_unencrypted(__attribute__ ((unused)) struct device *dev)
@@ -564,7 +609,7 @@ index dba2baca486e..fa0a0a3be4aa 100644
  	if (retv < 0)
  		return retv;
 diff --git a/drivers/usb/host/xhci-mem.c b/drivers/usb/host/xhci-mem.c
-index ed380ee58ab5..27a33a5e3fda 100644
+index 024e8911df34..24c4f3945f6f 100644
 --- a/drivers/usb/host/xhci-mem.c
 +++ b/drivers/usb/host/xhci-mem.c
 @@ -18,6 +18,23 @@
@@ -732,5 +777,5 @@ index c86abf6bc7ba..3988080d8eb6 100644
 +
  #endif
 -- 
-2.25.1
+2.34.1
 
