@@ -61,8 +61,10 @@ int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 		return 0;
 
 	res = decrypt_guest_page(host, addr, paddr, pd->prot);
-	if (res)
-		panic("failed to decrypt host page, error %d\n", res);
-
+	if (res) {
+		ERROR("0x%lx failed to decrypt, setting to zero\n", paddr);
+		memset((void *)paddr, 0, PAGE_SIZE);
+		return -EINVAL;
+	}
 	return 0;
 }

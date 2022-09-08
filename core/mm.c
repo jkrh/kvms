@@ -149,10 +149,8 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (res)
 		goto use_old;
 
-	if (guest->pd_index == MAX_PAGING_BLOCKS - 1) {
-		ERROR("too many paging blocks\n");
-		return -ENOSPC;
-	}
+	if (guest->pd_index == MAX_PAGING_BLOCKS - 1)
+		panic("too many paging blocks\n");
 
 	s = true;
 	res = &guest->hyp_page_data[guest->pd_index];
