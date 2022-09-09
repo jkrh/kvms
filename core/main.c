@@ -181,7 +181,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 		res = machine_init(host);
 		set_heap(key_heap, sizeof(key_heap));
 		if (res)
-			return res;
+			panic("error in machine configuration!\n");
 	} else {
 		__my_sp = platfrom_get_stack_ptr(init_index);
 		__asm__ __volatile__("mov	sp, %[__my_sp]\n"
