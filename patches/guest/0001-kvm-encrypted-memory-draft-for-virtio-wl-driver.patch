@@ -1,0 +1,51 @@
+From ec4a782d4337b0cdbad56ca039864962699f83b8 Mon Sep 17 00:00:00 2001
+From: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+Date: Fri, 9 Sep 2022 10:55:01 +0300
+Subject: [PATCH] kvm encrypted memory draft for virtio-wl driver
+
+This patch will enable using virtio-wl driver on
+KVMs with blinding configuration on.
+
+Apply on top of 0001-virtio-wl-for-crosvm-guest-*
+
+Signed-off-by: Jani Hyvonen <jani.k.hyvonen@gmail.com>
+---
+ drivers/virtio/virtio_wl.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/virtio/virtio_wl.c b/drivers/virtio/virtio_wl.c
+index ec09fbfc4c75..25517cfc78be 100644
+--- a/drivers/virtio/virtio_wl.c
++++ b/drivers/virtio/virtio_wl.c
+@@ -62,6 +62,7 @@
+ #include <linux/vmalloc.h>
+ 
+ #include <uapi/linux/dma-buf.h>
++#include <asm/mem_encrypt.h>
+ 
+ #ifdef CONFIG_DRM_VIRTIO_GPU
+ #define SEND_VIRTGPU_RESOURCES
+@@ -1043,7 +1044,7 @@ static int virtwl_vfd_mmap(struct file *filp, struct vm_area_struct *vma)
+ {
+ 	struct virtwl_vfd *vfd = filp->private_data;
+ 	unsigned long vm_size = vma->vm_end - vma->vm_start;
+-	int ret = 0;
++	int ret = 0, numpages;
+ 
+ 	mutex_lock(&vfd->lock);
+ 
+@@ -1057,6 +1058,11 @@ static int virtwl_vfd_mmap(struct file *filp, struct vm_area_struct *vma)
+ 		goto out_unlock;
+ 	}
+ 
++	numpages = (round_up(vfd->size, PAGE_SIZE) >> PAGE_SHIFT);
++	ret = set_gpa_decrypted(((unsigned long)vfd->pfn << PAGE_SHIFT), numpages);
++	if (ret)
++		pr_warn("%s set_memory_decrypted %d\n", __func__, ret);
++
+ 	ret = io_remap_pfn_range(vma, vma->vm_start, vfd->pfn, vm_size,
+ 				 vma->vm_page_prot);
+ 	if (ret)
+-- 
+2.34.1
+
