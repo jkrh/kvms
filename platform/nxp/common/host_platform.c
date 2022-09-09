@@ -317,6 +317,7 @@ int platform_range_permitted(uint64_t pstart, size_t len)
 	return res;
 }
 
+#ifdef TEE_IF
 int platform_init_guest(uint32_t vmid)
 {
 	kvm_guest_t *guest;
@@ -332,7 +333,7 @@ int platform_init_guest(uint32_t vmid)
 
 	attrs = EL1S2_SH | PAGE_HYP_RW | S2_NORMAL_MEMORY;
 
-	return guest_map_range(guest, OPTEE_SHM_START, OPTEE_SHM_START, OPTEE_SHM_SIZE, attrs);
+	return guest_map_range(guest, TEE_SHM_START, TEE_SHM_START, TEE_SHM_SIZE, attrs);
 }
 
 int platform_allow_guest_smc(register_t cn, register_t a1, register_t a2,
@@ -344,3 +345,4 @@ int platform_allow_guest_smc(register_t cn, register_t a1, register_t a2,
 
 	return 0;
 }
+#endif /* TEE_IF */
