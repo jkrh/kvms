@@ -21,6 +21,7 @@
 #include "platform_api.h"
 #include "host_platform.h"
 #include "hyp_config.h"
+#include "heap.h"
 
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
@@ -806,6 +807,7 @@ int init_guest(void *kvm)
 	CHECKRES(res);
 	res = mbedtls_aes_setkey_dec(&guest->aes_ctx, key, 256);
 	CHECKRES(res);
+	memset(key, 0, 32);
 
 	/*
 	 * The address field (pgd ptr) set below is merely an indication to EL1
@@ -1246,9 +1248,11 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 				res = add_range_info(guest, map_addr,
 						     paddr, PAGE_SIZE, 0,
 						     *pte & PROT_MASK_STAGE2);
-				if (res)
+				if (res) {
 					ERROR("add_range_info(%u): %lx:%d\n",
 					      guest->vmid, map_addr, res);
+					return res;
+				}
 			}
 #endif
 		} else {
@@ -1324,8 +1328,13 @@ int free_guest(void *kvm)
 	if (res)
 		panic("patrack_stop error: %d\n",res);
 
+	for (i = 0; i < MAX_PAGING_BLOCKS; i++)
+		if (guest->hyp_page_data[i])
+                        free(guest->hyp_page_data[i]);
+
 	free_pgd(&guest->s2_tablepool, NULL);
 	free_pgd(&guest->el2_tablepool, host->EL2S1_pgd);
+
 	/*
 	 * Handle VMID zero as a special case since it is used
 	 * for early init purposes and there may exist another

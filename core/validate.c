@@ -585,18 +585,21 @@ int print_encryption_state(uint32_t vmid)
 
 	printf("Address\t\tIntegrity\t\t\tEncr\tState\t\tIntegrity\n");
 	for (i = 0; i < guest->pd_index; i++) {
-		ipa = guest->hyp_page_data[i].phys_addr;
-		write_reg(TTBR0_EL1, guest->hyp_page_data[i].ttbr0_el1);
-		write_reg(TTBR1_EL1, guest->hyp_page_data[i].ttbr1_el1);
+		if (!guest->hyp_page_data[i])
+			continue;
+
+		ipa = guest->hyp_page_data[i]->phys_addr;
+		write_reg(TTBR0_EL1, guest->hyp_page_data[i]->ttbr0_el1);
+		write_reg(TTBR1_EL1, guest->hyp_page_data[i]->ttbr1_el1);
 
 		printf("0x%lx\t", ipa);
 
 		for (int j = 0; j < 8; j++)
-			printf("%02hhx:", guest->hyp_page_data[i].sha256[j]);
+			printf("%02hhx:", guest->hyp_page_data[i]->sha256[j]);
 
 		printf("..\t");
 
-		if (guest->hyp_page_data[i].nonce) {
+		if (guest->hyp_page_data[i]->nonce) {
 			printf("y\t");
 			x++;
 		} else {
@@ -613,7 +616,7 @@ int print_encryption_state(uint32_t vmid)
 			res = calc_hash(sha256, (void *)phys, PAGE_SIZE);
 			if (!res) {
 				res = memcmp(sha256,
-					     guest->hyp_page_data[i].sha256,
+					     guest->hyp_page_data[i]->sha256,
 					     32);
 				if (!res)
 					printf("OK\n");

@@ -10,14 +10,13 @@
 #include "host_platform.h"
 #include "armtrans.h"
 #include "guest.h"
-#include "spinlock.h"
+#include "heap.h"
 
 #include "hvccall-defines.h"
 #include "hyp_config.h"
 #include "hvccall.h"
 #include "bits.h"
 #include "platform_api.h"
-#include "spinlock.h"
 
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
@@ -101,29 +100,29 @@ int is_range_valid(uint64_t addr, size_t len, kvm_memslots *slots)
 	return __is_range_valid(addr, len, slots, false);
 }
 
-static int compfunc(const void *v1, const void *v2)
+int pd_compfunc(const void *v1, const void *v2)
 {
-	const kvm_page_data *val1 = v1;
-	const kvm_page_data *val2 = v2;
+	const kvm_page_data * const *val1 = v1;
+	const kvm_page_data * const *val2 = v2;
 
-	if (val1->phys_addr < val2->phys_addr)
+	if ((*val1)->phys_addr < (*val2)->phys_addr)
 		return -1;
-	if (val1->phys_addr > val2->phys_addr)
+	if ((*val1)->phys_addr > (*val2)->phys_addr)
 		return 1;
 	return 0;
 }
 
 kvm_page_data *get_range_info(void *g, uint64_t addr)
 {
-	kvm_guest_t *guest = (kvm_guest_t *)g;
-	kvm_page_data key, *res;
+	kvm_guest_t *guest = g;
+	kvm_page_data data, *res;
+	kvm_page_data *key;
 
-	if (!guest)
-		return NULL;
-
-	key.phys_addr = addr;
+	spin_lock(&guest->page_data_lock);
+	data.phys_addr = addr;
+	key = &data;
 	res = bsearch(&key, guest->hyp_page_data, guest->pd_index,
-		      sizeof(key), compfunc);
+		      sizeof(key), pd_compfunc);
 
 	return res;
 }
@@ -131,7 +130,7 @@ kvm_page_data *get_range_info(void *g, uint64_t addr)
 int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		   uint32_t nonce, uint64_t prot)
 {
-	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_guest_t *guest = g;
 	kvm_page_data *res;
 	bool s = false;
 	int ret = 0;
@@ -142,23 +141,32 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	}
 
 	/* If for any reason this hits our shares, exit */
-	if (is_share(g, ipa, PAGE_SIZE) == 1)
+	if ((guest->vmid != HOST_VMID) && (is_share(g, ipa, PAGE_SIZE) == 1))
 		return 0;
 
+	/* Note: we grab the page data lock from here already */
 	res = get_range_info(guest, ipa);
 	if (res)
 		goto use_old;
 
-	if (guest->pd_index == MAX_PAGING_BLOCKS - 1)
-		panic("too many paging blocks\n");
+	if (guest->pd_index == MAX_PAGING_BLOCKS - 1) {
+		ERROR("out of paging blocks for guest %u\n", guest->vmid);
+		ret = -ENOENT;
+		goto out_unlock;
+	}
 
 	s = true;
-	res = &guest->hyp_page_data[guest->pd_index];
-	res->phys_addr = ipa;
-	guest->pd_index += 1;
+	res = malloc(sizeof(kvm_page_data));
+	if (!res) {
+		ERROR("out of allocatable memory, guest %u\n", guest->vmid);
+		ret = -ENOMEM;
+		goto out_unlock;
+	}
+	memset(res, 0, sizeof(kvm_page_data));
 
 use_old:
 	res->nonce = nonce;
+	res->phys_addr = ipa;
 	res->vmid = guest->vmid;
 	res->len = len;
 	res->prot = prot;
@@ -166,21 +174,17 @@ use_old:
 	res->ttbr0_el1 = read_reg(TTBR0_EL1) & TTBR_BADDR_MASK;
 	res->ttbr1_el1 = read_reg(TTBR1_EL1) & TTBR_BADDR_MASK;
 #endif
-
 	ret = calc_hash(res->sha256, (void *)addr, len);
-	if (ret) {
-		memset(res->sha256, 0, 32);
-		res->len = 0;
-		res->vmid = 0;
-		res->nonce = 0;
+	if (ret)
+		panic("guest data measurement error %d\n", ret);
+	if (s) {
+		guest->hyp_page_data[guest->pd_index++] = res;
+		qsort(guest->hyp_page_data, guest->pd_index, sizeof(res),
+		      pd_compfunc);
 	}
 
-	if (s) {
-		spin_lock(&guest->page_data_lock);
-		qsort(guest->hyp_page_data, guest->pd_index, sizeof(kvm_page_data),
-		      compfunc);
-		spin_unlock(&guest->page_data_lock);
-	}
+out_unlock:
+	spin_unlock(&guest->page_data_lock);
 	dsb();
 	isb();
 
@@ -189,59 +193,67 @@ use_old:
 
 void free_range_info(void *g, uint64_t ipa)
 {
-	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_guest_t *guest = g;
 	kvm_page_data *res;
 
 	res = get_range_info(guest, ipa);
 	if (!res)
-		return;
+		goto out_unlock;
 
-	res->vmid = 0;
+	res->vmid = INVALID_VMID;
 	res->nonce = 0;
 	memset(res->sha256, 0, 32);
 	dsb();
 	isb();
+
+out_unlock:
+	spin_unlock(&guest->page_data_lock);
 }
 
 int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		 uint64_t prot)
 {
-	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_guest_t *guest = g;
 	kvm_page_data *res;
 	uint8_t sha256[32];
 	int ret;
 
 	res = get_range_info(guest, ipa);
-	if (!res)
-		return -ENOENT;
-
+	if (!res) {
+		ret = -ENOENT;
+		goto out_unlock;
+	}
 	if (res->vmid != guest->vmid) {
 		ERROR("page owner fault: %u != %u\n", res->vmid, guest->vmid);
-		return -EFAULT;
+		ret = -EFAULT;
+		goto out_unlock;
 	}
 
 	if (res->prot != prot) {
 		ERROR("page permissions: 0xlx != 0xlx\n", res->prot, prot);
-		return -EPERM;
+		ret = -EPERM;
+		goto out_unlock;
 	}
 
 	ret = calc_hash(sha256, (void *)addr, len);
 	if (ret)
-		return ret;
+		panic("page measurement error %d\n", ret);
 
 	ret = memcmp(sha256, res->sha256, 32);
 	if (ret != 0) {
 		ERROR("range verification failed for guest %u, ipa %p\n",
 		      guest->vmid, ipa);
-		return -EPERM;
+		ret = -EPERM;
 	}
 
-	return 0;
+out_unlock:
+	spin_unlock(&guest->page_data_lock);
+	return ret;
 }
 
 kvm_memslot *gfn_to_memslot(void *g, gfn_t gfn)
 {
-	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_guest_t *guest = g;
 	int i = 0;
 
 	while (i < KVM_MEM_SLOTS_NUM) {
@@ -275,7 +287,7 @@ void set_guest_page_dirty(void *g, gfn_t gfn)
 
 int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 {
-	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_guest_t *guest = g;
 	uint8_t ciphertext[PAGE_SIZE];
 	uint8_t stream_block[16];
 	uint8_t nonce_counter[16];
@@ -293,7 +305,7 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 retry:
 	res = platform_entropy((uint8_t *)&nonce, 4);
 	if (res)
-		return -EFAULT;
+		return res;
 	if (!nonce) {
 		ERROR("received zero entropy, retrying\n");
 		goto retry;
@@ -328,7 +340,7 @@ retry:
 
 int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 {
-	kvm_guest_t *guest = (kvm_guest_t *)g;
+	kvm_guest_t *guest = g;
 	uint8_t stream_block[16];
 	uint8_t nonce_counter[16];
 	uint8_t cleartext[PAGE_SIZE];
@@ -345,9 +357,10 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 
 	/* Check if it was ciphertext we verified */
 	pd = get_range_info(guest, ipa);
-	if (!pd->nonce)
+	if (!pd || !pd->nonce) {
+		spin_unlock(&guest->page_data_lock);
 		return 0;
-
+	}
 	memset(&nonce_counter, 0, 16);
 	memcpy(&nonce_counter[0], &pd->nonce, 4);
 	memcpy(&nonce_counter[4], &ipa, 8);
@@ -356,17 +369,18 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx, PAGE_SIZE, &ns, nonce_counter,
 				    stream_block, (void *)addr, cleartext);
 	if (res != MBEDTLS_EXIT_SUCCESS) {
+		spin_unlock(&guest->page_data_lock);
 		mbedtls_strerror(res, (char *)cleartext, 256);
 		ERROR("fault decrypting data: %d / %s\n", res, cleartext);
 		res = -EFAULT;
 		goto out_error;
 	}
+	spin_unlock(&guest->page_data_lock);
 	memcpy((void *)addr, cleartext, PAGE_SIZE);
 
 out_error:
 	free_range_info(g, ipa);
 	dsb(); isb();
-
 	return res;
 }
 

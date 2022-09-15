@@ -7,8 +7,11 @@
 #include <stdarg.h>
 
 #include "helpers.h"
+#include "spinlock.h"
 #include "heap.h"
 
+uint8_t hyp_malloc_pool[MALLOC_POOL_SIZE] ALIGN(PAGE_SIZE) WEAK_SYM;
+static spinlock_t malloc_lock = 0;
 static void *__heap;
 static size_t __heap_sz;
 
@@ -26,10 +29,15 @@ union header {
 typedef union header header;
 static header base;			/* Start header */
 static header *freep = NULL;		/* Current entry point in free list */
+
 void kr_free(void *ap);
+void __kr_free(void *ap);
 
 int set_heap(void *h, size_t sz)
 {
+	if (!h || !sz)
+		return -EINVAL;
+
 #ifdef MINIMUM_MALLOC_SIZE
 	if (sz < MINIMUM_MALLOC_SIZE)
 		return -EINVAL;
@@ -39,6 +47,7 @@ int set_heap(void *h, size_t sz)
 
 	__heap = h;
 	__heap_sz = sz;
+	memset(h, 0, sz);
 
 	return 0;
 }
@@ -66,23 +75,22 @@ static header *morespace(unsigned nu)
 {
 	header *up;
 	uint8_t *cp;
+
 #ifdef MINIMUM_MALLOC_SIZE
 	if (nu < MINIMUM_MALLOC_SIZE)
 		nu = MINIMUM_MALLOC_SIZE / sizeof(header) + 1;
 #endif
 	cp = get_static_buffer(nu * sizeof(header));
-
 	if (!cp)
 		return NULL;
-
 	up = (header *)cp;
 	up->s.size = nu;
-	kr_free((void *)(up + 1));
+	__kr_free((void *)(up + 1));
 
 	return freep;
 }
 
-void *kr_malloc(size_t nbytes)
+void *__kr_malloc(size_t nbytes)
 {
 	header *p, *prevp;
 	unsigned nunits;
@@ -113,7 +121,18 @@ void *kr_malloc(size_t nbytes)
 	}
 }
 
-void kr_free(void *ap)
+void *kr_malloc(size_t nbytes)
+{
+	void *res;
+
+	spin_lock(&malloc_lock);
+	res = __kr_malloc(nbytes);
+	spin_unlock(&malloc_lock);
+
+	return res;
+}
+
+void __kr_free(void *ap)
 {
 	header *bp, *p;
 
@@ -136,6 +155,13 @@ void kr_free(void *ap)
 		p->s.ptr = bp;
 	}
 	freep = p;
+}
+
+void kr_free(void *ap)
+{
+	spin_lock(&malloc_lock);
+	__kr_free(ap);
+	spin_unlock(&malloc_lock);
 }
 
 WEAK_ALIAS(kr_malloc, malloc);

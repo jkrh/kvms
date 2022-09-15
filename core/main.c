@@ -20,19 +20,20 @@
 #include "heap.h"
 #include "crypto/platform_crypto.h"
 
+#include "mbedtls/platform.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/memory_buffer_alloc.h"
 
 struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
-
 uint8_t crypto_buf[PAGE_SIZE*2];
-uint8_t key_heap[1024];
+
 struct timeval tv1 ALIGN(16);
 struct timeval tv2 ALIGN(16);
 uint8_t init_index;
 
+extern uint8_t hyp_malloc_pool[MALLOC_POOL_SIZE];
 extern spinlock_t entrylock;
 extern uint64_t __stack[];
 extern uint64_t __fdt_addr;
@@ -77,8 +78,10 @@ int early_setup(void)
 
 int crypto_init(void)
 {
-	int res;
+	kvm_guest_t *host;
 	simd_t crypto_ctx;
+	uint8_t key[32];
+	int res;
 
 	/* Platform reservation is not necessary here, but without it
 	 * it gives unnecessary warning on debug build
@@ -92,9 +95,30 @@ int crypto_init(void)
 	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 				    &mbedtls_entropy_ctx, 0, 0);
 	RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
-	if (res)
+	if (res != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_ctr_drbg_seed returned %d\n", res);
 
+	/*
+	 * Host AES encryption keys
+	 */
+	host = get_guest(HOST_VMID);
+	if (!host)
+		panic("no host?\n");
+
+	mbedtls_aes_init(&host->aes_ctx);
+	res = mbedtls_ctr_drbg_random(&ctr_drbg, key, 32);
+	if (res != MBEDTLS_EXIT_SUCCESS)
+		panic("mbedtls_ctr_drbg_random returned %d\n", res);
+
+	res = mbedtls_aes_setkey_enc(&host->aes_ctx, key, 256);
+	if (res != MBEDTLS_EXIT_SUCCESS)
+		panic("mbedtls_aes_setkey_enc returned %d\n", res);
+
+	res = mbedtls_aes_setkey_dec(&host->aes_ctx, key, 256);
+	if (res != MBEDTLS_EXIT_SUCCESS)
+		panic("mbedtls_aes_setkey_dec returned %d\n", res);
+
+	memset(key, 0, 32);
 	return 0;
 }
 
@@ -179,7 +203,6 @@ int main(int argc UNUSED, char **argv UNUSED)
 		tdinfo_init();
 		table_init();
 		res = machine_init(host);
-		set_heap(key_heap, sizeof(key_heap));
 		if (res)
 			panic("error in machine configuration!\n");
 	} else {
@@ -199,13 +222,16 @@ int main(int argc UNUSED, char **argv UNUSED)
 	 * go here.
 	 */
 	if (init_index == 0) {
+		res = set_heap(hyp_malloc_pool, MALLOC_POOL_SIZE);
+		if (res)
+			panic("failed to set heap\n");
+
 		if (crypto_init() != 0)
 			panic("crypto init failed\n");
 	}
 	gettimeofday(&tv2, NULL);
 	LOG("HYP: core %ld initialization latency was %ldms\n",
 	     init_index, (tv2.tv_usec - tv1.tv_usec) / 1000);
-	init_index++;
 	spin_unlock(&entrylock);
 
 	enter_el1_cold();

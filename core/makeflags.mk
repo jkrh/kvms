@@ -4,8 +4,9 @@
 # Internal
 #
 PVAR := $(shell echo $(PLATFORM) | tr a-z A-Z)
-export DEFINES := -D$(PVAR) -D_GNU_SOURCE -D__OPTIMIZE__ -DMAX_THRESH=1000000 -include "config.h"
-export WARNINGS := -Wall -Werror -Wno-pointer-arith -Wno-variadic-macros -Wstack-protector
+export DEFINES := -D$(PVAR) -D_GNU_SOURCE -D__OPTIMIZE__ \
+		-DMAX_THRESH=$(MAX_PAGING_BLOCKS) -DMAX_PAGING_BLOCKS=$(MAX_PAGING_BLOCKS) -include "config.h"
+export WARNINGS := -Wall -Werror -Wno-pointer-arith -Wno-variadic-macros -Wstack-protector -Wstack-usage=8192
 export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(CORE_DIR)/common -I$(BASE_DIR)/stdlib \
 		-I$(BASE_DIR)/mbedtls/include \
 		-I$(BASE_DIR)/platform/common \

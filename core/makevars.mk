@@ -23,6 +23,15 @@ BUILDOPTS += -DDEBUG=2
 endif
 
 #
+# Define the paging data stash size for each VM. This is the amount
+# of pages (small or large) each VM can store in the page integrity
+# stash.
+#
+ifndef MAX_PAGING_BLOCKS
+MAX_PAGING_BLOCKS := 64000
+endif
+
+#
 # Add validate.c tests into the build. These symbols are for
 # hypervisor internal state validation and can be called via
 # the debugger.

@@ -7,6 +7,7 @@
 #include <stdbool.h>
 
 #include "commondefines.h"
+#include "spinlock.h"
 
 /*
  * Address types:
@@ -132,7 +133,8 @@ kvm_memslot *gfn_to_memslot(void *, gfn_t gfn);
 void set_guest_page_dirty(void *g, gfn_t gfn);
 
 /**
- * Fetch a page integrity structure for guest
+ * Fetch a page integrity structure for guest. The call returns with guest
+ * page data lock held, so release it.
  *
  * @param guest, the guest
  * @param ipa, the guest ipa base address

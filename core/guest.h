@@ -115,7 +115,7 @@ struct kvm_guest {
 	void *kvm;	/* struct kvm */
 	kvm_memslots slots[KVM_MEM_SLOTS_NUM];
 	spinlock_t page_data_lock;
-	kvm_page_data hyp_page_data[MAX_PAGING_BLOCKS];
+	kvm_page_data *hyp_page_data[MAX_PAGING_BLOCKS];
 	uint64_t pd_index;
 	uint64_t ramend;
 	uint8_t table_levels_el2s1;

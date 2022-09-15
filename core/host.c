@@ -14,11 +14,16 @@
 #include "guest.h"
 #include "mm.h"
 
+/*
+ * Should these functions fail, it's not necessarily fatal. We should only
+ * be crashing a userspace process.
+ */
 int host_swap_page(uint64_t addr, uint64_t paddr)
 {
 	kvm_guest_t *host;
 	uint64_t ipa;
 	uint64_t *pte;
+	int res = 0;
 
 	if ((addr % PAGE_SIZE) || (paddr % PAGE_SIZE)) {
 		ERROR("unaligned swap request\n");
@@ -38,14 +43,21 @@ int host_swap_page(uint64_t addr, uint64_t paddr)
 	if (ipa != paddr)
 		panic("host address mismatch?\n");
 
-	return encrypt_guest_page(host, addr, paddr, *pte & PROT_MASK_STAGE2);
+	res = encrypt_guest_page(host, addr, paddr, *pte & PROT_MASK_STAGE2);
+	if (res) {
+		ERROR("0x%lx failed to encrypt, setting to zero. Error %d\n",
+		      paddr, res);
+		memset((void *)paddr, 0, PAGE_SIZE);
+	}
+	return res;
 }
 
 int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 {
 	kvm_guest_t *host;
 	kvm_page_data *pd;
-	int res;
+	uint64_t prot;
+	int res = 0;
 
 	if ((addr % PAGE_SIZE) || (paddr % PAGE_SIZE)) {
 		ERROR("unaligned swap request\n");
@@ -57,14 +69,18 @@ int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 		panic("no host\n");
 
 	pd = get_range_info(host, addr);
-	if (!pd)
+	if (!pd) {
+		spin_unlock(&host->page_data_lock);
 		return 0;
-
-	res = decrypt_guest_page(host, addr, paddr, pd->prot);
-	if (res) {
-		ERROR("0x%lx failed to decrypt, setting to zero\n", paddr);
-		memset((void *)paddr, 0, PAGE_SIZE);
-		return -EINVAL;
 	}
-	return 0;
+	prot = pd->prot;
+	spin_unlock(&host->page_data_lock);
+
+	res = decrypt_guest_page(host, addr, paddr, prot);
+	if (res) {
+		ERROR("0x%lx failed to decrypt, setting to zero. Error %d\n",
+		      paddr, res);
+		memset((void *)paddr, 0, PAGE_SIZE);
+	}
+	return res;
 }

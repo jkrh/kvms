@@ -92,6 +92,9 @@ nextmap:
 			perms = ((SH_INN<<8) | PAGE_HYP_RW);
 			type = S2_DEV_NGNRE;
 		} else {
+			/* Skip flash area from EL2 */
+			if (i == 0)
+				goto cont;
 			perms = PAGE_KERNEL_RW;
 			type = DEVICE_MEMORY;
 		}
@@ -101,6 +104,7 @@ nextmap:
 				 perms, type);
 		if (res)
 			goto error;
+cont:
 		i++;
 	}
 	if (stage == EL2_STAGE1) {
