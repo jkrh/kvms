@@ -4,7 +4,7 @@
 static const memmap base_memmap[] = {
 	/* VA start,  VA end,     IPA start,  Region size,   Memory type, Shared,      R/W/exec*/
 	/* DDR */
-	{ 0x800000000, 0xBFFFFFFFF, 0x800000000, 0x400000000, NORMAL_WBACK_P, SH_OUT, PAGE_KERNEL_RW }, /* 16GB DDR Main memory */
+	{ 0x880000000, 0x8BFFFFFFF, 0x880000000, 0x40000000, NORMAL_WBACK_P, SH_OUT, PAGE_KERNEL_RW }, /* 1GB DDR Main memory */
 	/* DDR */
 	{ 0x80000000, 0xFFFFFFFF, 0x80000000, 0x80000000, NORMAL_WBACK_P, SH_OUT, PAGE_KERNEL_RW }, /* 2GB DDR Main memory */
 	/* GIC Distributor */
@@ -29,11 +29,14 @@ static const memmap el2_secure_memmap[] = {
  * i.MX 8QuadXPlus Applications Processor Reference Manual, Rev. 0, 05/2020
  * Table 2-2. System memory map
  *
+ * Total DDR size (3Gb) can be found at link below
+ * https://www.nxp.com/design/development-boards/i-mx-evaluation-and-development-boards/i-mx-8quadxplus-multisensory-enablement-kit-mek:MCIMX8QXP-CPU
+ *
  */
 static const memmap st2_base_memmap[] = {
 	/* IPA start,  IPA end,     PA start,    Region size, Memory type, Shared, R/W/exec*/
 	/* DDR */
-	{ 0x880000000, 0xBFFFFFFFF, 0x880000000, 0x380000000, S2_NORMAL_MEMORY, SH_INN, PAGE_HYP_RWX }, /* 14GB DDR Main memory */
+	{ 0x880000000, 0x8BFFFFFFF, 0x880000000, 0x40000000, S2_NORMAL_MEMORY, SH_INN, PAGE_HYP_RWX }, /* 1GB DDR Main memory */
 	/* Reserved */
 	/* { 0x800000000, 0x87FFFFFFF, 0x800000000, 0x80000000, type, sh, exec },  Reserved - 2GB DRAM Hole */
 	/* Reserved */
