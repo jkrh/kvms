@@ -54,7 +54,7 @@ guest_exit:
 	mov	x3, sp
 	mov	x4, x19
 	bl	guest_exit_prep
-	add	sp, sp, #(PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
 
 	get_host_ctxt	x2, x3
 	kern_hyp_va	x2

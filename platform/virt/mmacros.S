@@ -4,7 +4,7 @@
 #include "pt_regs.h"
 
 .macro platform_aarch64sync
-	sub	sp, sp, #(PT_REGS_SIZE)
+	sub	sp, sp, #(PT_REGS_STACK_ALLOC)
 	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
 

@@ -48,7 +48,7 @@ __hyp_vectors:
 el1_sync:
 	msr	SPSel, #1
 
-	sub	sp, sp, #(PT_REGS_SIZE)
+	sub	sp, sp, #(PT_REGS_STACK_ALLOC)
 	stp	x0, x1, [sp, #(8 * 0)]
 
 	/* Collect VMID to x0 */
@@ -85,7 +85,7 @@ el1_sync:
 	b	4f			// Normal HVC
 
 3:	load_all_regs
-	add	sp, sp, #(PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
 	eret
 
 4:	cmp	x0, #GUEST_VMID_START
@@ -110,7 +110,7 @@ el1_sync:
 el2_sync:
 	msr	SPSel, #1
 
-	sub	sp, sp, #(PT_REGS_SIZE)
+	sub	sp, sp, #(PT_REGS_STACK_ALLOC)
 	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
 
@@ -139,7 +139,7 @@ memctrl_trap:
 	msr	ELR_EL2, x0
 	load_all_regs
 	ldp	x0, x1, [sp, #(8 * 0)]
-	add	sp, sp, #(PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
 	eret
 
 host_fastpath:
@@ -167,7 +167,7 @@ wait_core_ready:
 	ldp	x0, x1, [sp, #(8 * 0)]
 	ldp	x2, x3, [sp, #(8 * 2)]
 	ldr	x30, [sp, #(8 * 30)]
-	add	sp, sp, #(PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
 	eret
 
 handle_abort:
@@ -218,7 +218,7 @@ _host_data_abort:
 	 */
 	load_all_regs
 	ldr	x0, [sp, #(8 * 0)]
-	add	sp, sp, #(PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
 	eret
 1:	load_all_regs
 	b	forward_aarch64sync
@@ -269,7 +269,7 @@ guest_smc_trap:
 	msr	ELR_EL2, x0
 	ldr	x0, [sp, #(8 * 0)]
 	load_all_regs
-	add	sp, sp, #(PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
 	smc	#0
 	eret
 1:	mov	x0, #3
@@ -286,7 +286,7 @@ host_fastforward:
  */
 forward_aarch64sync:
 	ldp	x0, x1, [sp, #(8 * 0)]
-	add	sp, sp, #(PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
 	platform_aarch64sync
 
 el1_trap:
@@ -317,7 +317,7 @@ fpsimd_trap:
 
 el1_irq:
 	msr	SPSel, #1
-	sub	sp, sp, #PT_REGS_SIZE
+	sub	sp, sp, #PT_REGS_STACK_ALLOC
 	save_clobber_regs
 
 	mrs	x0, VTTBR_EL2
@@ -346,12 +346,12 @@ guest_hvc_trap:
 	load_all_regs
 	bl	hvccall
 	load_all_regs
-	add	sp, sp, #(PT_REGS_SIZE)
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
 	eret
 
 el1_error:
 	msr	SPSel, #1
-	sub	sp, sp, #(PT_REGS_SIZE)
+	sub	sp, sp, #(PT_REGS_STACK_ALLOC)
 	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
 
@@ -366,7 +366,7 @@ el1_error:
 
 dumpcall:
 	msr	SPSel, #1
-	sub	sp, sp, #(PT_REGS_SIZE)
+	sub	sp, sp, #(PT_REGS_STACK_ALLOC)
 	stp	x0, x1, [sp, #(8 * 0)]
 	save_all_regs
 

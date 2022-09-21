@@ -34,8 +34,8 @@ struct pt_regs {
 };
 #endif // __ASSEMBLY__
 
-#ifndef PT_REGS_SIZE
-#define PT_REGS_SIZE (8 * 36)
+#ifndef PT_REGS_STACK_ALLOC
+#define PT_REGS_STACK_ALLOC (8 * 36)
 #endif
 
 #endif /* !__PT_REGS_H__ */
