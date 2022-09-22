@@ -556,8 +556,8 @@ int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk)
 
 	if (c >= GUEST_MEMCHUNKS_MAX)
 		c = -ENOSPC;
-
-	if (_zeromem16((void *)guest->mempool[c].start, guest->mempool[c].size))
+	else if (_zeromem16((void *)guest->mempool[c].start,
+		guest->mempool[c].size))
 		ERROR("check alignment!");
 
 	return c;
@@ -1419,7 +1419,7 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 		return 0;
 
 	guest->state = GUEST_INIT;
-	if (slot->id > KVM_MEM_SLOTS_NUM) {
+	if (slot->id >= KVM_MEM_SLOTS_NUM) {
 		ERROR("too many guest slots?\n");
 		return -EINVAL;
 	}
