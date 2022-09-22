@@ -1,4 +1,4 @@
-From 5fd7cafc36892d07bd28404961d5c6e863faca39 Mon Sep 17 00:00:00 2001
+From 61c3c1fdf8484f38ac45e547f0ddbb6594c3dd5d Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 16 Mar 2022 14:56:47 +0200
 Subject: [PATCH] KVM: external hypervisor for imx8qmmek-5.15.32 kernel
@@ -12,7 +12,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/include/asm/kvm_arm.h              |    2 +-
  arch/arm64/include/asm/kvm_asm.h              |   26 +-
  arch/arm64/include/asm/kvm_emulate.h          |   12 +
- arch/arm64/include/asm/kvm_host.h             |   24 +-
+ arch/arm64/include/asm/kvm_host.h             |   29 +-
  arch/arm64/include/asm/kvm_hyp.h              |    3 -
  arch/arm64/include/asm/kvm_mmu.h              |   97 +-
  arch/arm64/include/asm/kvm_pgtable.h          |   12 +-
@@ -42,7 +42,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/reset.c                        |    1 +
  arch/arm64/kvm/va_layout.c                    |    1 +
  arch/arm64/kvm/vgic/vgic-v2.c                 |    6 +-
- 35 files changed, 971 insertions(+), 1901 deletions(-)
+ 35 files changed, 976 insertions(+), 1901 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -239,7 +239,7 @@ index fd418955e31e..f74d1845b80b 100644
  
  /*
 diff --git a/arch/arm64/include/asm/kvm_host.h b/arch/arm64/include/asm/kvm_host.h
-index fc6ee6c5972d..454cfe4e081b 100644
+index fc6ee6c5972d..aea034c76169 100644
 --- a/arch/arm64/include/asm/kvm_host.h
 +++ b/arch/arm64/include/asm/kvm_host.h
 @@ -36,6 +36,8 @@
@@ -295,8 +295,17 @@ index fc6ee6c5972d..454cfe4e081b 100644
  
  /*
   * The couple of isb() below are there to guarantee the same behaviour
-@@ -796,12 +810,6 @@ bool kvm_arm_vcpu_is_finalized(struct kvm_vcpu *vcpu);
+@@ -792,16 +806,15 @@ bool kvm_arm_vcpu_is_finalized(struct kvm_vcpu *vcpu);
+ 	((vcpu)->arch.flags & KVM_ARM64_VCPU_SVE_FINALIZED)
+ 
+ #define kvm_has_mte(kvm) (system_supports_mte() && (kvm)->arch.mte_enabled)
++
++/*
+ #define kvm_vcpu_has_pmu(vcpu)					\
  	(test_bit(KVM_ARM_VCPU_PMU_V3, (vcpu)->arch.features))
++*/
++
++#define kvm_vcpu_has_pmu(vcpu)	0
  
  int kvm_trng_call(struct kvm_vcpu *vcpu);
 -#ifdef CONFIG_KVM
