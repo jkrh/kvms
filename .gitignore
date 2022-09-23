@@ -3,3 +3,5 @@ buildtools/
 docs/latex/
 docs/html/
 docs/refman.pdf
+cov-dir/
+cov-html/

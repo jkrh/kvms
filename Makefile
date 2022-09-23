@@ -76,4 +76,7 @@ target-qemu:
 package:
 	$(MAKE) -C platform/$(PLATFORM)/tools/sign
 
-.PHONY: all check submodule-update tools tools-clean clean gdb qemu package run docs docs-clean $(SUBDIRS)
+coverity:
+	./scripts/run-coverity.sh
+
+.PHONY: all check submodule-update tools tools-clean clean gdb qemu package run docs docs-clean coverity $(SUBDIRS)
