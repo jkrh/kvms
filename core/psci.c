@@ -110,6 +110,10 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 		if (vmid != HOST_VMID)
 			LOG("VMID %lu migrate info type\n", vmid);
 		break;
+	case ARM_SMCCC_ARCH_WORKAROUND_1:
+	case ARM_SMCCC_ARCH_WORKAROUND_2:
+	case ARM_SMCCC_ARCH_WORKAROUND_3:
+		break;
 	default:
 		if (vmid != HOST_VMID)
 			ERROR("VMID %lu unknown PSCI call %lx\n", vmid, cn);
