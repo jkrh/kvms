@@ -100,7 +100,7 @@ int is_range_valid(uint64_t addr, size_t len, kvm_memslots *slots)
 	return __is_range_valid(addr, len, slots, false);
 }
 
-int pd_compfunc(const void *v1, const void *v2)
+static int pd_compfunc(const void *v1, const void *v2)
 {
 	const kvm_page_data * const *val1 = v1;
 	const kvm_page_data * const *val2 = v2;
@@ -115,7 +115,7 @@ int pd_compfunc(const void *v1, const void *v2)
 kvm_page_data *get_range_info(void *g, uint64_t addr)
 {
 	kvm_guest_t *guest = g;
-	kvm_page_data data, *res;
+	kvm_page_data data, **res;
 	kvm_page_data *key;
 
 	spin_lock(&guest->page_data_lock);
@@ -123,8 +123,10 @@ kvm_page_data *get_range_info(void *g, uint64_t addr)
 	key = &data;
 	res = bsearch(&key, guest->hyp_page_data, guest->pd_index,
 		      sizeof(key), pd_compfunc);
+	if (!res)
+		return NULL;
 
-	return res;
+	return *res;
 }
 
 int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
@@ -141,7 +143,7 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	}
 
 	/* If for any reason this hits our shares, exit */
-	if ((guest->vmid != HOST_VMID) && (is_share(g, ipa, PAGE_SIZE) == 1))
+	if (is_share(g, ipa, PAGE_SIZE) == 1)
 		return 0;
 
 	/* Note: we grab the page data lock from here already */
@@ -149,14 +151,14 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (res)
 		goto use_old;
 
-	if (guest->pd_index == MAX_PAGING_BLOCKS - 1) {
+	if (guest->pd_index == (MAX_PAGING_BLOCKS - 1)) {
 		ERROR("out of paging blocks for guest %u\n", guest->vmid);
 		ret = -ENOENT;
 		goto out_unlock;
 	}
 
 	s = true;
-	res = malloc(sizeof(kvm_page_data));
+	res = malloc(sizeof(*res));
 	if (!res) {
 		ERROR("out of allocatable memory, guest %u\n", guest->vmid);
 		ret = -ENOMEM;
@@ -293,11 +295,12 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	uint8_t nonce_counter[16];
 	uint32_t nonce;
 	size_t ns = 0;
-	int res;
+	int res = 0;
+
 
 	/* If for any reason this hits our shares, exit */
 	if (is_share(g, ipa, PAGE_SIZE) == 1)
-		return 0;
+		return res;
 
 	/*
 	 * FIXME: we need to re-key every 2^32 swaps.
@@ -325,17 +328,19 @@ retry:
 	if (res != MBEDTLS_EXIT_SUCCESS) {
 		mbedtls_strerror(res, (char *)ciphertext, 256);
 		ERROR("fault encrypting data: %d / %s\n", res, ciphertext);
-		return -EFAULT;
+		res =-EFAULT;
+		goto out_error;
 	}
 	memcpy((void *)addr, ciphertext, PAGE_SIZE);
 	res = add_range_info(guest, ipa, addr, PAGE_SIZE, nonce, prot);
 	if (res)
-		return res;
+		goto out_error;
 
 	set_guest_page_dirty(g, addr_to_fn(ipa));
 	dsb(); isb();
 
-	return 0;
+out_error:
+	return res;
 }
 
 int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)

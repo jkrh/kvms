@@ -38,9 +38,6 @@
 void __assert (const char *function, const char *file, unsigned int line,
 		const char *assertion)
 {
-	ERROR("ASSERT: %s <%d> : %s\n", function, line, assertion);
-	while(1) {
-		wfi();
-	}
+	panic("assert at %s:%d '%s'\n", function, line, assertion);
 }
 WEAK_ALIAS(__assert, __assert_fail)
