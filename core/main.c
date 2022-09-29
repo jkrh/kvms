@@ -18,6 +18,7 @@
 #include "kentry.h"
 #include "tables.h"
 #include "heap.h"
+#include "host.h"
 #include "crypto/platform_crypto.h"
 
 #include "mbedtls/platform.h"
@@ -119,6 +120,17 @@ int crypto_init(void)
 		panic("mbedtls_aes_setkey_dec returned %d\n", res);
 
 	memset(key, 0, 32);
+
+	/*
+	 * Host swap data pool
+	 */
+#ifdef HOST_SWAP_ENCRYPTION
+	host->hyp_page_data = malloc(HOST_DATAPOOL_SIZE);
+	memset(host->hyp_page_data, 0, HOST_DATAPOOL_SIZE);
+	if (!host->hyp_page_data)
+		panic("no memory for the page data pool\n");
+	host->pd_sz = HOST_DATAPOOL_SIZE;
+#endif
 	return 0;
 }
 

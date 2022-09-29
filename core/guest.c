@@ -797,6 +797,15 @@ int init_guest(void *kvm)
 	if (res)
 		return res;
 
+#ifndef HOST_SWAP_ENCRYPTION
+	size_t sz = sizeof(kvm_page_data *) * MAX_PAGING_BLOCKS;
+	guest->hyp_page_data = malloc(sz);
+	if (!guest->hyp_page_data)
+		return -ENOMEM;
+	memset(guest->hyp_page_data, 0, sz);
+	guest->pd_sz = sz / sizeof(kvm_page_data *);
+#endif
+
 	mbedtls_aes_init(&guest->aes_ctx);
 	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 				    &mbedtls_entropy_ctx, 0, 0);
@@ -981,7 +990,9 @@ static int release_guest_s2(kvm_guest_t *guest, uint64_t rangestart, uint64_t ra
 	if (slot_start == ~0UL)
 		return -ERANGE;
 
-	memset(guest->hyp_page_data, 0, sizeof(guest->hyp_page_data));
+	if (guest->hyp_page_data)
+		memset(guest->hyp_page_data, 0, sizeof(guest->hyp_page_data));
+
 	res = restore_host_mappings(guest);
 	if (res)
 		panic("restore_host_mappings failed with error %d\n", res);
@@ -1328,9 +1339,10 @@ int free_guest(void *kvm)
 	if (res)
 		panic("patrack_stop error: %d\n",res);
 
-	for (i = 0; i < MAX_PAGING_BLOCKS; i++)
-		if (guest->hyp_page_data[i])
-                        free(guest->hyp_page_data[i]);
+	if (guest->hyp_page_data)
+		for (i = 0; i < MAX_PAGING_BLOCKS; i++)
+			if (guest->hyp_page_data[i])
+				free(guest->hyp_page_data[i]);
 
 	free_pgd(&guest->s2_tablepool, NULL);
 	free_pgd(&guest->el2_tablepool, host->EL2S1_pgd);

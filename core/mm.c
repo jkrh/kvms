@@ -11,6 +11,7 @@
 #include "armtrans.h"
 #include "guest.h"
 #include "heap.h"
+#include "host.h"
 
 #include "hvccall-defines.h"
 #include "hyp_config.h"
@@ -151,9 +152,9 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (res)
 		goto use_old;
 
-	if (guest->pd_index == (MAX_PAGING_BLOCKS - 1)) {
+	if (guest->pd_index >= (guest->pd_sz -1)) {
 		ERROR("out of paging blocks for guest %u\n", guest->vmid);
-		ret = -ENOENT;
+		ret = -ENOSPC;
 		goto out_unlock;
 	}
 
@@ -232,7 +233,7 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	}
 
 	if (res->prot != prot) {
-		ERROR("page permissions: 0xlx != 0xlx\n", res->prot, prot);
+		ERROR("page permissions: 0x%lx != 0x%lx\n", res->prot, prot);
 		ret = -EPERM;
 		goto out_unlock;
 	}
@@ -289,6 +290,7 @@ void set_guest_page_dirty(void *g, gfn_t gfn)
 
 int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 {
+	kvm_page_data *pd;
 	kvm_guest_t *guest = g;
 	uint8_t ciphertext[PAGE_SIZE];
 	uint8_t stream_block[16];
@@ -301,6 +303,15 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	/* If for any reason this hits our shares, exit */
 	if (is_share(g, ipa, PAGE_SIZE) == 1)
 		return res;
+
+	/* Verify it's not a double request */
+	pd = get_range_info(guest, addr);
+	if (pd && pd->nonce) {
+		ERROR("page 0x%lx already encrypted\n", ipa);
+		spin_unlock(&guest->page_data_lock);
+		return -EEXIST;
+	}
+	spin_unlock(&guest->page_data_lock);
 
 	/*
 	 * FIXME: we need to re-key every 2^32 swaps.

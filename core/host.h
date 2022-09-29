@@ -4,6 +4,10 @@
 #define __HOST_H__
 
 #include <stdint.h>
+#include "mm.h"
+
+#define HOST_DATAPOOL_SIZE (sizeof(kvm_page_data *) * MAX_PAGING_BLOCKS * MAX_GUESTS)
+#define HOST_DATAPOOL_ENTRIES (HOST_DATAPOOL_SIZE / sizeof(kvm_page_data *))
 
 /**
  * Swap a given page and store it's metadata in encrypted form
