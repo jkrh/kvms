@@ -5,13 +5,13 @@ export BASE_DIR := /hyp
 # ccflags-y := -I$(BASE_DIR)/buildtools/usr/include
 # make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64
 
-export OPTS := -g3 -Os --verbose
+export OPTS := -g3 -Os
 ccflags-y := -I$(src)/../../../common/arm64
 
 GUEST_KERNEL_DIR := $(BASE_DIR)/oss/linuxg
 
-obj-m := demo-g.o
-demo-g-y := demo-guest.o image.png.o
+obj-m := demo-g.o ../../../common/arm64/
+demo-g-y := demo-guest.o secret.png.o
 
 all:
 	make ARCH=arm64 CROSS_COMPILE=$(CROSS_COMPILE) -C $(GUEST_KERNEL_DIR) M=$(PWD) \
