@@ -619,13 +619,13 @@ int print_encryption_state(uint32_t vmid)
 					     guest->hyp_page_data[i]->sha256,
 					     32);
 				if (!res)
-					printf("OK\n");
+					printf("UNMODIFIED\n");
 				else
-					printf("FAIL\n");
+					printf("MODIFIED\n");
 			} else
 				printf("HASHERR\n");
 		} else
-			printf("SWAPPED\n");
+			printf("UNMAPPED\n");
 
 		z++;
 	}

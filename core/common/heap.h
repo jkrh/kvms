@@ -9,7 +9,7 @@
 
 #ifndef MALLOC_POOL_SIZE
 #define MALLOC_POOL_SIZE \
-        ROUND_UP((MAX_PAGING_BLOCKS * MAX_GUESTS * sizeof(kvm_page_data)), \
+        ROUND_UP((MAX_PAGING_BLOCKS * (MAX_GUESTS + 1) * sizeof(kvm_page_data)), \
         PAGE_SIZE)
 #endif
 

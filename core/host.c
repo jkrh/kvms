@@ -69,9 +69,9 @@ int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 		panic("no host\n");
 
 	pd = get_range_info(host, addr);
-	if (!pd) {
-		spin_unlock(&host->page_data_lock);
-		return 0;
+	if (!pd || !pd->nonce) {
+		ERROR("page 0x%lx is not encrypted\n", addr);
+		goto out_unlock;
 	}
 	prot = pd->prot;
 	spin_unlock(&host->page_data_lock);
@@ -82,5 +82,9 @@ int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 		      paddr, res);
 		memset((void *)paddr, 0, PAGE_SIZE);
 	}
+	return res;
+
+out_unlock:
+	spin_unlock(&host->page_data_lock);
 	return res;
 }
