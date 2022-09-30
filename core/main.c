@@ -129,7 +129,7 @@ int crypto_init(void)
 	memset(host->hyp_page_data, 0, HOST_DATAPOOL_SIZE);
 	if (!host->hyp_page_data)
 		panic("no memory for the page data pool\n");
-	host->pd_sz = HOST_DATAPOOL_SIZE;
+	host->pd_sz = HOST_DATAPOOL_ENTRIES;
 #endif
 	return 0;
 }
