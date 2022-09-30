@@ -33,12 +33,6 @@ hyp_entrypoint:
 1:	bl	main
 
 .data
-.global __fpsimd_guest_restore
-.align	8
-__fpsimd_guest_restore:
-	.quad   0x000000000000
-
-.data
 .global entrylock
 .align	8
 entrylock:
