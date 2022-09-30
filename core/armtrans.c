@@ -860,10 +860,35 @@ out_done:
 	return res;
 }
 
+int has_less_s2_perms(uint64_t nattr, uint64_t attr)
+{
+	uint64_t val;
+
+	/* Write permission */
+	if (nattr & S2AP_WRITE) {
+		if (!(attr & S2AP_WRITE))
+			return 0;
+	}
+
+	/* Exec permission */
+	val = (nattr & S2_XN_MASK);
+	if (val != S2_EXEC_NONE) {
+		if (val != (attr & S2_XN_MASK))
+			return 0;
+	}
+
+	nattr &= ~(S2AP_WRITE | S2_XN_MASK);
+	attr &= ~(S2AP_WRITE | S2_XN_MASK);
+	if (attr != nattr)
+		return 0;
+
+	return 1;
+}
+
 int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type)
 {
-	uint64_t attr, nattr, val, *pte, pgd_levels;
+	uint64_t attr, nattr, *pte, pgd_levels;
 	kvm_guest_t *host;
 
 	if (!guest || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR) ||
@@ -921,23 +946,9 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (nattr == attr)
 			return -EPERM;
 
-		/* Write permission */
-		if (nattr & S2AP_WRITE) {
-			if (!(attr & S2AP_WRITE))
-				return -EPERM;
-		}
-
-		/* Exec permission */
-		val = (nattr & S2_XN_MASK);
-		if (val != S2_EXEC_NONE) {
-			if (val != (attr & S2_XN_MASK))
-				return -EPERM;
-		}
-
-		nattr &= ~(S2AP_WRITE | S2_XN_MASK);
-		attr &= ~(S2AP_WRITE | S2_XN_MASK);
-		if (attr != nattr)
+		if (!has_less_s2_perms(nattr, attr))
 			return -EPERM;
+
 		break;
 	case EL2_STAGE1:
 		/*

@@ -135,6 +135,15 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		size_t length);
 
 /**
+ * Verify if pte 'newattr' is a subset of 'oldattr' in terms of permissions
+ *
+ * @param newattr
+ * @param oldattr
+ * @return one if it is, zero otherwise
+ */
+int has_less_s2_perms(uint64_t newattr, uint64_t oldattr);
+
+/**
  * Copy count bytes of memory from src to dest by using specified
  * address mappings.
  *
