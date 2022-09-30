@@ -41,7 +41,7 @@ typedef int kvm_func_t(uint64_t, ...);
 
 extern struct hyp_extension_ops eops;
 extern uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
-hyp_func_t *__fpsimd_guest_restore;
+extern hyp_func_t *__fpsimd_guest_restore;
 extern uint64_t hyp_text_start;
 extern uint64_t hyp_text_end;
 bool at_debugstop = false;
