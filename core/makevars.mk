@@ -32,6 +32,14 @@ MAX_PAGING_BLOCKS := 64000
 endif
 
 #
+# Define if hardware cryptographic extensions should be used for
+# the aes / sha computations.
+#
+ifeq ($(USE_HW_CRYPTO),1)
+else
+endif
+
+#
 # Add validate.c tests into the build. These symbols are for
 # hypervisor internal state validation and can be called via
 # the debugger.

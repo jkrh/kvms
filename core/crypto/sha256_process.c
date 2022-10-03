@@ -10,7 +10,7 @@ extern uint32_t simd_stored;
 void mbedtls_armv8ce_in_use(void)
 {
 	if (simd_stored == 0)
-		panic("Trying to use SIMD without saving them\n");
+		panic("Trying to use SIMD without context saving\n");
 }
 #endif
 

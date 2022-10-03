@@ -95,7 +95,6 @@ int crypto_init(void)
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 				    &mbedtls_entropy_ctx, 0, 0);
-	RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 	if (res != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_ctr_drbg_seed returned %d\n", res);
 
@@ -131,6 +130,8 @@ int crypto_init(void)
 		panic("no memory for the page data pool\n");
 	host->pd_sz = HOST_DATAPOOL_ENTRIES;
 #endif
+
+	RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 	return 0;
 }
 
