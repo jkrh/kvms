@@ -116,12 +116,14 @@ static int pd_compfunc(const void *v1, const void *v2)
 kvm_page_data *get_range_info(void *g, uint64_t addr)
 {
 	kvm_guest_t *guest = g;
-	kvm_page_data data, **res;
-	kvm_page_data *key;
+	const kvm_page_data data = { .phys_addr = addr };
+	const kvm_page_data *key = &data;
+	kvm_page_data **res;
+
+	if (!guest->vmid)
+		return NULL;
 
 	spin_lock(&guest->page_data_lock);
-	data.phys_addr = addr;
-	key = &data;
 	res = bsearch(&key, guest->hyp_page_data, guest->pd_index,
 		      sizeof(key), pd_compfunc);
 	if (!res)
@@ -221,6 +223,10 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	uint8_t sha256[32];
 	int ret;
 
+	if (!guest || (len % PAGE_SIZE)) {
+		ERROR("invalid arguments, guest 0x%lx len %lu\n", guest, len);
+		return -EINVAL;
+	}
 	res = get_range_info(guest, ipa);
 	if (!res) {
 		ret = -ENOENT;
@@ -296,8 +302,7 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	uint8_t nonce_counter[16];
 	uint32_t nonce;
 	size_t ns = 0;
-	int res = 0;
-
+	int res = 0, cid;
 
 	/* If for any reason this hits our shares, exit */
 	if (is_share(g, ipa, PAGE_SIZE) == 1)
@@ -326,6 +331,7 @@ retry:
 	memset(&nonce_counter, 0, 16);
 	memcpy(&nonce_counter[0], &nonce, 4);
 	memcpy(&nonce_counter[4], &ipa, 8);
+	cid = smp_processor_id();
 
 	/*
 	 * We attempt to verify the integrity and the confideality of the
@@ -333,7 +339,7 @@ retry:
 	 * hash over the ciphertext. This way the attacker does not get a
 	 * chance to play with our ciphertext.
 	 */
-	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx, PAGE_SIZE, &ns, nonce_counter,
+	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx[cid], PAGE_SIZE, &ns, nonce_counter,
 				    stream_block, (void *)addr, ciphertext);
 	if (res != MBEDTLS_EXIT_SUCCESS) {
 		mbedtls_strerror(res, (char *)ciphertext, 256);
@@ -361,7 +367,7 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	uint8_t cleartext[PAGE_SIZE];
 	kvm_page_data *pd;
 	size_t ns = 0;
-	int res = 0;
+	int res = 0, cid;
 
 	/* Verify the block integrity */
 	res = verify_range(g, ipa, addr, PAGE_SIZE, prot);
@@ -379,9 +385,10 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	memset(&nonce_counter, 0, 16);
 	memcpy(&nonce_counter[0], &pd->nonce, 4);
 	memcpy(&nonce_counter[4], &ipa, 8);
+	cid = smp_processor_id();
 
 	/* Decrypt it */
-	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx, PAGE_SIZE, &ns, nonce_counter,
+	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx[cid], PAGE_SIZE, &ns, nonce_counter,
 				    stream_block, (void *)addr, cleartext);
 	if (res != MBEDTLS_EXIT_SUCCESS) {
 		spin_unlock(&guest->page_data_lock);
