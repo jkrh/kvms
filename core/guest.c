@@ -806,17 +806,21 @@ int init_guest(void *kvm)
 	guest->pd_sz = sz / sizeof(kvm_page_data *);
 #endif
 
-	mbedtls_aes_init(&guest->aes_ctx);
+	mbedtls_aes_init(&guest->aes_ctx[0]);
 	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 				    &mbedtls_entropy_ctx, 0, 0);
 	CHECKRES(res);
 	res = mbedtls_ctr_drbg_random(&ctr_drbg, key, 32);
 	CHECKRES(res);
-	res = mbedtls_aes_setkey_enc(&guest->aes_ctx, key, 256);
+	res = mbedtls_aes_setkey_enc(&guest->aes_ctx[0], key, 256);
 	CHECKRES(res);
-	res = mbedtls_aes_setkey_dec(&guest->aes_ctx, key, 256);
+	res = mbedtls_aes_setkey_dec(&guest->aes_ctx[0], key, 256);
 	CHECKRES(res);
 	memset(key, 0, 32);
+
+	for (int i = 1; i < PLATFORM_CORE_COUNT; i++)
+		memcpy(&guest->aes_ctx[i], &guest->aes_ctx[0],
+		       sizeof(mbedtls_aes_context));
 
 	/*
 	 * The address field (pgd ptr) set below is merely an indication to EL1

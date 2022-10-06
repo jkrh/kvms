@@ -6,7 +6,9 @@
 
 typedef uint64_t u_register_t;
 
+#ifndef CHAR_BIT
 #define CHAR_BIT 8
+#endif
 #define UNDEFINED 0x00000000
 #define PAGE_SIZE 0x1000UL
 #define PAGE_SHIFT 12

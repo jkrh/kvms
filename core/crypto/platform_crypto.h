@@ -11,7 +11,7 @@ typedef struct {
 extern void store_simd(simd_t *store);
 extern void restore_simd(simd_t *store);
 
-#ifdef MBEDTLS_SHA256_PROCESS_ALT
+#ifdef USE_HW_CRYPTO
 #define RESERVE_PLATFORM_CRYPTO(p) store_simd(p)
 #define RESTORE_PLATFORM_CRYPTO(p) restore_simd(p)
 #else

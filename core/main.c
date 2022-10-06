@@ -95,7 +95,6 @@ int crypto_init(void)
 	mbedtls_ctr_drbg_init(&ctr_drbg);
 	res = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func,
 				    &mbedtls_entropy_ctx, 0, 0);
-	RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 	if (res != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_ctr_drbg_seed returned %d\n", res);
 
@@ -106,16 +105,16 @@ int crypto_init(void)
 	if (!host)
 		panic("no host?\n");
 
-	mbedtls_aes_init(&host->aes_ctx);
+	mbedtls_aes_init(&host->aes_ctx[0]);
 	res = mbedtls_ctr_drbg_random(&ctr_drbg, key, 32);
 	if (res != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_ctr_drbg_random returned %d\n", res);
 
-	res = mbedtls_aes_setkey_enc(&host->aes_ctx, key, 256);
+	res = mbedtls_aes_setkey_enc(&host->aes_ctx[0], key, 256);
 	if (res != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_aes_setkey_enc returned %d\n", res);
 
-	res = mbedtls_aes_setkey_dec(&host->aes_ctx, key, 256);
+	res = mbedtls_aes_setkey_dec(&host->aes_ctx[0], key, 256);
 	if (res != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_aes_setkey_dec returned %d\n", res);
 
@@ -131,6 +130,8 @@ int crypto_init(void)
 		panic("no memory for the page data pool\n");
 	host->pd_sz = HOST_DATAPOOL_ENTRIES;
 #endif
+
+	RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 	return 0;
 }
 
@@ -208,10 +209,10 @@ int main(int argc UNUSED, char **argv UNUSED)
 		log_init();
 		init_guest_array();
 		if (HOST_VMID == 0)
-			panic("");
+			panic("invalid configuration\n");
 		host = get_free_guest(HOST_VMID);
 		if (!host)
-			panic("");
+			panic("no host\n");
 		tdinfo_init();
 		table_init();
 		res = machine_init(host);
@@ -240,7 +241,14 @@ int main(int argc UNUSED, char **argv UNUSED)
 
 		if (crypto_init() != 0)
 			panic("crypto init failed\n");
+	} else {
+		host = get_guest(HOST_VMID);
+		if (!host)
+			panic("no host\n");
+		memcpy(&host->aes_ctx[init_index], &host->aes_ctx[0],
+		       sizeof(mbedtls_aes_context));
 	}
+
 	gettimeofday(&tv2, NULL);
 	LOG("HYP: core %ld initialization latency was %ldms\n",
 	     init_index, (tv2.tv_usec - tv1.tv_usec) / 1000);

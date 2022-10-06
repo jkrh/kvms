@@ -125,7 +125,7 @@ struct kvm_guest {
 	uint16_t index;
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
 	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
-	mbedtls_aes_context aes_ctx;
+	mbedtls_aes_context aes_ctx[PLATFORM_CORE_COUNT];
 	struct patrack_s patrack;
 	bool s2_host_access;
 	struct vcpu_context vcpu_ctxt[NUM_VCPUS];
