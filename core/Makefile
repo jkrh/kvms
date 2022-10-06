@@ -5,7 +5,7 @@ C_SOURCES := armtrans.c main.c hvccall.c \
 	smccall.c guest.c psci.c mm.c \
 	mtree.c kjump.c host.c \
 	tables.c gic.c patrack.c \
-	oplocks.c
+	oplocks.c rwlock.c
 
 ifdef TESTS
 C_SOURCES += validate.c
