@@ -114,7 +114,7 @@ struct kvm_guest {
 	struct tablepool s2_tablepool;
 	void *kvm;	/* struct kvm */
 	kvm_memslots slots[KVM_MEM_SLOTS_NUM];
-	spinlock_t page_data_lock;
+	rwlock_t page_data_lock;
 	kvm_page_data **hyp_page_data;
 	size_t pd_sz;
 	size_t pd_index;

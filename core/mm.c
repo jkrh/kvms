@@ -123,9 +123,11 @@ kvm_page_data *get_range_info(void *g, uint64_t addr)
 	if (!guest->vmid)
 		return NULL;
 
-	spin_lock(&guest->page_data_lock);
+	spin_read_lock(&guest->page_data_lock);
 	res = bsearch(&key, guest->hyp_page_data, guest->pd_index,
 		      sizeof(key), pd_compfunc);
+	spin_read_unlock(&guest->page_data_lock);
+
 	if (!res)
 		return NULL;
 
@@ -135,6 +137,7 @@ kvm_page_data *get_range_info(void *g, uint64_t addr)
 int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		   uint32_t nonce, uint64_t prot)
 {
+	static uint64_t prev_addr[PLATFORM_CORE_COUNT];
 	kvm_guest_t *guest = g;
 	kvm_page_data *res;
 	bool s = false;
@@ -145,19 +148,39 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		return -EINVAL;
 	}
 
+	/*
+	 * The Basics:
+	 * - The list elements do not get destroyed until the whole VM is
+	 *   gone. At that point this VM should not be trapping anymore.
+	 *   This gives us few things:
+	 *   1) It minimizes the sorting while the VM is active, and
+	 *   2) There is no need to refcount each entry. The element, if
+	 *      found, will not run away from under us.
+	 *
+	 * The corner cases to consider are:
+	 * - Two+ VCPUs faulting on the existing page at the same time.
+	 *   Each entry has a write lock protecting against this.
+	 * - Two+ VCPUs attempting add a same new page at the same time.
+	 *   That static prev_addr thing is to guard against that, it
+	 *   should catch these cases?
+	 */
+
 	/* If for any reason this hits our shares, exit */
 	if (is_share(g, ipa, PAGE_SIZE) == 1)
 		return 0;
 
 	/* Note: we grab the page data lock from here already */
 	res = get_range_info(guest, ipa);
-	if (res)
+	if (res) {
+		/* In case two VCPUs fault on the same entry */
+		spin_write_lock(&res->el);
 		goto use_old;
+	}
 
 	if (guest->pd_index >= (guest->pd_sz -1)) {
 		ERROR("out of paging blocks for guest %u\n", guest->vmid);
 		ret = -ENOSPC;
-		goto out_unlock;
+		goto out;
 	}
 
 	s = true;
@@ -165,7 +188,7 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (!res) {
 		ERROR("out of allocatable memory, guest %u\n", guest->vmid);
 		ret = -ENOMEM;
-		goto out_unlock;
+		goto out;
 	}
 	memset(res, 0, sizeof(kvm_page_data));
 
@@ -183,13 +206,25 @@ use_old:
 	if (ret)
 		panic("guest data measurement error %d\n", ret);
 	if (s) {
+		spin_write_lock(&guest->page_data_lock);
+		for (int i = 0; i < PLATFORM_CORE_COUNT; i++)
+			if (prev_addr[i] == ipa) {
+				/* Double fault. Need to undo everything */
+				memset(res, 0, sizeof(kvm_page_data));
+				free(res);
+				spin_write_unlock(&guest->page_data_lock);
+				return 0;
+			}
+
 		guest->hyp_page_data[guest->pd_index++] = res;
 		qsort(guest->hyp_page_data, guest->pd_index, sizeof(res),
 		      pd_compfunc);
-	}
+		prev_addr[smp_processor_id()] = ipa;
+		spin_write_unlock(&guest->page_data_lock);
+	} else
+		spin_write_unlock(&res->el);
 
-out_unlock:
-	spin_unlock(&guest->page_data_lock);
+out:
 	dsb();
 	isb();
 
@@ -203,16 +238,15 @@ void free_range_info(void *g, uint64_t ipa)
 
 	res = get_range_info(guest, ipa);
 	if (!res)
-		goto out_unlock;
+		return;
 
+	spin_write_lock(&res->el);
 	res->vmid = INVALID_VMID;
 	res->nonce = 0;
 	memset(res->sha256, 0, 32);
 	dsb();
 	isb();
-
-out_unlock:
-	spin_unlock(&guest->page_data_lock);
+	spin_write_unlock(&res->el);
 }
 
 int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
@@ -225,22 +259,23 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 
 	if (!guest || (len % PAGE_SIZE)) {
 		ERROR("invalid arguments, guest 0x%lx len %lu\n", guest, len);
-		return -EINVAL;
+		ret= -EINVAL;
+		goto out;
 	}
 	res = get_range_info(guest, ipa);
 	if (!res) {
 		ret = -ENOENT;
-		goto out_unlock;
+		goto out;
 	}
 	if (res->vmid != guest->vmid) {
 		ERROR("page owner fault: %u != %u\n", res->vmid, guest->vmid);
 		ret = -EFAULT;
-		goto out_unlock;
+		goto out;
 	}
 	if ((prot != res->prot) && (!has_less_s2_perms(prot, res->prot))) {
 		ERROR("page permissions: 0x%lx != 0x%lx\n", res->prot, prot);
 		ret = -EPERM;
-		goto out_unlock;
+		goto out;
 	}
 
 	ret = calc_hash(sha256, (void *)addr, len);
@@ -254,8 +289,7 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		ret = -EPERM;
 	}
 
-out_unlock:
-	spin_unlock(&guest->page_data_lock);
+out:
 	return ret;
 }
 
@@ -312,10 +346,9 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	pd = get_range_info(guest, addr);
 	if (pd && pd->nonce) {
 		ERROR("page 0x%lx already encrypted\n", ipa);
-		spin_unlock(&guest->page_data_lock);
-		return -EEXIST;
+		res = -EEXIST;
+		goto out_error;
 	}
-	spin_unlock(&guest->page_data_lock);
 
 	/*
 	 * FIXME: we need to re-key every 2^32 swaps.
@@ -323,7 +356,7 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 retry:
 	res = platform_entropy((uint8_t *)&nonce, 4);
 	if (res)
-		return res;
+		goto out_error;
 	if (!nonce) {
 		ERROR("received zero entropy, retrying\n");
 		goto retry;
@@ -344,7 +377,7 @@ retry:
 	if (res != MBEDTLS_EXIT_SUCCESS) {
 		mbedtls_strerror(res, (char *)ciphertext, 256);
 		ERROR("fault encrypting data: %d / %s\n", res, ciphertext);
-		res =-EFAULT;
+		res = -EFAULT;
 		goto out_error;
 	}
 	memcpy((void *)addr, ciphertext, PAGE_SIZE);
@@ -378,10 +411,9 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 
 	/* Check if it was ciphertext we verified */
 	pd = get_range_info(guest, ipa);
-	if (!pd || !pd->nonce) {
-		spin_unlock(&guest->page_data_lock);
+	if (!pd || !pd->nonce)
 		return 0;
-	}
+
 	memset(&nonce_counter, 0, 16);
 	memcpy(&nonce_counter[0], &pd->nonce, 4);
 	memcpy(&nonce_counter[4], &ipa, 8);
@@ -391,13 +423,11 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	res = mbedtls_aes_crypt_ctr(&guest->aes_ctx[cid], PAGE_SIZE, &ns, nonce_counter,
 				    stream_block, (void *)addr, cleartext);
 	if (res != MBEDTLS_EXIT_SUCCESS) {
-		spin_unlock(&guest->page_data_lock);
 		mbedtls_strerror(res, (char *)cleartext, 256);
 		ERROR("fault decrypting data: %d / %s\n", res, cleartext);
 		res = -EFAULT;
 		goto out_error;
 	}
-	spin_unlock(&guest->page_data_lock);
 	memcpy((void *)addr, cleartext, PAGE_SIZE);
 
 out_error:
