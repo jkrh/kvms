@@ -41,8 +41,6 @@ extern uint64_t __fdt_addr;
 extern uint64_t __lr_addr;
 
 uint64_t __ret_addr;
-uint64_t __stack_chk_guard;
-
 static uint8_t *__my_sp;
 
 int mbed_entropy(void *data, unsigned char *entropy, size_t len,
@@ -175,16 +173,6 @@ void hyp_warm_entry(uint64_t core_index)
 
 	core_index = smp_processor_id();
 	enter_el1_warm(host->cpu_map[core_index]);
-}
-
-void __stack_chk_guard_setup(void)
-{
-	__stack_chk_guard = 0xBADC0DE;
-}
-
-void __stack_chk_fail(void)
-{
-	panic("stack check failed\n");
 }
 
 int main(int argc UNUSED, char **argv UNUSED)

@@ -18,6 +18,8 @@ export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(CORE_DIR)/common -I$(BA
 		-I$(BASE_DIR)/platform/$(PLATFORM)/$(CHIPSET)/$(PRODUCT) \
 		-I$(BASE_DIR)/stdlib/sys \
 		-I$(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)
+export SANITIZER_OPTS := -fsanitize=return -fsanitize=signed-integer-overflow -fsanitize=bounds \
+		-fsanitize=pointer-overflow -fsanitize-address-use-after-scope
 
 ifeq ($(USE_HW_CRYPTO),1)
 export CFLAGS := -march=armv8-a+crypto -DUSE_HW_CRYPTO=1
@@ -25,10 +27,11 @@ else
 export CFLAGS := -march=armv8-a+nosimd -mgeneral-regs-only
 endif
 
-export CFLAGS += --sysroot=$(TOOLDIR) --no-sysroot-suffix \
-	-fstack-protector-strong -mstrict-align -static -ffreestanding \
-	-fno-hosted -std=c99  -mno-omit-leaf-frame-pointer -fno-data-sections \
-	$(DEFINES) $(OPTS) $(INCLUDES) $(WARNINGS)
+export CFLAGS += \
+	--sysroot=$(TOOLDIR) --no-sysroot-suffix -fstack-protector-strong -mstrict-align \
+	-static -ffreestanding -fno-hosted -std=c99 -fno-omit-frame-pointer -fno-data-sections \
+	$(DEFINES) $(OPTS) $(INCLUDES) $(WARNINGS) $(SANITIZER_OPTS)
+
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
 export LDFLAGS := -nostdlib -O1 --gc-sections --build-id=none \
 		-L$(BASE_DIR)/mbedtls/library \
