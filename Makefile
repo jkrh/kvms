@@ -10,6 +10,9 @@ endif
 include core/tools.mk
 include core/makevars.mk
 include core/makeflags.mk
+KEYS_PATH := $(BASE_DIR)/guest/keys
+ID_LOADER_PATH := $(BASE_DIR)/guest/ic_loader
+GUEST_ID := ""
 
 $(info KERNEL_DIR:	$(KERNEL_DIR))
 $(info PLATFORM:	$(PLATFORM))
@@ -21,7 +24,7 @@ check:
 	@[ "${PLATFORM}" ] && echo -n "" || ( echo "PLATFORM is not set"; exit 1 )
 	@[ "${PLATFORM}" = "virt" ] || [ "${CHIPSET}" ] && echo -n "" || ( echo "CHIPSET is not set"; exit 1 )
 
-dirs: $(SUBDIRS) | $(OBJDIR)
+dirs: $(SUBDIRS) | $(OBJDIR) gen_key
 	@./scripts/gen-symhdr.sh
 	$(MAKE) -Ccore/crypto patch_mbedtls
 	$(MAKE) $(MBEDFLAGS) -Cmbedtls/library static
@@ -74,10 +77,22 @@ module-test:
 target-qemu:
 	./scripts/build-target-qemu.sh
 
+sign_guest: gen_key ic_loader
+	@[ "${IMAGE}" ] && echo -n "" || ( echo "IMAGE is not set"; exit 1 )
+	$(BASE_DIR)/scripts/sign_guest_kernel.sh -p $(KEYS_PATH)/guest_image_priv.pem \
+	-k $(IMAGE) -l $(ID_LOADER_PATH)/ic_loader -o $(IMAGE).sign -i $(GUEST_ID)
+
+gen_key:
+	$(MAKE) -C $(KEYS_PATH)
+
+ic_loader:
+	$(MAKE) -C $(ID_LOADER_PATH) ic_loader
+
 package:
 	$(MAKE) -C platform/$(PLATFORM)/tools/sign
 
 coverity:
 	./scripts/run-coverity.sh
 
-.PHONY: all check submodule-update tools tools-clean clean gdb qemu package run docs docs-clean coverity $(SUBDIRS)
+.PHONY: all check submodule-update tools tools-clean clean gdb qemu package run docs docs-clean coverity \
+ 		gen_key sign_guest ic_loader $(SUBDIRS)

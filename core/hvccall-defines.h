@@ -88,8 +88,6 @@ struct hyp_extension_ops {
 #define HYP_RESUME_GUEST		0x9015
 #define HYP_GUEST_CACHE_OP		0x9020
 #define HYP_REGION_PROTECT		0x9021
-#define HYP_LAST_GUESTCALL		HYP_REGION_PROTECT
-
 /*
  * Optional - for debug only.
  */
@@ -105,7 +103,9 @@ struct hyp_extension_ops {
 #define HYP_SAVE_KEYS			0xB003
 #define HYP_LOAD_KEYS			0xB004
 #define HYP_DEFINE_GUEST_ID		0xB005
-
+#define HYP_GUEST_INIT_IMAGE_CHECK	0xB006
+#define HYP_GUEST_DO_IMAGE_CHECK	0xB007
+#define HYP_LAST_GUESTCALL		HYP_GUEST_DO_IMAGE_CHECK
 #define STR(x) #x
 #define XSTR(s) STR(s)
 

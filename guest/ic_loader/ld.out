@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+ENTRY(_start)
+MEMORY
+{
+	/* loader image + stack must fit on one page */
+	mem : ORIGIN = 0, LENGTH = 4096
+}
+
+SECTIONS
+{
+	. = 0x000000000;
+	.start . : { start.o(.text) } > mem
+	.text : ALIGN(8) { *(.text) } > mem
+	.padding ALIGN(8) : {} > mem
+	.signature (NOLOAD) : {} > mem
+	.data (NOLOAD) : {} > mem
+	.bss (NOLOAD) : ALIGN(16) { *(.bss COMMON) } > mem
+	.stack (NOLOAD) : ALIGN(256) {} > mem
+	.stack_top = .;
+}

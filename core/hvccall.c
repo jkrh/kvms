@@ -116,8 +116,16 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		break;
 	case HYP_DEFINE_GUEST_ID:
 		guest = get_guest(a1);
-		res = set_guest_own_id(guest, virt_to_phys((void *) a2),
+		res = set_guest_id(guest, virt_to_phys((void *) a2),
 				      (size_t) a3);
+		break;
+	case HYP_GUEST_INIT_IMAGE_CHECK:
+		image_check_init(guest, a1, (size_t) a2);
+		res = 0;
+		break;
+
+	case HYP_GUEST_DO_IMAGE_CHECK:
+		res = check_guest_image(guest, a1);
 		break;
 #ifdef DEBUG
 	case HYP_TRANSLATE:
@@ -413,10 +421,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		break;
 	case HYP_SYNC_GPREGS:
 		res = hyp_sync_gpregs(a1, a2);
-		break;
-	case HYP_DEFINE_GUEST_ID:
-		guest = get_guest(a1);
-		res = set_guest_id(guest, virt_to_phys((void *)a2), (size_t)a3);
 		break;
 	case HYP_SAVE_KEYS:
 		guest = get_guest(a1);

@@ -265,7 +265,8 @@ int generate_key(kvm_guest_t *guest, uint8_t *key, size_t  *bufsize,
 
 	if (!is_valid_paddr(key) ||
 	    !is_valid_paddr(bufsize) ||
-	    !is_valid_paddr(name))
+	    !is_valid_paddr(name) ||
+	    !kernel_integrity_ok(guest))
 		goto err_handler;
 
 	if (*bufsize < key_size(type)) {
@@ -303,7 +304,8 @@ int get_key(const kvm_guest_t *guest, void *key, size_t *bufsize,
 
 	if (!is_valid_paddr(key) ||
 	    !is_valid_paddr(bufsize) ||
-	    !is_valid_paddr(name))
+	    !is_valid_paddr(name) ||
+	    !kernel_integrity_ok(guest))
 		return -EINVAL;
 
 	p = search_key_by_name(guest->keybuf, type, name);
@@ -320,32 +322,21 @@ int get_key(const kvm_guest_t *guest, void *key, size_t *bufsize,
 
 int delete_key(kvm_guest_t *guest, key_type_t type, const char *name)
 {
-	if (!is_valid_paddr(name))
+	if (!is_valid_paddr(name) ||
+	    !kernel_integrity_ok(guest))
 		return -EINVAL;
 	return __delete_key((keybuf_t **)&guest->keybuf, type, name);
 }
-/* Set guest owned part of guest id*/
-int set_guest_own_id(kvm_guest_t *guest, const uint8_t *id, size_t idlen)
-{
-	if (!is_valid_paddr(id))
-		return -EINVAL;
-
-	if (idlen >  16)
-		idlen = 16;
-	memset(guest->unique_id + 16, 0, 16);
-	memcpy(guest->unique_id + 16, id, idlen);
-	return 0;
-}
-/* Set host part of guest id*/
+/* Set guest id*/
 int set_guest_id(kvm_guest_t *guest, const uint8_t *id, size_t idlen)
 {
-	if (!is_valid_paddr(id))
+	if (!is_valid_paddr(id) ||
+	    !kernel_integrity_ok(guest))
 		return -EINVAL;
-	if (idlen >  16)
-		idlen = 16;
 
-	memset(guest->unique_id, 0, 16);
-	memcpy(guest->unique_id, id, idlen);
+	if (idlen > GUEST_ID_LEN)
+		idlen = GUEST_ID_LEN;
+	memcpy(guest->guest_id, id, idlen);
 	return 0;
 }
 
@@ -359,11 +350,12 @@ int save_vm_key(const kvm_guest_t *guest, uint8_t *ctext, size_t *bufsize)
 	keys_header_t *keys_header;
 	int ret = 0;
 	int err = -EINVAL;
-	keys_header = (keys_header_t *)ctext
-			;
+	keys_header = (keys_header_t *)ctext;
+
 	if (!is_valid_paddr(ctext) ||
-	    !is_valid_paddr(bufsize))
-		goto err_handler;
+	    !is_valid_paddr(bufsize) ||
+	    !kernel_integrity_ok(guest))
+		return -EINVAL;
 
 	if (!keys_header || *bufsize < sizeof(keys_header_t)) {
 		goto err_handler;
@@ -392,8 +384,8 @@ int save_vm_key(const kvm_guest_t *guest, uint8_t *ctext, size_t *bufsize)
 	ret = mbedtls_sha256_starts_ret(&ctx, 0);
 	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	ret = mbedtls_sha256_update_ret(&ctx,
-					guest->unique_id,
-					GUEST_UNIQUE_ID_LEN);
+					guest->guest_id,
+					GUEST_ID_LEN);
 	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	/* FIXME: Key generation is bad, please fix it
 	 */
@@ -430,7 +422,8 @@ int load_vm_key(kvm_guest_t *guest, const uint8_t *ctext, size_t ctext_len)
 	int ret;
 	int err = -EINVAL;
 
-	if (!is_valid_paddr(ctext))
+	if (!is_valid_paddr(ctext) ||
+	    !kernel_integrity_ok(guest))
 		goto err_handler;
 
 	key_hdr = (keys_header_t *)ctext;
@@ -444,8 +437,8 @@ int load_vm_key(kvm_guest_t *guest, const uint8_t *ctext, size_t ctext_len)
 	ret = mbedtls_sha256_starts_ret(&ctx, 0);
 	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	ret = mbedtls_sha256_update_ret(&ctx,
-					guest->unique_id,
-					GUEST_UNIQUE_ID_LEN);
+					guest->guest_id,
+					GUEST_ID_LEN);
 	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	/* FIXME: Key generation is bad, please fix it
 	 */

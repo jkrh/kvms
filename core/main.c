@@ -28,7 +28,7 @@
 
 struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
-uint8_t crypto_buf[PAGE_SIZE*2];
+uint8_t crypto_buf[PAGE_SIZE*4];
 
 struct timeval tv1 ALIGN(16);
 struct timeval tv2 ALIGN(16);

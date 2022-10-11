@@ -17,8 +17,8 @@ export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(CORE_DIR)/common -I$(BA
 		-I$(BASE_DIR)/platform/$(PLATFORM)/$(CHIPSET) \
 		-I$(BASE_DIR)/platform/$(PLATFORM)/$(CHIPSET)/$(PRODUCT) \
 		-I$(BASE_DIR)/stdlib/sys \
-		-I$(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)
-
+		-I$(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT) \
+		-I$(BASE_DIR)/guest/keys
 #
 # Due to size constraints on some platforms
 #
