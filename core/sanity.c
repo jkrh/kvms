@@ -42,3 +42,8 @@ void __ubsan_handle_pointer_overflow(void)
 {
 	panic("pointer overflow\n");
 }
+
+void __ubsan_handle_type_mismatch_v1(void)
+{
+	panic("type mismatch\n");
+}
