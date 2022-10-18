@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 
 # Script used to compare kernel version and patch used in previous CI build.
 # If a new kernel version or patch is used in CI build, scripts/update_kernel_to_ubuntu_VMs.sh will be executed.

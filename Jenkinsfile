@@ -2,7 +2,7 @@ pipeline {
     agent none
     environment {
         // Kernel version for Ubuntu VMs
-        KERNEL_VERSION='5.10.108'
+        KERNEL_VERSION='5.10.130'
         // Path to Ubuntu host VM image
         IMAGE_FILE='/img/ubuntu20-host.qcow2'
         // Location of guest patch file in kvms project
