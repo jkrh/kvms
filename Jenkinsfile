@@ -74,11 +74,11 @@ pipeline {
                 sh 'cat host_ips.sh'
                 sh '''
                     source host_ips.sh
-                    echo \$HOST_IP
-                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "sudo systemctl stop unattended-upgrades"
-                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "sudo rm -rf /var/lib/apport/coredump/*"
-                    sshpass -p ubuntu scp -P 10022 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no linux-$KERNEL_VERSION/arch/arm64/boot/Image ubuntu@172.17.0.2:~/vm/ubuntu20
-                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "cd vm/ubuntu20 && ulimit -c unlimited && sudo ./run-qemu6-linux.sh > guest.log" &
+                    echo $HOST_IP
+                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 "sudo systemctl stop unattended-upgrades"
+                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 "sudo rm -rf /var/lib/apport/coredump/*"
+                    sshpass -p ubuntu scp -P 10022 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no linux-$KERNEL_VERSION/arch/arm64/boot/Image ubuntu@$HOST_IP:~/vm/ubuntu20
+                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 "cd vm/ubuntu20 && ulimit -c unlimited && sudo ./run-qemu6-linux.sh > guest.log" &
                     echo $?
                 '''
 
@@ -88,7 +88,7 @@ pipeline {
                     echo "giving a lot of time for guest VM to start"
                     sleep 480
                     sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "cat vm/ubuntu20/guest.log"
-                    timeout 240s grep -q "Network is Online" <(sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "tail -f vm/ubuntu20/guest.log") || true
+                    timeout 240s grep -q "Network is Online" <(sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 "tail -f vm/ubuntu20/guest.log") || true
                     sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "cat vm/ubuntu20/guest.log" >>/hyp/guest_nw.log
                     sleep 60
                 '''
