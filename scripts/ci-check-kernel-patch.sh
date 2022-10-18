@@ -30,6 +30,10 @@ usage() {
 }
 
 update_kernel() {
+  # always remove the source directories used to patch, build and update previous kernel versions first
+  # directories are created by running the update_kernel_to_ubuntu_VMs.sh script with the superuser privileges
+  sudo rm -rf linux-${KERNEL_VERSION} # previously patched kernel modules will not be re-used when only patch has changes
+  sudo rm -rf linux-${PRE_KERNEL_VERSION}
   sudo modprobe nbd max_part=8
   sudo scripts/update_kernel_to_ubuntu_VMs.sh -i $IMAGE_FILE -k $KERNEL_VERSION -p $PATCH_FILE
   RV=$?
@@ -40,9 +44,6 @@ update_kernel() {
     rm -f $PRE_PATCH_FILE
     cp $PATCH_FILE $PRE_PATCH_DIR/.
     echo PRE_PATCH_FILE=$PRE_PATCH_DIR/$(basename $PATCH_FILE) >> $PRE_PATCH_DIR/$PRE_PATCH_INFO
-    if [ "$KERNEL_VERSION" != "$PRE_KERNEL_VERSION" ]; then
-      rm -rf linux-${PRE_KERNEL_VERSION}
-    fi
   fi
   return $RV
 }
