@@ -1,10 +1,11 @@
 #!/bin/bash
 set -x
 
-# Script used to compare kernel version and patch used in previous CI build.
+# Script used to compare kernel version and patch to ones used in previous CI build
+#
 # If a new kernel version or patch is used in CI build, scripts/update_kernel_to_ubuntu_VMs.sh will be executed.
-# The script will also remove the previous directory where kernel was updated (linux-<kernel version>) from workspace,
-# if a new kernel version is used in the current CI build.
+# A previous directory where kernel was updated (linux-<kernel version>) will also be removed from workspace,
+# if a new kernel version was used in the build.
 
 # Variables
 
@@ -37,7 +38,7 @@ update_kernel() {
   sudo modprobe nbd max_part=8
   sudo scripts/update_kernel_to_ubuntu_VMs.sh -i $IMAGE_FILE -k $KERNEL_VERSION -p $PATCH_FILE
   RV=$?
-  # storing kernel version / patch information for next build
+  # storing kernel version, patch and info file for next build
   if [ "$RV" -eq 0 ]; then
     mkdir -p $PRE_PATCH_DIR
     echo PRE_KERNEL_VERSION=$KERNEL_VERSION > $PRE_PATCH_DIR/$PRE_PATCH_INFO
@@ -84,7 +85,10 @@ if [ ! -f "$PRE_PATCH_DIR/$PRE_PATCH_INFO" ]; then
   exit $?
 fi
 
-. $PRE_PATCH_DIR/$PRE_PATCH_INFO
+# assigning:
+# PRE_KERNEL_VERSION -- kernel version of previous build
+# PRE_PATCH_FILE     -- path to kernel patch stored in previous build
+source $PRE_PATCH_DIR/$PRE_PATCH_INFO
 
 if [ "$KERNEL_VERSION" != "$PRE_KERNEL_VERSION" ]; then
   echo "New kernel version: $KERNEL_VERSION used. Patching kernel.."
