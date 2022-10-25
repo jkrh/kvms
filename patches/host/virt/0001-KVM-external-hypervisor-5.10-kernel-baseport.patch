@@ -1,4 +1,4 @@
-From 6e20a8d9ac6ac76175dd4ad7a1331c7113074884 Mon Sep 17 00:00:00 2001
+From c76bc60a8821637aecd6621deb4ea23721ad59e2 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Fri, 15 Jul 2022 11:06:11 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -28,10 +28,9 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/hyp/nvhe/tlb.c        |  17 +-
  arch/arm64/kvm/hyp/pgtable.c         |  24 +-
  arch/arm64/kvm/hyp/vgic-v3-sr.c      |   6 +
- arch/arm64/kvm/mmu.c                 | 184 ++++++-----
+ arch/arm64/kvm/mmu.c                 | 185 +++++++-----
  arch/arm64/kvm/reset.c               |   8 +-
- virt/kvm/kvm_main.c                  |   2 +-
- 24 files changed, 947 insertions(+), 175 deletions(-)
+ 23 files changed, 945 insertions(+), 176 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -1341,7 +1340,7 @@ index 000000000000..4339c8f6fcb6
 +	hvc	#0
 +	ret
 diff --git a/arch/arm64/kvm/hyp/nvhe/switch.c b/arch/arm64/kvm/hyp/nvhe/switch.c
-index 6624596846d3..3db3da761c21 100644
+index 2401164c5f86..1b786f7255ad 100644
 --- a/arch/arm64/kvm/hyp/nvhe/switch.c
 +++ b/arch/arm64/kvm/hyp/nvhe/switch.c
 @@ -47,7 +47,6 @@ static void __activate_traps(struct kvm_vcpu *vcpu)
@@ -1578,7 +1577,7 @@ index 452f4cacd674..7afa96f528c3 100644
  	case 7:
  		__vgic_v3_write_ap0rn(cpu_if->vgic_ap0r[3], 3);
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 26068456ec0f..55d354e2dcd4 100644
+index 26068456ec0f..eec55353406b 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
 @@ -31,6 +31,10 @@ static phys_addr_t hyp_idmap_vector;
@@ -1875,7 +1874,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  {
  	struct kvm_memslots *slots;
  	struct kvm_memory_slot *memslot;
-@@ -1095,17 +1117,14 @@ static int handle_hva_to_gpa(struct kvm *kvm,
+@@ -1095,25 +1117,20 @@ static int handle_hva_to_gpa(struct kvm *kvm,
  
  static int kvm_unmap_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
  {
@@ -1891,11 +1890,10 @@ index 26068456ec0f..55d354e2dcd4 100644
  			unsigned long start, unsigned long end, unsigned flags)
  {
 -	if (!kvm->arch.mmu.pgt)
-+	if (!kvm->arch.mmu.pgd_phys)
- 		return 0;
- 
+-		return 0;
+-
  	trace_kvm_unmap_hva_range(start, end);
-@@ -1113,7 +1132,8 @@ int kvm_unmap_hva_range(struct kvm *kvm,
+ 	handle_hva_to_gpa(kvm, start, end, &kvm_unmap_hva_handler, &flags);
  	return 0;
  }
  
@@ -1905,7 +1903,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  {
  	kvm_pfn_t *pfn = (kvm_pfn_t *)data;
  
-@@ -1127,6 +1147,7 @@ static int kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data
+@@ -1127,6 +1144,7 @@ static int kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data
  	 */
  	kvm_pgtable_stage2_map(kvm->arch.mmu.pgt, gpa, PAGE_SIZE,
  			       __pfn_to_phys(*pfn), KVM_PGTABLE_PROT_R, NULL);
@@ -1913,7 +1911,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  	return 0;
  }
  
-@@ -1135,9 +1156,6 @@ int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
+@@ -1135,9 +1153,6 @@ int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
  	unsigned long end = hva + PAGE_SIZE;
  	kvm_pfn_t pfn = pte_pfn(pte);
  
@@ -1923,7 +1921,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  	trace_kvm_set_spte_hva(hva);
  
  	/*
-@@ -1149,7 +1167,8 @@ int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
+@@ -1149,7 +1164,8 @@ int kvm_set_spte_hva(struct kvm *kvm, unsigned long hva, pte_t pte)
  	return 0;
  }
  
@@ -1933,7 +1931,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  {
  	pte_t pte;
  	kvm_pte_t kpte;
-@@ -1160,24 +1179,23 @@ static int kvm_age_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
+@@ -1160,24 +1176,23 @@ static int kvm_age_hva_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
  	return pte_valid(pte) && pte_young(pte);
  }
  
@@ -1962,7 +1960,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  	trace_kvm_test_age_hva(hva);
  	return handle_hva_to_gpa(kvm, hva, hva + PAGE_SIZE,
  				 kvm_test_age_hva_handler, NULL);
-@@ -1197,7 +1215,7 @@ static int kvm_map_idmap_text(void)
+@@ -1197,7 +1212,7 @@ static int kvm_map_idmap_text(void)
  {
  	unsigned long size = hyp_idmap_end - hyp_idmap_start;
  	int err = __create_hyp_mappings(hyp_idmap_start, size, hyp_idmap_start,
@@ -1971,7 +1969,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  	if (err)
  		kvm_err("Failed to idmap %lx-%lx\n",
  			hyp_idmap_start, hyp_idmap_end);
-@@ -1304,7 +1322,6 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -1304,7 +1319,6 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	if (change != KVM_MR_CREATE && change != KVM_MR_MOVE &&
  			change != KVM_MR_FLAGS_ONLY)
  		return 0;
@@ -1979,7 +1977,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  	/*
  	 * Prevent userspace from creating a memory region outside of the IPA
  	 * space addressable by the KVM guest IPA space.
-@@ -1370,6 +1387,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
+@@ -1370,6 +1384,19 @@ int kvm_arch_prepare_memory_region(struct kvm *kvm,
  	else if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
  		stage2_flush_memslot(kvm, memslot);
  	spin_unlock(&kvm->mmu_lock);
@@ -1999,7 +1997,7 @@ index 26068456ec0f..55d354e2dcd4 100644
  out:
  	mmap_read_unlock(current->mm);
  	return ret;
-@@ -1385,7 +1415,7 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
+@@ -1385,7 +1412,7 @@ void kvm_arch_memslots_updated(struct kvm *kvm, u64 gen)
  
  void kvm_arch_flush_shadow_all(struct kvm *kvm)
  {
@@ -2035,19 +2033,6 @@ index 204c62debf06..b548b33bbf15 100644
  	vtcr |= VTCR_EL2_LVLS_TO_SL0(lvls);
  
  	/*
-diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
-index 9cd8ca2d8bc1..6fa0a4672344 100644
---- a/virt/kvm/kvm_main.c
-+++ b/virt/kvm/kvm_main.c
-@@ -4904,7 +4904,7 @@ int kvm_init(void *opaque, unsigned vcpu_size, unsigned vcpu_align,
- 	if (!vcpu_align)
- 		vcpu_align = __alignof__(struct kvm_vcpu);
- 	kvm_vcpu_cache =
--		kmem_cache_create_usercopy("kvm_vcpu", vcpu_size, vcpu_align,
-+		kmem_cache_create_usercopy("kvm_vcpu", vcpu_size, PAGE_SIZE,
- 					   SLAB_ACCOUNT,
- 					   offsetof(struct kvm_vcpu, arch),
- 					   sizeof_field(struct kvm_vcpu, arch),
 -- 
 2.25.1
 

@@ -26,7 +26,7 @@ unset DEFINES
 export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin
 export PKG_CONFIG_PATH=$TOOLDIR/usr/local/lib/x86_64-linux-gnu/pkgconfig
 
-KERNEL_PATCHFILE="$BASE_DIR/patches/host/virt/0001-KVM-external-hypervisor-5.10-kernel-baseport.patch"
+KERNEL_PATCHFILE="$BASE_DIR/patches/host/virt/0001-KVM-external-hypervisor-5.15-kernel-baseport.patch"
 TTRIPLET="aarch64-linux-gnu"
 HTRIPLET="x86_64-unknown-linux-gnu"
 NJOBS=`nproc`
