@@ -43,6 +43,7 @@ extern struct hyp_extension_ops eops;
 extern uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 extern uint64_t hyp_text_start;
 extern uint64_t hyp_text_end;
+extern bool apiwarned;
 bool at_debugstop = false;
 extern spinlock_t core_lock;
 
@@ -142,7 +143,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	kvm_guest_t *guest = NULL, *host = NULL;
 	struct hyp_extension_ops **eop;
 	int64_t res = -EINVAL;
-	bool retried = false;
 	hyp_func_t *func;
 	uint32_t vmid;
 	simd_t crypto_ctx;
@@ -290,6 +290,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		LOG("simd_guest_restore is at offset 0x%lx\n",
 			(uint64_t)__fpsimd_guest_restore);
 		LOG("hyp extension is installed at 0x%lx -> 0x%lx\n", eop, *eop);
+		apiwarned = false;
 
 		set_lockflags(HOST_STAGE1_EXEC_LOCK, 0, 0, 0);
 		res = 0;
@@ -442,29 +443,25 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 				a3,
 				virt_to_phys((void *) a4));
 		break;
-		/*
+	/*
 	 * KVM callbacks
 	 */
 	default:
-		cn = (uint64_t)kern_hyp_va((void *)cn);
-do_retry:
+		if (unlikely(!hyp_text_start || !hyp_text_end))
+			goto out;
+
 		if (likely(is_jump_valid(cn))) {
-			func = (hyp_func_t *)cn;
-			res = func((void *)a1, a2, a3, a4, a5, a6, a7, a8, a9);
-		} else {
-			if ((cn >= hyp_text_start) && (cn < hyp_text_end) &&
-			   !(is_locked(HOST_KVM_TRAMPOLINE_LOCK)) &&
-			   !retried) {
-				res = add_jump(cn);
-				if (!res) {
-					retried = true;
-					goto do_retry;
-				}
-			}
-			res = -EPERM;
-		}
+			cn = (uint64_t)kern_hyp_va((void *)cn);
+			if (likely((cn >= hyp_text_start) && (cn < hyp_text_end))) {
+				func = (hyp_func_t *)cn;
+				res = func((void *)a1, a2, a3, a4, a5, a6, a7, a8, a9);
+			} else
+				panic("call 0x%lx not in the kvm window\n", cn);
+		} else
+			panic("illegal kvm jump to 0x%lx\n", cn);
 		break;
 	}
+out:
 	if (unlikely((ct == CALL_TYPE_GUESTCALL) || (ct == CALL_TYPE_HOSTCALL)))
 		spin_unlock(&core_lock);
 

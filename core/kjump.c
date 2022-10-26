@@ -8,15 +8,13 @@
 
 #include "spinlock.h"
 #include "kjump.h"
+#include "hyplogs.h"
 #include "mm.h"
+#include "spinlock.h"
 
-#ifndef MAX_KVM_JUMPS
-#define MAX_KVM_JUMPS 16
-#endif
+#include "kvmsyms.h"
 
-static uint64_t kvm_jump_vector[MAX_KVM_JUMPS];
-static uint32_t jump_count;
-static spinlock_t jump_lock;
+bool apiwarned = false;
 
 static int compfunc(const void *v1, const void *v2)
 {
@@ -30,34 +28,52 @@ static int compfunc(const void *v1, const void *v2)
 	return 0;
 }
 
+static inline void apiwarn(uint64_t addr)
+{
+	static spinlock_t plock;
+
+	spin_lock(&plock);
+	ERROR("the kvm jump 0x%lx is not valid, is hyp up to date?\n",
+	      addr);
+	apiwarned = true;
+	spin_unlock(&plock);
+}
+
 int is_jump_valid(uint64_t addr)
 {
-	uint64_t key = addr;
-	void *res;
+	uint64_t key = addr & JUMP_VA_MASK;
+	void *res = NULL;
+
+#ifndef DEBUG
+	res = bsearch(&key, kvm_jump_vector, jump_count,
+		      sizeof(uint64_t), compfunc);
+	if (res)
+		return 1;
+
+	apiwarn(addr);
+	return 0;
+#else
+	/*
+	 * If it's a debug build and we have already complained about the
+	 * ABI inconsistency, just be happy.
+	 */
+	if (apiwarned)
+		return 1;
 
 	res = bsearch(&key, kvm_jump_vector, jump_count,
 		      sizeof(uint64_t), compfunc);
 	if (res)
 		return 1;
 
-	return 0;
+	apiwarn(addr);
+	return 1;
+#endif
 }
 
-int add_jump(uint64_t addr)
+void init_kvm_vector(void)
 {
-	if (jump_count >= MAX_KVM_JUMPS)
-		return -ENOSPC;
+	for (int i=0; i < jump_count; i++)
+		kvm_jump_vector[i] &= JUMP_VA_MASK;
 
-	spin_lock(&jump_lock);
-	if (is_jump_valid(addr))
-		goto out;
-
-	kvm_jump_vector[jump_count] = addr;
-	jump_count++;
-	qsort(kvm_jump_vector, jump_count, sizeof(uint64_t),
-	      compfunc);
-out:
-	spin_unlock(&jump_lock);
-
-	return 0;
+	qsort(kvm_jump_vector, jump_count, sizeof(uint64_t), compfunc);
 }

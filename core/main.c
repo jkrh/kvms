@@ -229,6 +229,8 @@ int main(int argc UNUSED, char **argv UNUSED)
 
 		if (crypto_init() != 0)
 			panic("crypto init failed\n");
+
+		init_kvm_vector();
 	} else {
 		host = get_guest(HOST_VMID);
 		if (!host)

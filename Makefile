@@ -22,6 +22,7 @@ check:
 	@[ "${PLATFORM}" = "virt" ] || [ "${CHIPSET}" ] && echo -n "" || ( echo "CHIPSET is not set"; exit 1 )
 
 dirs: $(SUBDIRS) | $(OBJDIR)
+	@./scripts/gen-symhdr.sh
 	$(MAKE) -Ccore/crypto patch_mbedtls
 	$(MAKE) $(MBEDFLAGS) -Cmbedtls/library static
 	@for DIR in $(SUBDIRS); do \

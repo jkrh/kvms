@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#define JUMP_VA_MASK ~0xFFFFFFFFFFF00000UL
+
 /**
  * Query if given jump is a valid kernel trampoline
  *
@@ -14,11 +16,10 @@
 int is_jump_valid(uint64_t addr);
 
 /**
- * Add address as a legit kernel trampoline
+ * Initialize kvm jump trampoline
  *
- * @param addr
- * @return zero if address was added, negative error code on failure
+ * @return void
  */
-int add_jump(uint64_t addr);
+void init_kvm_vector(void);
 
 #endif
