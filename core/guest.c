@@ -1849,43 +1849,39 @@ out:
 	return res;
 }
 
- int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len,
-		    uint32_t type)
- {
-	uint64_t phys, tlen;
+int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len,
+		   uint32_t type)
+{
+	uint64_t phys;
+	int res = -ENOSYS;
 
 	if (!guest || !addr || !len || (type > 2))
 		return -EINVAL;
 
-	while (len) {
-		if (len >= PAGE_SIZE)
-			tlen = PAGE_SIZE;
-		else
-			len = tlen;
+	phys = pt_walk(guest, STAGE2, addr, NULL);
+	if (phys == ~0UL)
+		return -ENOENT;
 
-		phys = pt_walk(guest, STAGE2, addr, NULL);
-		if (phys != ~0UL) {
-			switch (type) {
-			case 0:
-				__flush_dcache_area((void *)phys, tlen);
-				break;
-			case 1:
-				__flush_icache_area((void *)phys, tlen);
-				break;
-			case 2:
-				__inval_dcache_area((void *)phys, tlen);
-				break;
-			default:
-				return -EINVAL;
-			}
-		}
-
-		addr += tlen;
-		len -= tlen;
+	switch (type) {
+	case 0:
+		__flush_dcache_area((void *)phys, len);
+		res = 0;
+		break;
+	case 1:
+		__flush_icache_area((void *)phys, len);
+		res = 0;
+		break;
+	case 2:
+		__inval_dcache_area((void *)phys, len);
+		res = 0;
+		break;
+	default:
+		res = -EINVAL;
+		break;
 	}
 
-	return 0;
- }
+	return res;
+}
 
 int guest_region_protect(kvm_guest_t *guest, uint64_t addr, size_t len,
 			 uint64_t prot)
