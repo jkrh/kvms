@@ -1,5 +1,13 @@
 pipeline {
     agent none
+    environment {
+        // Kernel version for Ubuntu VMs
+        KERNEL_VERSION='5.10.130'
+        // Path to Ubuntu host VM image
+        IMAGE_FILE='/img/ubuntu20-host.qcow2'
+        // Location of guest patch file in kvms project
+        PATCH_FILE='patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-development.patch'
+    }
     stages {
         stage('Clone project and build docker image') {
             agent { 
@@ -36,18 +44,13 @@ pipeline {
 
         stage('Patch kernel image'){
             // run this directly in host, running nbd inside container was problematic
-            // run this stage only when there are changes in patches folder
-            // this is risky as kernel modules from previously patch change will be re-used in next pipeline
-            // it is possible that change meant to be built on top of master version of patch gets built from kernel patch from PR
-            // when { changeset "patches/*"}
             agent { 
                 node { 
                     label 'runner'
                     customWorkspace '/var/lib/jenkins/shared_workspace'}
             }
             steps {
-                sh 'sudo modprobe nbd max_part=8'
-                sh 'sudo scripts/update_kernel_to_ubuntu_VMs.sh -i /img/ubuntu20-host.qcow2'
+                sh 'scripts/ci-check-kernel-patch.sh -k $KERNEL_VERSION -p $(pwd)/$PATCH_FILE -i $IMAGE_FILE'
             }
         }
 
@@ -56,7 +59,7 @@ pipeline {
                 docker {
                         customWorkspace '/var/lib/jenkins/shared_workspace'
                         image 'kvms:latest'
-                        args  '-d -t -v ${WORKSPACE}:/hyp -v /img:/img --env PLATFORM=virt --env BOOTIMG=/img/ubuntu20-host.qcow2 --name kvms_build_container --entrypoint= --privileged'
+                        args  '-d -t -v ${WORKSPACE}:/hyp -v /img:/img --env PLATFORM=virt --env BOOTIMG=${IMAGE_FILE} --name kvms_build_container --entrypoint= --privileged'
                     }
                 }
             steps {
@@ -71,11 +74,11 @@ pipeline {
                 sh 'cat host_ips.sh'
                 sh '''
                     source host_ips.sh
-                    echo \$HOST_IP
-                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "sudo systemctl stop unattended-upgrades"
-                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "sudo rm -rf /var/lib/apport/coredump/*"
-                    sshpass -p ubuntu scp -P 10022 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no linux-5.10.108/arch/arm64/boot/Image ubuntu@172.17.0.2:~/vm/ubuntu20
-                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "cd vm/ubuntu20 && ulimit -c unlimited && sudo ./run-qemu6-linux.sh > guest.log" &
+                    echo $HOST_IP
+                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 "sudo systemctl stop unattended-upgrades"
+                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 "sudo rm -rf /var/lib/apport/coredump/*"
+                    sshpass -p ubuntu scp -P 10022 -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no linux-$KERNEL_VERSION/arch/arm64/boot/Image ubuntu@$HOST_IP:~/vm/ubuntu20
+                    sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 "cd vm/ubuntu20 && ulimit -c unlimited && sudo ./run-qemu6-linux.sh > guest.log" &
                     echo $?
                 '''
 
@@ -85,7 +88,7 @@ pipeline {
                     echo "giving a lot of time for guest VM to start"
                     sleep 480
                     sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "cat vm/ubuntu20/guest.log"
-                    timeout 240s grep -q "Network is Online" <(sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "tail -f vm/ubuntu20/guest.log") || true
+                    timeout 240s grep -q "Network is Online" <(sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@$HOST_IP -p 10022 "tail -f vm/ubuntu20/guest.log") || true
                     sshpass -p ubuntu ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ubuntu@\$HOST_IP -p 10022 "cat vm/ubuntu20/guest.log" >>/hyp/guest_nw.log
                     sleep 60
                 '''

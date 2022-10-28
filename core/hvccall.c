@@ -571,10 +571,17 @@ void dump_state(uint64_t level, void *sp)
 	ERROR("\n");
 	print_regs(sp);
 
-#if defined(CRASHDUMP) && defined(DEBUG)
-	print_mappings(get_current_vmid(), STAGE2);
-	print_mappings_el2();
-#endif
+	switch (level) {
+	case 1:
+		print_mappings(get_current_vmid(), STAGE2);
+		break;
+	case 2:
+		print_mappings_el2();
+		break;
+	default:
+		break;
+	}
+
 	spin_unlock(&crash_lock);
 	while (1)
 		wfi();

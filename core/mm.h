@@ -69,6 +69,7 @@ typedef struct {
 	uint32_t len;
 	uint32_t vmid;
 	uint32_t nonce;
+	rwlock_t el;
 	uint8_t sha256[32];
 } kvm_page_data;
 
@@ -133,8 +134,9 @@ kvm_memslot *gfn_to_memslot(void *, gfn_t gfn);
 void set_guest_page_dirty(void *g, gfn_t gfn);
 
 /**
- * Fetch a page integrity structure for guest. The call returns with guest
- * page data lock held, so release it.
+ * Fetch a page integrity structure for guest. The returned structure will not
+ * disappear from under you until free_guest() is called and the guest has been
+ * terminated.
  *
  * @param guest, the guest
  * @param ipa, the guest ipa base address

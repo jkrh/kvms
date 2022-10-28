@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #include "helpers.h"
 #include "guest.h"
@@ -113,12 +114,20 @@ void format_guest(int i)
 	}
 }
 
+static bool guest_has_valid_runstate(kvm_guest_t *g)
+{
+	if (likely((g->state == GUEST_RUNNING) || (g->state == GUEST_INIT)))
+		return true;
+	if (g->vmid == INVALID_VMID)
+		return true;
+	return false;
+}
+
 int load_host_s2(void)
 {
 	sys_context_t *host_ctxt;
 
 	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
-
 	write_reg(VTCR_EL2, host_ctxt->vtcr_el2);
 	write_reg(VTTBR_EL2, host_ctxt->vttbr_el2);
 	speculative_at_isb();
@@ -134,8 +143,8 @@ int load_guest_s2(uint64_t vmid)
 	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
 
 	guest = &guests[guest_index[vmid]];
-	if (guest == NULL) {
-		ERROR("No guest for vmid %d\n", vmid);
+	if (unlikely(!guest || !guest_has_valid_runstate(guest))) {
+		ERROR("no running guest with vmid %d\n", vmid);
 		return -ENOENT;
 	}
 
@@ -190,7 +199,6 @@ void save_host_traps(void)
 	sys_context_t *host_ctxt;
 
 	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
-
 	host_ctxt->hcr_el2 = read_reg(HCR_EL2);
 	host_ctxt->cptr_el2 = read_reg(CPTR_EL2);
 	host_ctxt->mdcr_el2 = read_reg(MDCR_EL2);
@@ -203,7 +211,6 @@ void restore_host_traps(void)
 	sys_context_t *host_ctxt;
 
 	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
-
 	write_reg(HCR_EL2, host_ctxt->hcr_el2);
 	write_reg(CPTR_EL2, host_ctxt->cptr_el2);
 	write_reg(MDCR_EL2, host_ctxt->mdcr_el2);
@@ -248,7 +255,7 @@ uint64_t guest_enter(void *vcpu)
 	vmid = VCPU_GET_VMID(vcpu);
 	vcpuid = VCPU_GET_VCPUID(vcpu);
 	guest = get_guest(vmid);
-	if (!guest || vcpuid >= NUM_VCPUS)
+	if (unlikely(!guest || !guest_has_valid_runstate(guest)))
 		return ARM_EXCEPTION_HYP_GONE;
 
 	kvm_regs = VCPU_GET_REGS(vcpu);
@@ -285,7 +292,8 @@ void sysreg_restore_guest(uint64_t vmid, uint64_t vcpuid)
 	struct vcpu_context *ctxt;
 
 	guest = get_guest(vmid);
-	if (!guest || vcpuid >= NUM_VCPUS)
+	if (unlikely(!guest || !guest_has_valid_runstate(guest) ||
+	    vcpuid >= NUM_VCPUS))
 		return;
 
 	ctxt = &guest->vcpu_ctxt[vcpuid];
@@ -316,7 +324,8 @@ void sysreg_save_guest(uint64_t vmid, uint64_t vcpuid)
 	struct vcpu_context *ctxt;
 
 	guest = get_guest(vmid);
-	if (!guest || vcpuid >= NUM_VCPUS)
+	if (unlikely(!guest || !guest_has_valid_runstate(guest) ||
+	    vcpuid >= NUM_VCPUS))
 		return;
 
 	ctxt = &guest->vcpu_ctxt[vcpuid];
@@ -792,6 +801,7 @@ int init_guest(void *kvm)
 			return -ENOSPC;
 		}
 	}
+	guest->state = GUEST_INIT;
 
 	res = guest_set_table_levels(guest, kvm);
 	if (res)
@@ -1443,7 +1453,6 @@ int update_memslot(void *kvm, kvm_memslot *slot,
 	if (!guest)
 		return 0;
 
-	guest->state = GUEST_INIT;
 	if (slot->id >= KVM_MEM_SLOTS_NUM) {
 		ERROR("too many guest slots?\n");
 		return -EINVAL;
