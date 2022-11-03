@@ -1,4 +1,4 @@
-From f29ee85849550b236ccbeaaad168545b53869b9f Mon Sep 17 00:00:00 2001
+From 84a5d8598147380e7e6d037339f7e6a4270abc7e Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Fri, 15 Jul 2022 11:06:11 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -18,10 +18,10 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kernel/head.S             |  16 +-
  arch/arm64/kvm/Makefile              |   2 +-
  arch/arm64/kvm/arm.c                 |  56 ++--
- arch/arm64/kvm/ext-guest.c           | 434 +++++++++++++++++++++++++++
- arch/arm64/kvm/ext-guest.h           |  37 +++
+ arch/arm64/kvm/ext-guest.c           | 433 +++++++++++++++++++++++++++
+ arch/arm64/kvm/ext-guest.h           |  33 ++
  arch/arm64/kvm/fpsimd.c              |   4 +-
- arch/arm64/kvm/hvccall-defines.h     | 111 +++++++
+ arch/arm64/kvm/hvccall-defines.h     | 117 ++++++++
  arch/arm64/kvm/hyp/Makefile          |   2 +-
  arch/arm64/kvm/hyp/kvms-hvci.S       |  11 +
  arch/arm64/kvm/hyp/nvhe/debug-sr.c   |   3 +
@@ -33,7 +33,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/hyp/vgic-v3-sr.c      |  16 +-
  arch/arm64/kvm/mmu.c                 | 185 +++++++-----
  arch/arm64/kvm/reset.c               |   8 +-
- 26 files changed, 975 insertions(+), 177 deletions(-)
+ 26 files changed, 976 insertions(+), 177 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -703,10 +703,10 @@ index 4d63fcd7574b..d733a5bb42e7 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..d2f256f08294
+index 000000000000..29cf33cbf65d
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,434 @@
+@@ -0,0 +1,433 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -973,7 +973,6 @@ index 000000000000..d2f256f08294
 +	return ret;
 +}
 +
-+
 +static int __kvm_free_guest(struct kvm *kvm)
 +{
 +	int err;
@@ -1143,21 +1142,17 @@ index 000000000000..d2f256f08294
 +}
 diff --git a/arch/arm64/kvm/ext-guest.h b/arch/arm64/kvm/ext-guest.h
 new file mode 100644
-index 000000000000..2038a0e172e3
+index 000000000000..bdac2e1fa5e7
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.h
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,33 @@
 +#include <linux/kvm.h>
 +#include <linux/kvm_host.h>
 +#include <asm/kvm_asm.h>
 +
-+#define GUEST_MEM_MAX 0x200000000
++#include "../../arm64/kvm/hvccall-defines.h"
 +
-+#define KVMS_SYMPFX(name) __kvms_##name
-+#define NVHE_SYMPFX(name) __kvm_nvhe_##name
-+#define _WEAK_ALIAS(name, aliasname) \
-+	extern __typeof (name) aliasname __attribute__ ((weak, alias (#name)));
-+#define WEAK_ALIAS(name, aliasname) _WEAK_ALIAS (name, aliasname)
++#define GUEST_MEM_MAX 0x200000000
 +
 +int ext_hyp_init(void);
 +void ext_hyp_cpu_init(void);
@@ -1204,10 +1199,10 @@ index 3e081d556e81..bd74c6419f8a 100644
  
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..0efa27462a4b
+index 000000000000..ab233474b15a
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
-@@ -0,0 +1,111 @@
+@@ -0,0 +1,117 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef __HYP_API__
 +#define __HYP_API__
@@ -1227,6 +1222,12 @@ index 000000000000..0efa27462a4b
 +	void	(*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
 +	void	(*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
 +};
++#define KVMS_SYMPFX(name) __kvms_##name
++#define NVHE_SYMPFX(name) __kvm_nvhe_##name
++#define _WEAK_ALIAS(name, aliasname) \
++	extern __typeof (name) aliasname __attribute__ ((weak, alias (#name)));
++#define WEAK_ALIAS(name, aliasname) _WEAK_ALIAS (name, aliasname)
++#define KVMS_SYMBOL(name) WEAK_ALIAS(name, KVMS_SYMPFX(name))
 +#endif
 +
 +/*
@@ -1347,7 +1348,7 @@ index 000000000000..4339c8f6fcb6
 +	hvc	#0
 +	ret
 diff --git a/arch/arm64/kvm/hyp/nvhe/debug-sr.c b/arch/arm64/kvm/hyp/nvhe/debug-sr.c
-index f401724f12ef..d368682b120f 100644
+index f401724f12ef..ab058a8b0fa4 100644
 --- a/arch/arm64/kvm/hyp/nvhe/debug-sr.c
 +++ b/arch/arm64/kvm/hyp/nvhe/debug-sr.c
 @@ -14,6 +14,8 @@
@@ -1363,9 +1364,9 @@ index f401724f12ef..d368682b120f 100644
  {
  	return read_sysreg(mdcr_el2);
  }
-+WEAK_ALIAS(__kvm_get_mdcr_el2, KVMS_SYMPFX(__kvm_get_mdcr_el2));
++KVMS_SYMBOL(__kvm_get_mdcr_el2);
 diff --git a/arch/arm64/kvm/hyp/nvhe/switch.c b/arch/arm64/kvm/hyp/nvhe/switch.c
-index 2401164c5f86..82a411e2ddb0 100644
+index 2401164c5f86..1dcc4a0e9210 100644
 --- a/arch/arm64/kvm/hyp/nvhe/switch.c
 +++ b/arch/arm64/kvm/hyp/nvhe/switch.c
 @@ -27,6 +27,8 @@
@@ -1435,7 +1436,7 @@ index 2401164c5f86..82a411e2ddb0 100644
  
  	return exit_code;
  }
-+WEAK_ALIAS(__kvm_vcpu_run, KVMS_SYMPFX(__kvm_vcpu_run));
++KVMS_SYMBOL(__kvm_vcpu_run);
  
  void __noreturn hyp_panic(void)
  {
@@ -1449,7 +1450,7 @@ index 2401164c5f86..82a411e2ddb0 100644
  	}
  
 diff --git a/arch/arm64/kvm/hyp/nvhe/sysreg-sr.c b/arch/arm64/kvm/hyp/nvhe/sysreg-sr.c
-index 88a25fc8fcd3..a8241fe9bd1f 100644
+index 88a25fc8fcd3..3424a8d395ea 100644
 --- a/arch/arm64/kvm/hyp/nvhe/sysreg-sr.c
 +++ b/arch/arm64/kvm/hyp/nvhe/sysreg-sr.c
 @@ -14,6 +14,8 @@
@@ -1465,9 +1466,9 @@ index 88a25fc8fcd3..a8241fe9bd1f 100644
  	"msr	sctlr_el2, %0"
  	: "=&r" (tmp) : "L" (SCTLR_ELx_DSSBS));
  }
-+WEAK_ALIAS(__kvm_enable_ssbs, KVMS_SYMPFX(__kvm_enable_ssbs));
++KVMS_SYMBOL(__kvm_enable_ssbs);
 diff --git a/arch/arm64/kvm/hyp/nvhe/timer-sr.c b/arch/arm64/kvm/hyp/nvhe/timer-sr.c
-index 9072e71693ba..9e70367c232a 100644
+index 9072e71693ba..df37c0728cd5 100644
 --- a/arch/arm64/kvm/hyp/nvhe/timer-sr.c
 +++ b/arch/arm64/kvm/hyp/nvhe/timer-sr.c
 @@ -9,11 +9,13 @@
@@ -1480,12 +1481,12 @@ index 9072e71693ba..9e70367c232a 100644
  {
  	write_sysreg(cntvoff, cntvoff_el2);
  }
-+WEAK_ALIAS(__kvm_timer_set_cntvoff, KVMS_SYMPFX(__kvm_timer_set_cntvoff));
++KVMS_SYMBOL(__kvm_timer_set_cntvoff);
  
  /*
   * Should only be called on non-VHE systems.
 diff --git a/arch/arm64/kvm/hyp/nvhe/tlb.c b/arch/arm64/kvm/hyp/nvhe/tlb.c
-index 229b06748c20..39ff0b6c888f 100644
+index 229b06748c20..192b7bcb80fb 100644
 --- a/arch/arm64/kvm/hyp/nvhe/tlb.c
 +++ b/arch/arm64/kvm/hyp/nvhe/tlb.c
 @@ -8,6 +8,8 @@
@@ -1526,7 +1527,7 @@ index 229b06748c20..39ff0b6c888f 100644
 -	__tlb_switch_to_host(&cxt);
 +	__tlb_switch_to_host(mmu, &cxt);
  }
-+WEAK_ALIAS(__kvm_tlb_flush_vmid_ipa, KVMS_SYMPFX(__kvm_tlb_flush_vmid_ipa));
++KVMS_SYMBOL(__kvm_tlb_flush_vmid_ipa);
  
  void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu)
  {
@@ -1544,7 +1545,7 @@ index 229b06748c20..39ff0b6c888f 100644
 -	__tlb_switch_to_host(&cxt);
 +	__tlb_switch_to_host(mmu, &cxt);
  }
-+WEAK_ALIAS(__kvm_tlb_flush_vmid, KVMS_SYMPFX(__kvm_tlb_flush_vmid));
++KVMS_SYMBOL(__kvm_tlb_flush_vmid);
  
  void __kvm_flush_cpu_context(struct kvm_s2_mmu *mmu)
  {
@@ -1562,7 +1563,7 @@ index 229b06748c20..39ff0b6c888f 100644
 -	__tlb_switch_to_host(&cxt);
 +	__tlb_switch_to_host(mmu, &cxt);
  }
-+WEAK_ALIAS(__kvm_flush_cpu_context, KVMS_SYMPFX(__kvm_flush_cpu_context));
++KVMS_SYMBOL(__kvm_flush_cpu_context);
  
  void __kvm_flush_vm_context(void)
  {
@@ -1570,7 +1571,7 @@ index 229b06748c20..39ff0b6c888f 100644
  
  	dsb(ish);
  }
-+WEAK_ALIAS(__kvm_flush_vm_context, KVMS_SYMPFX(__kvm_flush_vm_context));
++KVMS_SYMBOL(__kvm_flush_vm_context);
 diff --git a/arch/arm64/kvm/hyp/pgtable.c b/arch/arm64/kvm/hyp/pgtable.c
 index 4d99d07c610c..247c1dfc2beb 100644
 --- a/arch/arm64/kvm/hyp/pgtable.c
@@ -1621,7 +1622,7 @@ index 4d99d07c610c..247c1dfc2beb 100644
  	bool device = prot & KVM_PGTABLE_PROT_DEVICE;
  	kvm_pte_t attr = device ? PAGE_S2_MEMATTR(DEVICE_nGnRE) :
 diff --git a/arch/arm64/kvm/hyp/vgic-v3-sr.c b/arch/arm64/kvm/hyp/vgic-v3-sr.c
-index 452f4cacd674..82cf47ca9d2c 100644
+index 452f4cacd674..35d9b340b293 100644
 --- a/arch/arm64/kvm/hyp/vgic-v3-sr.c
 +++ b/arch/arm64/kvm/hyp/vgic-v3-sr.c
 @@ -12,6 +12,8 @@
@@ -1677,7 +1678,7 @@ index 452f4cacd674..82cf47ca9d2c 100644
  		cpu_if->vgic_ap1r[0] = __vgic_v3_read_ap1rn(0);
  	}
  }
-+WEAK_ALIAS(__vgic_v3_save_aprs, KVMS_SYMPFX(__vgic_v3_save_aprs));
++KVMS_SYMBOL(__vgic_v3_save_aprs);
  
  void __vgic_v3_restore_aprs(struct vgic_v3_cpu_if *cpu_if)
  {
@@ -1694,7 +1695,7 @@ index 452f4cacd674..82cf47ca9d2c 100644
  	}
  }
 -
-+WEAK_ALIAS(__vgic_v3_restore_aprs, KVMS_SYMPFX(__vgic_v3_restore_aprs));
++KVMS_SYMBOL(__vgic_v3_restore_aprs);
 + 
  void __vgic_v3_init_lrs(void)
  {
@@ -1703,25 +1704,25 @@ index 452f4cacd674..82cf47ca9d2c 100644
  	for (i = 0; i <= max_lr_idx; i++)
  		__gic_v3_set_lr(0, i);
  }
-+WEAK_ALIAS(__vgic_v3_init_lrs, KVMS_SYMPFX(__vgic_v3_init_lrs));
++KVMS_SYMBOL(__vgic_v3_init_lrs);
  
  u64 __vgic_v3_get_ich_vtr_el2(void)
  {
  	return read_gicreg(ICH_VTR_EL2);
  }
-+WEAK_ALIAS(__vgic_v3_get_ich_vtr_el2, KVMS_SYMPFX(__vgic_v3_get_ich_vtr_el2));
++KVMS_SYMBOL(__vgic_v3_get_ich_vtr_el2);
  
  u64 __vgic_v3_read_vmcr(void)
  {
  	return read_gicreg(ICH_VMCR_EL2);
  }
-+WEAK_ALIAS(__vgic_v3_read_vmcr, KVMS_SYMPFX(__vgic_v3_read_vmcr));
++KVMS_SYMBOL(__vgic_v3_read_vmcr);
  
  void __vgic_v3_write_vmcr(u32 vmcr)
  {
  	write_gicreg(vmcr, ICH_VMCR_EL2);
  }
-+WEAK_ALIAS(__vgic_v3_write_vmcr, KVMS_SYMPFX(__vgic_v3_write_vmcr));
++KVMS_SYMBOL(__vgic_v3_write_vmcr);
  
  static int __vgic_v3_bpr_min(void)
  {

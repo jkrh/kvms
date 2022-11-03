@@ -17,6 +17,12 @@ struct hyp_extension_ops {
 	void	(*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
 	void	(*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
 };
+#define KVMS_SYMPFX(name) __kvms_##name
+#define NVHE_SYMPFX(name) __kvm_nvhe_##name
+#define _WEAK_ALIAS(name, aliasname) \
+	extern __typeof (name) aliasname __attribute__ ((weak, alias (#name)));
+#define WEAK_ALIAS(name, aliasname) _WEAK_ALIAS (name, aliasname)
+#define KVMS_SYMBOL(name) WEAK_ALIAS(name, KVMS_SYMPFX(name))
 #endif
 
 /*
