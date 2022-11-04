@@ -140,6 +140,12 @@ struct kvm_guest {
 
 typedef struct kvm_guest kvm_guest_t;
 
+typedef enum {
+	data_flush = 0,
+	inst_flush = 1,
+	data_inval = 2,
+} cache_op_t;
+
 /**
  * Build an array of existing guest mappings
  *
@@ -249,10 +255,10 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t addr, uint64_t len, uint64_t 
  * @param guest
  * @param addr guest physical address to flush
  * @param len length of the flush in bytes
- * @param type 0 for data, 1 for instruction cache flush, 2 for data invalidate
+ * @param type enum of operation type, see above
  * @return zero on success or negative error code on failure
  */
-int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len, uint32_t type);
+int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len, cache_op_t type);
 
 /**
  * @param guest

@@ -1850,7 +1850,7 @@ out:
 }
 
  int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len,
-		    uint32_t type)
+		    cache_op_t type)
  {
 	uint64_t phys, tlen;
 
@@ -1866,13 +1866,13 @@ out:
 		phys = pt_walk(guest, STAGE2, addr, NULL);
 		if (phys != ~0UL) {
 			switch (type) {
-			case 0:
+			case data_flush:
 				__flush_dcache_area((void *)phys, tlen);
 				break;
-			case 1:
+			case inst_flush:
 				__flush_icache_area((void *)phys, tlen);
 				break;
-			case 2:
+			case data_inval:
 				__inval_dcache_area((void *)phys, tlen);
 				break;
 			default:
