@@ -8,7 +8,14 @@ HYP_TEXT_START=$(printf "%u" `aarch64-linux-gnu-readelf -Ws $VMLINUX |grep __hyp
 HYP_TEXT_END=$(printf "%u" `aarch64-linux-gnu-readelf -Ws $VMLINUX |grep __hyp_text_end|awk '{print "0x"$2 }' | head -n 1`)
 
 cat << EOF > $SYMHDR
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+#ifndef __KVMCALLS__
+#define __KVMCALLS__
+
 #include <stdint.h>
+
+/* This is a generated header. Don't modify. */
 
 static uint64_t kvm_jump_vector[] = {
 EOF
@@ -28,4 +35,5 @@ cat << EOF >> $SYMHDR
 };
 
 #define jump_count (sizeof(kvm_jump_vector)/sizeof(kvm_jump_vector[0]))
+#endif // __KVMCALLS__
 EOF

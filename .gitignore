@@ -5,3 +5,4 @@ docs/html/
 docs/refman.pdf
 cov-dir/
 cov-html/
+core/kvmsyms.h
