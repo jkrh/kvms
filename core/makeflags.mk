@@ -18,9 +18,17 @@ export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(CORE_DIR)/common -I$(BA
 		-I$(BASE_DIR)/platform/$(PLATFORM)/$(CHIPSET)/$(PRODUCT) \
 		-I$(BASE_DIR)/stdlib/sys \
 		-I$(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)
+
+#
+# Due to size constraints on some platforms
+#
+ifeq ($(PLATFORM), virt)
 export SANITIZER_OPTS := -fsanitize=return -fsanitize=signed-integer-overflow \
 		-fsanitize=vla-bound -fsanitize=null -fsanitize=object-size \
 		-fsanitize=bounds -fsanitize-address-use-after-scope
+else
+export SANITIZER_OPTS :=
+endif
 
 ifeq ($(USE_HW_CRYPTO),1)
 export CFLAGS := -march=armv8-a+crypto -DUSE_HW_CRYPTO=1
