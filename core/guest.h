@@ -532,7 +532,8 @@ void set_memory_readable(kvm_guest_t *guest);
  */
 int kernel_integrity_ok(const kvm_guest_t *guest);
 
-/*** Copy data from guest space to hypervisor.
+/***
+ * Copy data from guest space to hypervisor.
  *
  * @param guest the guest
  * @param dst destination address in hypervisor
@@ -543,7 +544,8 @@ int kernel_integrity_ok(const kvm_guest_t *guest);
  */
 int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len);
 
-/*** Copy data from hypervisor to guest space
+/***
+ * Copy data from hypervisor to guest space
  *
  * @param guest the guest
  * @param dst destination address in guest (IPA)
@@ -551,9 +553,7 @@ int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len);
  * @param len Number of byres to copy
  * @return number of copied bytes in case of success, negative error code
  *         otherwise
- *
- * copy_to_guest() has not been tested
  */
-/* int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len);
-*/
+ int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len);
+
 #endif // __KVM_GUEST_H__

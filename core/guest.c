@@ -2113,7 +2113,6 @@ int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len)
 	return copied;
 }
 
-/* copy_to_guest() has not been tested
 int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len)
 {
 	uint64_t page_len;
@@ -2133,7 +2132,6 @@ int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len)
 	}
 	return copied;
 }
-*/
 
 int check_guest_image(kvm_guest_t *guest, uint64_t gparams)
 {
@@ -2166,26 +2164,30 @@ int check_guest_image(kvm_guest_t *guest, uint64_t gparams)
 
 	ret = mbedtls_sha256_starts_ret(&ctx, 0);
 	if (ret != MBEDTLS_EXIT_SUCCESS)
-		panic("panic on image check");
+		panic("mbedtls_sha256_starts_ret %d", ret);
 
 	ret = guest_calc_hash(guest, &ctx, guest->kic_start_addr,
 			      guest->kic_size);
 	if (ret != MBEDTLS_EXIT_SUCCESS)
-		panic("panic on image check");
+		panic("guest_calc_hash ret %d", ret);
 
 	ret = mbedtls_sha256_finish_ret(&ctx, hash);
 	if (ret != MBEDTLS_EXIT_SUCCESS)
-		panic("panic on image check");
+		panic("mbedtls_sha256_finish_ret %d", ret);
 
 	if (do_ecdsa((void *)params.signature, hash)) {
 		guest->kic_status = KIC_FAILED;
-		ERROR("Kernel integrity check failed!\n");
+		ERROR("kernel integrity check failed for vmid %d\n",
+		      guest->vmid);
 	} else {
 		guest->kic_status = KIC_PASSED;
-		printf("Kernel integrity check passed\n");
+		LOG("kernel integrity check passed for vmid %d\n", guest->vmid);
 	}
 
-/* DEBUG image will boot and works normally even check fails */
+	/*
+	 * In DEBUG hyp builds the kernel will boot and works normally even if
+	 * the signature verification fails. FIXME: ifdefs
+	 */
 #ifndef DEBUG
 	if (guest->kic_status == KIC_PASSED) {
 #endif
@@ -2204,7 +2206,8 @@ int check_guest_image(kvm_guest_t *guest, uint64_t gparams)
 	return 0;
 
 err:
-	printf("Error on kernel check\n");
+	ERROR("kernel integrity verification error for vmid %d\n",
+	      guest->vmid);
 #ifdef DEBUG
 	return 0;
 #else
