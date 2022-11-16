@@ -1,19 +1,14 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
-INCLUDES := -I$(CORE_DIR)
+PROG := ic_loader
+LIBNAME := libic.a
 
-LINK := -T ld.out
-LDFLAGS := -static $(LINK)
+AS_SOURCES := start.S
+C_SOURCES := ic_loader.c
 
-start.o: start.S
-	$(CC) $(ASFLAGS) -o $@ -c $<
+override SANITIZER_OPTS := -fno-sanitize=all
+override CFLAGS := -FPIC -I$(CORE_DIR)
+override LDFLAGS := -static -T ld.out -L$(BASE_DIR)/.objs
+override LDLIBS := -lic
 
-ic_loader.o: ic_loader.c
-	$(CC) $(CFLAGS) -FPIC -fno-sanitize=all -o $@ -c $<
-
-ic_loader: start.o ic_loader.o
-	$(LD) $(LDFLAGS) -o ic_loader.elf -static start.o ic_loader.o
-	$(OBJCOPY) -O binary ic_loader.elf ic_loader
-
-clean:
-	rm -f start.o ic_loader.o ic_loader.elf ic_loader
+include $(BASE_DIR)/core/common.mk

@@ -13,6 +13,7 @@ Features added over regular KVM configurations are:
   intact and unmovable but they can still be swapped in/out when needed.
 - Host swap encryption
 - Guest memory AES encrypted swapping
+- Guest kernel signature verification support
 - Kernel memory protection toolchain:
   - Page table locks (including elements inside the P?Ds)
   - Memory region permission adjustments
@@ -71,6 +72,16 @@ Secure host swap
 - Encrypts all pages going out to swap and decrypts them during swap-in
 - Works in STANDALONE mode as well without virtualization support enabled
 - Support is experimental
+
+
+Guest kernel signature verification support
+-------------------------------------------
+- Hypervisor supports guest kernel signature checks out of the box. Just use
+  two top level makefile targets ('gen_key' and 'sign_guest IMAGE=<file>') to
+  embed a signature into the kernel image. The signature is checked prior to
+  allowing the guest to be mapped as an executable.
+- Actual work happens via embedded kernel loader that maps the kernel into
+  guest memory space for the signature verification purposes prior to running.
 
 
 VCPU protection

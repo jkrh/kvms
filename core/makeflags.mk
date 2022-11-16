@@ -23,11 +23,11 @@ export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(CORE_DIR)/common -I$(BA
 # Due to size constraints on some platforms
 #
 ifeq ($(PLATFORM), virt)
-export SANITIZER_OPTS := -fsanitize=return -fsanitize=signed-integer-overflow \
+export SANITIZER_OPTS ?= -fsanitize=return -fsanitize=signed-integer-overflow \
 		-fsanitize=vla-bound -fsanitize=null -fsanitize=object-size \
 		-fsanitize=bounds -fsanitize-address-use-after-scope
 else
-export SANITIZER_OPTS :=
+export SANITIZER_OPTS ?=
 endif
 
 ifeq ($(USE_HW_CRYPTO),1)
@@ -35,7 +35,6 @@ export CFLAGS := -march=armv8-a+crypto -DUSE_HW_CRYPTO=1
 else
 export CFLAGS := -march=armv8-a+nosimd -mgeneral-regs-only
 endif
-
 export CFLAGS += \
 	--sysroot=$(TOOLDIR) --no-sysroot-suffix -fstack-protector-strong -mstrict-align \
 	-static -ffreestanding -fno-hosted -std=c99 -fno-omit-frame-pointer -fno-data-sections \

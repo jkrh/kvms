@@ -2,16 +2,18 @@ export BASE_DIR := $(PWD)
 export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
 
+COREDIRS := stdlib core core/crypto core/common platform/common guest/ic_loader
+
 ifeq ($(PLATFORM),virt)
-SUBDIRS := stdlib core core/crypto core/common platform/common platform/$(PLATFORM)
+SUBDIRS := $(COREDIRS) platform/$(PLATFORM)
 else
-SUBDIRS := platform/$(PLATFORM) stdlib core core/crypto core/common platform/common platform/$(PLATFORM)/common
+SUBDIRS := platform/$(PLATFORM) $(COREDIRS) platform/$(PLATFORM)/common
 endif
 include core/tools.mk
 include core/makevars.mk
 include core/makeflags.mk
+
 KEYS_PATH := $(BASE_DIR)/guest/keys
-ID_LOADER_PATH := $(BASE_DIR)/guest/ic_loader
 GUEST_ID := ""
 
 $(info KERNEL_DIR:	$(KERNEL_DIR))
@@ -77,16 +79,13 @@ module-test:
 target-qemu:
 	./scripts/build-target-qemu.sh
 
-sign_guest: gen_key ic_loader
+sign_guest: gen_key
 	@[ "${IMAGE}" ] && echo -n "" || ( echo "IMAGE is not set"; exit 1 )
 	$(BASE_DIR)/scripts/sign_guest_kernel.sh -p $(KEYS_PATH)/guest_image_priv.pem \
-	-k $(IMAGE) -l $(ID_LOADER_PATH)/ic_loader -o $(IMAGE).sign -i $(GUEST_ID)
+	-k $(IMAGE) -l $(BASE_DIR)/guest/ic_loader/ic_loader.bin -o $(IMAGE).sign -i $(GUEST_ID)
 
 gen_key:
 	$(MAKE) -C $(KEYS_PATH)
-
-ic_loader:
-	$(MAKE) -C $(ID_LOADER_PATH) ic_loader
 
 package:
 	$(MAKE) -C platform/$(PLATFORM)/tools/sign

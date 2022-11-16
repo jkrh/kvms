@@ -3,12 +3,13 @@ AS_OBJ := $(patsubst $(notdir %.S),$(OBJDIR)/%.o,$(notdir $(AS_SOURCES)))
 C_OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(C_SOURCES)))
 OBJS := $(C_OBJ) $(AS_OBJ)
 
-COMMONLIBS := -lcore -lcommon -lplatform-common -lmbedcrypto -lmbedx509 -lmbedtls -larmv8crypto -lstdlib  -u print_gicdreg
+COMMONLIBS := -lcore -lcommon -lplatform-common -lmbedcrypto -lmbedx509 \
+		-lmbedtls -larmv8crypto -lstdlib  -u print_gicdreg
 
 ifeq ($(PLATFORM),virt)
-LDLIBS := -l$(PLATFORM) $(COMMONLIBS)
+LDLIBS ?= -l$(PLATFORM) $(COMMONLIBS)
 else
-LDLIBS := -l$(PLATFORM) -l$(PRODUCT) $(COMMONLIBS)
+LDLIBS ?= -l$(PLATFORM) -l$(PRODUCT) $(COMMONLIBS)
 endif
 
 .PHONY: clean run gdb
@@ -53,7 +54,7 @@ $(PROG).bin: $(PROG)
 
 $(PROG): $(OBJS) $(OBJDIR)/$(LIBNAME) FORCE
 	$(vecho) [LD] $@
-	$(Q)$(LD) $(LDFLAGS) -lcore -o $(PROG) $(LDLIBS) -static
+	$(Q)$(LD) $(LDFLAGS) -o $(PROG) $(LDLIBS) -static
 
 $(OBJDIR)/$(LIBNAME): $(OBJS)
 	$(vecho) [AR] $@
@@ -62,6 +63,6 @@ $(OBJDIR)/$(LIBNAME): $(OBJS)
 	$(Q)$(RANLIB) $(OBJDIR)/$(LIBNAME)
 
 clean:
-	@rm -rf $(OBJDIR)
+	@rm -rf $(OBJDIR) $(PROG) *.elf *.o *.bin
 
 FORCE:
