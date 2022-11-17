@@ -66,7 +66,3 @@ endif
 gdb:
 	@$(CROSS_COMPILE)gdb -ex "target remote localhost:1234" -ex "set confirm off"	\
 		-ex "add-symbol-file $(PROG) 0x100001000" $(VMLINUX)
-
-sign_guest:
-	$(TOPDIR)/scripts/virt_update_guest_kernel_signature.sh -p  $(TOPDIR)/guest/keys/guest_image_priv.pem \
-	-i $(BOOTIMG) -l $(TOPDIR)/guest/ic_loader/ic_loader -d home/ubuntu/vm/ubuntu20

@@ -1061,7 +1061,6 @@ static int page_is_cacheable(uint64_t prot)
 
 int guest_mapping_allowed(kvm_guest_t *guest, uint64_t prot)
 {
-
 #ifndef DEBUG
 	if (guest->kic_status == KIC_FAILED)
 		return -EFAULT;

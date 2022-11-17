@@ -42,5 +42,7 @@ typedef uint64_t u_register_t;
 #endif
 
 #define string(x) #x
+#define STR(x) #x
+#define XSTR(s) STR(s)
 
 #endif

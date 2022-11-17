@@ -2,7 +2,7 @@
 
 import fileinput
 
-print("\nconst  uint8_t guest_image_key[] = {")
+print("#include <stdint.h>\n\nconst uint8_t guest_image_key[] = {")
 
 pub = 0
 for line in fileinput.input():

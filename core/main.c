@@ -26,6 +26,13 @@
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/memory_buffer_alloc.h"
 
+#define HYP_BANNER_STR "HYP build type "
+#define HYP_BANNER HYP_BANNER_STR XSTR(DEBUG) ", built '" __TIMESTAMP__ \
+	"' by " XSTR(BUILDUSER) "@" XSTR(BUILDHOST) "\n"
+#define TOOL_BANNER_STR "HYP toolchain version "
+#define TOOL_BANNER TOOL_BANNER_STR __VERSION__ "\n"
+#define HYP_VERSION "HYP version " XSTR(GHEAD)
+
 struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
 uint8_t crypto_buf[PAGE_SIZE*4];
@@ -223,6 +230,10 @@ int main(int argc UNUSED, char **argv UNUSED)
 	 * go here.
 	 */
 	if (init_index == 0) {
+		LOG(HYP_BANNER);
+		LOG(TOOL_BANNER);
+		LOG(HYP_VERSION);
+
 		res = set_heap(hyp_malloc_pool, MALLOC_POOL_SIZE);
 		if (res)
 			panic("failed to set heap\n");
