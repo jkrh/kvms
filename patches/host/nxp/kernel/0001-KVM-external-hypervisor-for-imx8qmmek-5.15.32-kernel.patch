@@ -1,4 +1,4 @@
-From 61c3c1fdf8484f38ac45e547f0ddbb6594c3dd5d Mon Sep 17 00:00:00 2001
+From 62540a4bf90ece7fff51ecea14b2a1ffc9c8ecd5 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 16 Mar 2022 14:56:47 +0200
 Subject: [PATCH] KVM: external hypervisor for imx8qmmek-5.15.32 kernel
@@ -6,6 +6,7 @@ Subject: [PATCH] KVM: external hypervisor for imx8qmmek-5.15.32 kernel
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
+Signed-off-by: Martti Takala <martti.takala@unikie.com>
 ---
  arch/arm64/boot/dts/freescale/imx8qm-mek.dts  |    4 +
  arch/arm64/configs/imx_v8_defconfig           |   31 +-
@@ -22,27 +23,29 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/Makefile                       |    2 +-
  arch/arm64/kvm/arm.c                          |  464 +-------
  arch/arm64/kvm/ext-guest.c                    |  412 +++++++
- arch/arm64/kvm/ext-guest.h                    |   41 +
+ arch/arm64/kvm/ext-guest.h                    |   42 +
  arch/arm64/kvm/fpsimd.c                       |    6 +-
- arch/arm64/kvm/hvccall-defines.h              |  109 ++
+ arch/arm64/kvm/hvccall-defines.h              |  115 ++
  arch/arm64/kvm/hyp/Makefile                   |    2 +-
- arch/arm64/kvm/hyp/exception.c                |    2 +
+ arch/arm64/kvm/hyp/exception.c                |    6 +
  arch/arm64/kvm/hyp/hyp-entry.S                |    4 +-
  arch/arm64/kvm/hyp/include/hyp/switch.h       |   27 -
  arch/arm64/kvm/hyp/include/nvhe/mem_protect.h |    9 +-
  arch/arm64/kvm/hyp/kvms-hvci.S                |   11 +
  arch/arm64/kvm/hyp/nvhe/Makefile              |    6 +-
- arch/arm64/kvm/hyp/nvhe/switch.c              |   46 +-
- arch/arm64/kvm/hyp/nvhe/tlb.c                 |   27 +-
+ arch/arm64/kvm/hyp/nvhe/debug-sr.c            |    4 +
+ arch/arm64/kvm/hyp/nvhe/switch.c              |   48 +-
+ arch/arm64/kvm/hyp/nvhe/timer-sr.c            |    2 +
+ arch/arm64/kvm/hyp/nvhe/tlb.c                 |   33 +-
  arch/arm64/kvm/hyp/pgtable.c                  | 1009 +----------------
- arch/arm64/kvm/hyp/vgic-v3-sr.c               |    6 +
+ arch/arm64/kvm/hyp/vgic-v3-sr.c               |   14 +
  arch/arm64/kvm/hyp/vhe/switch.c               |    7 +-
  arch/arm64/kvm/hyp/vhe/tlb.c                  |   12 +-
  arch/arm64/kvm/mmu.c                          |  422 ++-----
  arch/arm64/kvm/reset.c                        |    1 +
  arch/arm64/kvm/va_layout.c                    |    1 +
  arch/arm64/kvm/vgic/vgic-v2.c                 |    6 +-
- 35 files changed, 976 insertions(+), 1901 deletions(-)
+ 37 files changed, 1009 insertions(+), 1901 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -1678,15 +1681,16 @@ index 000000000000..6cd2b797bae5
 +}
 diff --git a/arch/arm64/kvm/ext-guest.h b/arch/arm64/kvm/ext-guest.h
 new file mode 100644
-index 000000000000..056aab46b199
+index 000000000000..2b554f89a7c8
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.h
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,42 @@
 +#ifndef __EXTG_H__
 +#define __EXTG_H__
 +
 +#include <asm/kvm_asm.h>
 +#include <asm/hyp_image.h>
++#include "../../kvm/hvccall-defines.h"
 +
 +#define GUEST_MEM_MAX 0x200000000
 +
@@ -1752,10 +1756,10 @@ index 5621020b28de..d6dcfa65fd49 100644
  	}
 diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
 new file mode 100644
-index 000000000000..fd8e37d6370d
+index 000000000000..018777ed2494
 --- /dev/null
 +++ b/arch/arm64/kvm/hvccall-defines.h
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,115 @@
 +/* SPDX-License-Identifier: GPL-2.0-only */
 +#ifndef __HYP_API__
 +#define __HYP_API__
@@ -1775,6 +1779,12 @@ index 000000000000..fd8e37d6370d
 +	void	(*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
 +	void	(*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
 +};
++#define KVMS_SYMPFX(name) __kvms_##name
++#define NVHE_SYMPFX(name) __kvm_nvhe_##name
++#define _WEAK_ALIAS(name, aliasname) \
++	extern __typeof (name) aliasname __attribute__ ((weak, alias (#name)));
++#define WEAK_ALIAS(name, aliasname) _WEAK_ALIAS (name, aliasname)
++#define KVMS_SYMBOL(name) WEAK_ALIAS(name, KVMS_SYMPFX(name))
 +#endif
 +
 +/*
@@ -1876,10 +1886,19 @@ index b726332eec49..53a9edb6e18a 100644
 -obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o reserved_mem.o
 +obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o kvms-hvci.o
 diff --git a/arch/arm64/kvm/hyp/exception.c b/arch/arm64/kvm/hyp/exception.c
-index c5d009715402..495672227291 100644
+index c5d009715402..42edf4aedf6c 100644
 --- a/arch/arm64/kvm/hyp/exception.c
 +++ b/arch/arm64/kvm/hyp/exception.c
-@@ -340,6 +340,8 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
+@@ -14,6 +14,8 @@
+ #include <linux/kvm_host.h>
+ #include <asm/kvm_emulate.h>
+ 
++#include "../arch/arm64/kvm/ext-guest.h"
++
+ #if !defined (__KVM_NVHE_HYPERVISOR__) && !defined (__KVM_VHE_HYPERVISOR__)
+ #error Hypervisor code only!
+ #endif
+@@ -340,6 +342,8 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
   */
  void __kvm_adjust_pc(struct kvm_vcpu *vcpu)
  {
@@ -1888,6 +1907,12 @@ index c5d009715402..495672227291 100644
  	if (vcpu->arch.flags & KVM_ARM64_PENDING_EXCEPTION) {
  		kvm_inject_exception(vcpu);
  		vcpu->arch.flags &= ~(KVM_ARM64_PENDING_EXCEPTION |
+@@ -349,3 +353,5 @@ void __kvm_adjust_pc(struct kvm_vcpu *vcpu)
+ 		vcpu->arch.flags &= ~KVM_ARM64_INCREMENT_PC;
+ 	}
+ }
++KVMS_SYMBOL(__kvm_adjust_pc);
++
 diff --git a/arch/arm64/kvm/hyp/hyp-entry.S b/arch/arm64/kvm/hyp/hyp-entry.S
 index 7839d075729b..e8f77c3678f1 100644
 --- a/arch/arm64/kvm/hyp/hyp-entry.S
@@ -1998,11 +2023,38 @@ index 8d741f71377f..dd5979769094 100644
  obj-y += ../vgic-v3-sr.o ../aarch32.o ../vgic-v2-cpuif-proxy.o ../entry.o \
  	 ../fpsimd.o ../hyp-entry.o ../exception.o ../pgtable.o
  obj-y += $(lib-objs)
+diff --git a/arch/arm64/kvm/hyp/nvhe/debug-sr.c b/arch/arm64/kvm/hyp/nvhe/debug-sr.c
+index df361d839902..54f522442ac6 100644
+--- a/arch/arm64/kvm/hyp/nvhe/debug-sr.c
++++ b/arch/arm64/kvm/hyp/nvhe/debug-sr.c
+@@ -14,6 +14,8 @@
+ #include <asm/kvm_hyp.h>
+ #include <asm/kvm_mmu.h>
+ 
++#include "../arch/arm64/kvm/ext-guest.h"
++
+ static void __debug_save_spe(u64 *pmscr_el1)
+ {
+ 	u64 reg;
+@@ -113,3 +115,5 @@ u64 __kvm_get_mdcr_el2(void)
+ {
+ 	return read_sysreg(mdcr_el2);
+ }
++KVMS_SYMBOL(__kvm_get_mdcr_el2);
++
 diff --git a/arch/arm64/kvm/hyp/nvhe/switch.c b/arch/arm64/kvm/hyp/nvhe/switch.c
-index a34b01cc8ab9..86a7cef6dace 100644
+index a34b01cc8ab9..4095107c7e8e 100644
 --- a/arch/arm64/kvm/hyp/nvhe/switch.c
 +++ b/arch/arm64/kvm/hyp/nvhe/switch.c
-@@ -42,14 +42,13 @@ static void __activate_traps(struct kvm_vcpu *vcpu)
+@@ -28,6 +28,7 @@
+ #include <asm/thread_info.h>
+ 
+ #include <nvhe/mem_protect.h>
++#include "../arch/arm64/kvm/ext-guest.h"
+ 
+ /* Non-VHE specific context */
+ DEFINE_PER_CPU(struct kvm_host_data, kvm_host_data);
+@@ -42,14 +43,13 @@ static void __activate_traps(struct kvm_vcpu *vcpu)
  	__activate_traps_common(vcpu);
  
  	val = vcpu->arch.cptr_el2;
@@ -2019,7 +2071,7 @@ index a34b01cc8ab9..86a7cef6dace 100644
  
  	if (cpus_have_final_cap(ARM64_WORKAROUND_SPECULATIVE_AT)) {
  		struct kvm_cpu_context *ctxt = &vcpu->arch.ctxt;
-@@ -68,11 +67,13 @@ static void __activate_traps(struct kvm_vcpu *vcpu)
+@@ -68,11 +68,13 @@ static void __activate_traps(struct kvm_vcpu *vcpu)
  
  static void __deactivate_traps(struct kvm_vcpu *vcpu)
  {
@@ -2034,7 +2086,7 @@ index a34b01cc8ab9..86a7cef6dace 100644
  	if (cpus_have_final_cap(ARM64_WORKAROUND_SPECULATIVE_AT)) {
  		u64 val;
  
-@@ -92,14 +93,17 @@ static void __deactivate_traps(struct kvm_vcpu *vcpu)
+@@ -92,14 +94,17 @@ static void __deactivate_traps(struct kvm_vcpu *vcpu)
  
  	__deactivate_traps_common(vcpu);
  
@@ -2054,7 +2106,7 @@ index a34b01cc8ab9..86a7cef6dace 100644
  }
  
  /* Save VGICv3 state on non-VHE systems */
-@@ -167,6 +171,8 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
+@@ -167,6 +172,8 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
  	bool pmu_switch_needed;
  	u64 exit_code;
  
@@ -2063,7 +2115,7 @@ index a34b01cc8ab9..86a7cef6dace 100644
  	/*
  	 * Having IRQs masked via PMR when entering the guest means the GIC
  	 * will not signal the CPU of interrupts of lower priority, and the
-@@ -208,7 +214,7 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
+@@ -208,7 +215,7 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
  	__sysreg_restore_state_nvhe(guest_ctxt);
  
  	mmu = kern_hyp_va(vcpu->arch.hw_mmu);
@@ -2072,7 +2124,7 @@ index a34b01cc8ab9..86a7cef6dace 100644
  	__activate_traps(vcpu);
  
  	__hyp_vgic_restore_state(vcpu);
-@@ -229,7 +235,7 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
+@@ -229,7 +236,7 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
  	__hyp_vgic_save_state(vcpu);
  
  	__deactivate_traps(vcpu);
@@ -2081,7 +2133,11 @@ index a34b01cc8ab9..86a7cef6dace 100644
  
  	__sysreg_restore_state_nvhe(host_ctxt);
  
-@@ -257,27 +263,5 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
+@@ -254,30 +261,9 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
+ 
+ 	return exit_code;
+ }
++KVMS_SYMBOL(__kvm_vcpu_run);
  
  void __noreturn hyp_panic(void)
  {
@@ -2110,11 +2166,37 @@ index a34b01cc8ab9..86a7cef6dace 100644
 -	return __kvm_unexpected_el2_exception();
 +	while(1) { } ;
  }
+diff --git a/arch/arm64/kvm/hyp/nvhe/timer-sr.c b/arch/arm64/kvm/hyp/nvhe/timer-sr.c
+index 9072e71693ba..df37c0728cd5 100644
+--- a/arch/arm64/kvm/hyp/nvhe/timer-sr.c
++++ b/arch/arm64/kvm/hyp/nvhe/timer-sr.c
+@@ -9,11 +9,13 @@
+ #include <linux/kvm_host.h>
+ 
+ #include <asm/kvm_hyp.h>
++#include "../arch/arm64/kvm/ext-guest.h"
+ 
+ void __kvm_timer_set_cntvoff(u64 cntvoff)
+ {
+ 	write_sysreg(cntvoff, cntvoff_el2);
+ }
++KVMS_SYMBOL(__kvm_timer_set_cntvoff);
+ 
+ /*
+  * Should only be called on non-VHE systems.
 diff --git a/arch/arm64/kvm/hyp/nvhe/tlb.c b/arch/arm64/kvm/hyp/nvhe/tlb.c
-index d296d617f589..2f0ef8dc2693 100644
+index d296d617f589..97ea001b2080 100644
 --- a/arch/arm64/kvm/hyp/nvhe/tlb.c
 +++ b/arch/arm64/kvm/hyp/nvhe/tlb.c
-@@ -17,6 +17,8 @@ struct tlb_inv_context {
+@@ -9,6 +9,7 @@
+ #include <asm/tlbflush.h>
+ 
+ #include <nvhe/mem_protect.h>
++#include "../arch/arm64/kvm/ext-guest.h"
+ 
+ struct tlb_inv_context {
+ 	u64		tcr;
+@@ -17,6 +18,8 @@ struct tlb_inv_context {
  static void __tlb_switch_to_guest(struct kvm_s2_mmu *mmu,
  				  struct tlb_inv_context *cxt)
  {
@@ -2123,7 +2205,7 @@ index d296d617f589..2f0ef8dc2693 100644
  	if (cpus_have_final_cap(ARM64_WORKAROUND_SPECULATIVE_AT)) {
  		u64 val;
  
-@@ -39,13 +41,15 @@ static void __tlb_switch_to_guest(struct kvm_s2_mmu *mmu,
+@@ -39,13 +42,15 @@ static void __tlb_switch_to_guest(struct kvm_s2_mmu *mmu,
  	 * ensuring that we always have an ISB, but not two ISBs back
  	 * to back.
  	 */
@@ -2142,7 +2224,7 @@ index d296d617f589..2f0ef8dc2693 100644
  
  	if (cpus_have_final_cap(ARM64_WORKAROUND_SPECULATIVE_AT)) {
  		/* Ensure write of the host VMID */
-@@ -55,11 +59,22 @@ static void __tlb_switch_to_host(struct tlb_inv_context *cxt)
+@@ -55,11 +60,23 @@ static void __tlb_switch_to_host(struct tlb_inv_context *cxt)
  	}
  }
  
@@ -2154,6 +2236,7 @@ index d296d617f589..2f0ef8dc2693 100644
 +	tmp |= SCTLR_ELx_DSSBS;
 +	write_sysreg_el2(tmp, SYS_SCTLR);
 +}
++KVMS_SYMBOL(__kvm_enable_ssbs);
 +
  void __kvm_tlb_flush_vmid_ipa(struct kvm_s2_mmu *mmu,
  			      phys_addr_t ipa, int level)
@@ -2165,33 +2248,44 @@ index d296d617f589..2f0ef8dc2693 100644
  	dsb(ishst);
  
  	/* Switch to requested VMID */
-@@ -106,7 +121,7 @@ void __kvm_tlb_flush_vmid_ipa(struct kvm_s2_mmu *mmu,
+@@ -106,8 +123,9 @@ void __kvm_tlb_flush_vmid_ipa(struct kvm_s2_mmu *mmu,
  	if (icache_is_vpipt())
  		icache_inval_all_pou();
  
 -	__tlb_switch_to_host(&cxt);
 +	__tlb_switch_to_host(mmu, &cxt);
  }
++KVMS_SYMBOL(__kvm_tlb_flush_vmid_ipa);
  
  void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu)
-@@ -122,7 +137,7 @@ void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu)
+ {
+@@ -122,8 +140,9 @@ void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu)
  	dsb(ish);
  	isb();
  
 -	__tlb_switch_to_host(&cxt);
 +	__tlb_switch_to_host(mmu, &cxt);
  }
++KVMS_SYMBOL(__kvm_tlb_flush_vmid);
  
  void __kvm_flush_cpu_context(struct kvm_s2_mmu *mmu)
-@@ -137,7 +152,7 @@ void __kvm_flush_cpu_context(struct kvm_s2_mmu *mmu)
+ {
+@@ -137,8 +156,9 @@ void __kvm_flush_cpu_context(struct kvm_s2_mmu *mmu)
  	dsb(nsh);
  	isb();
  
 -	__tlb_switch_to_host(&cxt);
 +	__tlb_switch_to_host(mmu, &cxt);
  }
++KVMS_SYMBOL(__kvm_flush_cpu_context);
  
  void __kvm_flush_vm_context(void)
+ {
+@@ -159,3 +179,4 @@ void __kvm_flush_vm_context(void)
+ 
+ 	dsb(ish);
+ }
++KVMS_SYMBOL(__kvm_flush_vm_context);
 diff --git a/arch/arm64/kvm/hyp/pgtable.c b/arch/arm64/kvm/hyp/pgtable.c
 index a50ecc1bb35a..62dd1bc3b50e 100644
 --- a/arch/arm64/kvm/hyp/pgtable.c
@@ -3301,10 +3395,19 @@ index a50ecc1bb35a..62dd1bc3b50e 100644
 -	pgt->pgd = NULL;
 -}
 diff --git a/arch/arm64/kvm/hyp/vgic-v3-sr.c b/arch/arm64/kvm/hyp/vgic-v3-sr.c
-index 39f8f7f9227c..b0105e3527dc 100644
+index 39f8f7f9227c..0ace5f9426eb 100644
 --- a/arch/arm64/kvm/hyp/vgic-v3-sr.c
 +++ b/arch/arm64/kvm/hyp/vgic-v3-sr.c
-@@ -200,6 +200,7 @@ void __vgic_v3_save_state(struct vgic_v3_cpu_if *cpu_if)
+@@ -14,6 +14,8 @@
+ #include <asm/kvm_hyp.h>
+ #include <asm/kvm_mmu.h>
+ 
++#include "../arch/arm64/kvm/ext-guest.h"
++
+ #define vtr_to_max_lr_idx(v)		((v) & 0xf)
+ #define vtr_to_nr_pre_bits(v)		((((u32)(v) >> 26) & 7) + 1)
+ #define vtr_to_nr_apr_regs(v)		(1 << (vtr_to_nr_pre_bits(v) - 5))
+@@ -200,6 +202,7 @@ void __vgic_v3_save_state(struct vgic_v3_cpu_if *cpu_if)
  {
  	u64 used_lrs = cpu_if->used_lrs;
  
@@ -3312,7 +3415,7 @@ index 39f8f7f9227c..b0105e3527dc 100644
  	/*
  	 * Make sure stores to the GIC via the memory mapped interface
  	 * are now visible to the system register interface when reading the
-@@ -236,6 +237,7 @@ void __vgic_v3_restore_state(struct vgic_v3_cpu_if *cpu_if)
+@@ -236,6 +239,7 @@ void __vgic_v3_restore_state(struct vgic_v3_cpu_if *cpu_if)
  	u64 used_lrs = cpu_if->used_lrs;
  	int i;
  
@@ -3320,7 +3423,7 @@ index 39f8f7f9227c..b0105e3527dc 100644
  	if (used_lrs || cpu_if->its_vpe.its_vm) {
  		write_gicreg(cpu_if->vgic_hcr, ICH_HCR_EL2);
  
-@@ -269,6 +271,7 @@ void __vgic_v3_activate_traps(struct vgic_v3_cpu_if *cpu_if)
+@@ -269,6 +273,7 @@ void __vgic_v3_activate_traps(struct vgic_v3_cpu_if *cpu_if)
  	 * particular.  This logic must be called before
  	 * __vgic_v3_restore_state().
  	 */
@@ -3328,7 +3431,7 @@ index 39f8f7f9227c..b0105e3527dc 100644
  	if (!cpu_if->vgic_sre) {
  		write_gicreg(0, ICC_SRE_EL1);
  		isb();
-@@ -308,6 +311,7 @@ void __vgic_v3_deactivate_traps(struct vgic_v3_cpu_if *cpu_if)
+@@ -308,6 +313,7 @@ void __vgic_v3_deactivate_traps(struct vgic_v3_cpu_if *cpu_if)
  {
  	u64 val;
  
@@ -3336,7 +3439,7 @@ index 39f8f7f9227c..b0105e3527dc 100644
  	if (!cpu_if->vgic_sre) {
  		cpu_if->vgic_vmcr = read_gicreg(ICH_VMCR_EL2);
  	}
-@@ -338,6 +342,7 @@ void __vgic_v3_save_aprs(struct vgic_v3_cpu_if *cpu_if)
+@@ -338,6 +344,7 @@ void __vgic_v3_save_aprs(struct vgic_v3_cpu_if *cpu_if)
  	val = read_gicreg(ICH_VTR_EL2);
  	nr_pre_bits = vtr_to_nr_pre_bits(val);
  
@@ -3344,7 +3447,15 @@ index 39f8f7f9227c..b0105e3527dc 100644
  	switch (nr_pre_bits) {
  	case 7:
  		cpu_if->vgic_ap0r[3] = __vgic_v3_read_ap0rn(3);
-@@ -371,6 +376,7 @@ void __vgic_v3_restore_aprs(struct vgic_v3_cpu_if *cpu_if)
+@@ -362,6 +369,7 @@ void __vgic_v3_save_aprs(struct vgic_v3_cpu_if *cpu_if)
+ 		cpu_if->vgic_ap1r[0] = __vgic_v3_read_ap1rn(0);
+ 	}
+ }
++KVMS_SYMBOL(__vgic_v3_save_aprs);
+ 
+ void __vgic_v3_restore_aprs(struct vgic_v3_cpu_if *cpu_if)
+ {
+@@ -371,6 +379,7 @@ void __vgic_v3_restore_aprs(struct vgic_v3_cpu_if *cpu_if)
  	val = read_gicreg(ICH_VTR_EL2);
  	nr_pre_bits = vtr_to_nr_pre_bits(val);
  
@@ -3352,6 +3463,42 @@ index 39f8f7f9227c..b0105e3527dc 100644
  	switch (nr_pre_bits) {
  	case 7:
  		__vgic_v3_write_ap0rn(cpu_if->vgic_ap0r[3], 3);
+@@ -395,6 +404,7 @@ void __vgic_v3_restore_aprs(struct vgic_v3_cpu_if *cpu_if)
+ 		__vgic_v3_write_ap1rn(cpu_if->vgic_ap1r[0], 0);
+ 	}
+ }
++KVMS_SYMBOL(__vgic_v3_restore_aprs);
+ 
+ void __vgic_v3_init_lrs(void)
+ {
+@@ -404,6 +414,7 @@ void __vgic_v3_init_lrs(void)
+ 	for (i = 0; i <= max_lr_idx; i++)
+ 		__gic_v3_set_lr(0, i);
+ }
++KVMS_SYMBOL(__vgic_v3_init_lrs);
+ 
+ /*
+  * Return the GIC CPU configuration:
+@@ -454,16 +465,19 @@ u64 __vgic_v3_get_gic_config(void)
+ 
+ 	return val;
+ }
++KVMS_SYMBOL(__vgic_v3_get_gic_config);
+ 
+ u64 __vgic_v3_read_vmcr(void)
+ {
+ 	return read_gicreg(ICH_VMCR_EL2);
+ }
++KVMS_SYMBOL(__vgic_v3_read_vmcr);
+ 
+ void __vgic_v3_write_vmcr(u32 vmcr)
+ {
+ 	write_gicreg(vmcr, ICH_VMCR_EL2);
+ }
++KVMS_SYMBOL(__vgic_v3_write_vmcr);
+ 
+ static int __vgic_v3_bpr_min(void)
+ {
 diff --git a/arch/arm64/kvm/hyp/vhe/switch.c b/arch/arm64/kvm/hyp/vhe/switch.c
 index d88d3c143a73..24299179f136 100644
 --- a/arch/arm64/kvm/hyp/vhe/switch.c
