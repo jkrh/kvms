@@ -8,6 +8,7 @@
 #include "hyp_config.h"
 #include "hvccall-defines.h"
 #include "host_defs.h"
+#include <mmacros.S>
 
 /*
  * Utility macros
@@ -46,17 +47,16 @@
 	ldp	x5, x6, [sp, #(8 * 5)]
 	ldp	x7, x8, [sp, #(8 * 7)]
 	ldp	x9, x10, [sp, #(8 * 9)]
-	ldp	x10, x11, [sp, #(8 * 10)]
-	ldp	x12, x13, [sp, #(8 * 12)]
-	ldp	x14, x15, [sp, #(8 * 14)]
-	ldp	x16, x17, [sp, #(8 * 16)]
-	ldp	x18, x19, [sp, #(8 * 18)]
-	ldp	x20, x21, [sp, #(8 * 20)]
-	ldp	x22, x23, [sp, #(8 * 22)]
-	ldp	x24, x25, [sp, #(8 * 24)]
-	ldp	x26, x27, [sp, #(8 * 26)]
-	ldp	x28, x29, [sp, #(8 * 28)]
-	ldr	x30, [sp, #(8 * 30)]
+	ldp	x11, x12, [sp, #(8 * 11)]
+	ldp	x13, x14, [sp, #(8 * 13)]
+	ldp	x15, x16, [sp, #(8 * 15)]
+	ldp	x17, x18, [sp, #(8 * 17)]
+	ldp	x19, x20, [sp, #(8 * 19)]
+	ldp	x21, x22, [sp, #(8 * 21)]
+	ldp	x23, x24, [sp, #(8 * 23)]
+	ldp	x25, x26, [sp, #(8 * 25)]
+	ldp	x27, x28, [sp, #(8 * 27)]
+	ldp	x29, x30, [sp, #(8 * 29)]
 .endm
 
 .macro	save_callee_saved_regs ctxt
@@ -116,16 +116,9 @@
  * landing us with the address of the host data.
  */
 .macro hyp_adr_this_cpu reg, sym, tmp
-	/* FIXME - use platform specific CPU ID setting */
-	mrs	\tmp, mpidr_el1
-	and	\tmp, \tmp, #0xFF00
-	lsr	\tmp, \tmp, #8
-	mov	\reg, #8
-	mul	\tmp, \tmp, \reg
-
+	smp_processor_id \tmp
 	adr_l	\reg, \sym
-	add	\reg, \reg, \tmp
-	ldr	\reg, [\reg]
+	ldr	\reg, [\reg, \tmp, lsl #3]
 	mrs	\tmp, tpidr_el2
 	add	\reg, \reg, \tmp
 .endm

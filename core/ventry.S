@@ -1,5 +1,4 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-#include <mmacros.S>
 #include <host_defs.h>
 
 #include "pt_regs.h"
@@ -81,22 +80,20 @@ el1_sync:
 	cmp	x1, #0x3C		// BRK
 	beq	el1_trap
 	cmp	x1, #0x16		// HVC execution
-	b.ne	5f			// ??
-	b	4f			// Normal HVC
+	beq	hvc_trap
 
-3:	load_all_regs
-	add	sp, sp, #(PT_REGS_STACK_ALLOC)
-	eret
+	mov	x0, #1
+	mov	x1, sp
+	b	dump_state
 
-4:	cmp	x0, #GUEST_VMID_START
+hvc_trap:
+	cmp	x0, #GUEST_VMID_START
 	bge	guest_hvc_trap
 	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	hvccall
-	b	3b
-
-5:	mov	x0, #1
-	mov	x1, sp
-	b	dump_state
+	load_all_regs
+	add	sp, sp, #(PT_REGS_STACK_ALLOC)
+	eret
 
 	invalid_vector	el2_sync_invalid
 	invalid_vector	el2_irq_invalid

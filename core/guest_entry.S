@@ -7,9 +7,8 @@
 	.global	guest_exit
 
 /*
- * uint64_t hyp_guest_enter(void *vcpu, struct user_pt_regs *regs);
- *  x0: kern_hyp_va(vcpu)
- *  x1: guest regs
+ * uint64_t hyp_guest_enter(const struct user_pt_regs *regs);
+ *  x0: guest regs
  */
 hyp_guest_enter:
 	get_host_ctxt	x2, x3
@@ -27,7 +26,7 @@ hyp_guest_enter:
 	mov	x0, #ARM_EXCEPTION_IRQ
 	ret
 
-1:	mov	x29, x1
+1:	mov	x29, x0
 	ldr	x2, [x29, #(8 * 31)]
 	msr	SP_EL0, x2
 	ldp	x0, x1,   [x29, #(8 * 0)]

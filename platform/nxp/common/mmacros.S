@@ -16,12 +16,11 @@
 	bl	_zeromem16
 .endm
 
-.macro smp_processor_id reg tmp
+.macro smp_processor_id reg
 	mrs	\reg, mpidr_el1
-	mov	\tmp, \reg
-	and	\reg, \reg, #MPIDR_AFF0_MASK
-	ubfx	\tmp, \tmp, #6, #3
-	add	\reg, \reg, \tmp
+	/* processor id = 4 * Aff1 + Aff0 */
+	add	\reg, \reg, \reg, lsl #6
+	ubfx	\reg, \reg, #6, #3
 .endm
 
 /*

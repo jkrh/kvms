@@ -1,4 +1,3 @@
-#include "mmacros.S"
 #include "linuxmacros.h"
 #include "host_defs.h"
 
@@ -10,7 +9,7 @@
  */
 hyp_entrypoint:
 	mov	x27, x30
-	smp_processor_id x0, x1
+	smp_processor_id x0
 	/* Stack setup */
 	mov	x1, STACK_SIZE
 	madd	x1, x1, x0, x1

@@ -63,7 +63,7 @@ extern struct mbedtls_ctr_drbg_context ctr_drbg;
 
 #define ARM_EXCEPTION_HYP_GONE 0xbadca11
 
-extern uint64_t hyp_guest_enter(void *vcpu, struct user_pt_regs *regs);
+extern uint64_t hyp_guest_enter(const struct user_pt_regs *regs);
 
 /*
  * Error Syndrome Register decoding
@@ -286,7 +286,7 @@ uint64_t guest_enter(void *vcpu)
 	ctxt->gpreg_sync_from_kvm = 0;
 	ctxt->pc_sync_from_kvm = PC_SYNC_NONE;
 	write_reg(ELR_EL2, ctxt->regs.pc);
-	return hyp_guest_enter(vcpu, &ctxt->regs);
+	return hyp_guest_enter(&ctxt->regs);
 }
 
 void sysreg_restore_guest(uint64_t vmid, uint64_t vcpuid)
