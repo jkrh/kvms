@@ -26,3 +26,6 @@
 	path = mbedtls
 	url = https://github.com/ARMmbed/mbedtls.git
 	ignore = dirty
+[submodule "oss/lz4"]
+	path = oss/lz4
+	url = https://github.com/lz4/lz4.git

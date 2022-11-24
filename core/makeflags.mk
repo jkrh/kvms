@@ -9,7 +9,7 @@ GHEAD := $(shell git rev-parse HEAD)
 
 export DEFINES := -D$(PVAR) -D_GNU_SOURCE -D__OPTIMIZE__ -DBUILDHOST=$(HOSTNAME) \
 		-DBUILDUSER=$(USER) -DGHEAD=$(GHEAD) -DMAX_THRESH=$(MAX_PAGING_BLOCKS) \
-		-DMAX_PAGING_BLOCKS=$(MAX_PAGING_BLOCKS) \
+		-DMAX_PAGING_BLOCKS=$(MAX_PAGING_BLOCKS) -DUNSAFE_LZ4 \
 		-DMBEDTLS_USER_CONFIG_FILE=\"$(BASE_DIR)/core/mbedconfig.h\" -include "config.h"
 export WARNINGS := -Wall -Werror -Wno-pointer-arith -Wno-variadic-macros \
 		-Wstack-protector -Wstack-usage=8192 -Wno-implicit-function-declaration

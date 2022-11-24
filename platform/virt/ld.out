@@ -1,7 +1,7 @@
 ENTRY(_start)
 SECTIONS
 {
-	. = 0x100000000;
+	. = 0xC0000000;
 	._reset . : { ../../.objs/reset.o(.text) }
 	.text : ALIGN(8) {
 		*(.text)

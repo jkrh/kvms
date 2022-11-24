@@ -1,0 +1,10 @@
+override CC := gcc
+override LD := ld
+override CXX :=
+override CPP :=
+override CFLAGS := -Wall -O0 -g
+override LDFLAGS :=
+override MAKEFLAGS :=
+override LDLAGS :=
+override LDLIBS :=
+override SANITIZER_OPTS:=

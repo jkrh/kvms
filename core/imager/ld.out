@@ -1,0 +1,14 @@
+ENTRY(_start)
+SECTIONS
+{
+	/* Place somewhere under where the hyp ifself should go */
+	. = 0xC0080000;
+	._lreset . : { ./lreset.o(.text) }
+	.text : ALIGN(16) {
+		*(.text)
+	}
+	._hyp-binary . : ALIGN(16) { ./hyp-binary.o(.data) }
+	.data : ALIGN(16) { *(.data) }
+	.bss : ALIGN(16) { *(.bss COMMON) }
+	. = ALIGN(16);
+}

@@ -1,4 +1,4 @@
-From 4fa0383a8b98cc56141615c82922664fb90a77d6 Mon Sep 17 00:00:00 2001
+From bf2bcd54297478c82732e3ab37a207f58697f78e Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 18 Oct 2022 10:20:59 +0300
 Subject: [PATCH] KVM: external hypervisor 5.15 kernel baseport
@@ -598,7 +598,7 @@ index 551427ae8cc5..b55829b271ed 100644
  #ifdef CONFIG_CPU_PM
    DEFINE(CPU_CTX_SP,		offsetof(struct cpu_suspend_ctx, sp));
 diff --git a/arch/arm64/kernel/head.S b/arch/arm64/kernel/head.S
-index ab6566bf1c33..65e0cc0a73a5 100644
+index ab6566bf1c33..fce30a32ca10 100644
 --- a/arch/arm64/kernel/head.S
 +++ b/arch/arm64/kernel/head.S
 @@ -509,6 +509,21 @@ SYM_INNER_LABEL(init_el1, SYM_L_LOCAL)
@@ -609,7 +609,7 @@ index ab6566bf1c33..65e0cc0a73a5 100644
 +	 * Jump to the hypervisor and fake we did el2 setup here.
 +	 */
 +	mov	x26, lr
-+	ldr	x27, =0x100000000
++	ldr	x27, =0xC0000000
 +	ldr	x28, =0x48000000
 +	adr	x30, init_el2
 +	add	x30, x30, 24

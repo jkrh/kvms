@@ -87,6 +87,13 @@ sign_guest: gen_key
 gen_key:
 	$(MAKE) -C $(KEYS_PATH)
 
+comp-image: dirs
+	$(MAKE) -C core/imager
+
+comp-image-clean:
+	$(MAKE) clean
+	$(MAKE) -C core/imager clean
+
 package:
 	$(MAKE) -C platform/$(PLATFORM)/tools/sign
 
