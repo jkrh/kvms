@@ -28,21 +28,6 @@ uint8_t __stack[STACK_SIZE * PLATFORM_CORE_COUNT] ALIGN(16) DATA;
 
 static bool init_ready;
 
-typedef struct {
-	uint64_t start;
-	uint64_t end;
-	uint64_t phys;
-	uint64_t range_size;
-	uint64_t type; /* Stage 1 AttrIndx and stage 2 MemAttr */
-	uint64_t share;
-	uint64_t perms;
-} memmap;
-
-typedef struct {
-	uint64_t start;
-	uint64_t end;
-} memrange;
-
 #include "product_mmap.h"
 
 int map_table(kvm_guest_t *host, int stage, const memmap *mm)
@@ -123,6 +108,8 @@ int machine_init(kvm_guest_t *host)
 	/* Initial slots for host */
 	platform_init_slots(host);
 
+	platform_init_denyrange();
+
 	return res;
 }
 
@@ -175,57 +162,6 @@ int platform_init_host_pgd(kvm_guest_t *host)
 	host->table_levels_el1s2 = TABLE_LEVELS;
 
 	return 0;
-}
-
-void platform_early_setup(void)
-{
-	uint64_t hcr_el2, cnthctl_el2;
-
-	/* 64 bit only, Trap SMCs */
-	hcr_el2 = 0;
-	bit_set(hcr_el2, HCR_RW_BIT);
-	bit_set(hcr_el2, HCR_VM_BIT);
-	bit_set(hcr_el2, HCR_NV2_BIT);
-	bit_set(hcr_el2, HCR_TVM_BIT);
-	write_reg(HCR_EL2, hcr_el2);
-
-	/* EL1 timer access */
-	cnthctl_el2 = 0;
-	bit_set(cnthctl_el2, CNTHCTL_EL1PCTEN_BIT);
-	bit_set(cnthctl_el2, CNTHCTL_EL1PCEN_BIT);
-	bit_set(cnthctl_el2, CNTHCTL_ENVTEN_BIT);
-	write_reg(CNTHCTL_EL2, cnthctl_el2);
-	write_reg(CNTVOFF_EL2, 0);
-
-	/* Processor id */
-	write_reg(VPIDR_EL2, read_reg(MIDR_EL1));
-
-	/* Use linux mair */
-	write_reg(MAIR_EL2, PLATFORM_MAIR_EL2);
-
-	isb();
-}
-
-void platform_mmu_prepare(void)
-{
-	kvm_guest_t *host;
-
-	if (PLATFORM_VTCR_EL2 != 0)
-		write_reg(VTCR_EL2, PLATFORM_VTCR_EL2);
-
-	if (PLATFORM_TCR_EL2 != 0)
-		write_reg(TCR_EL2, PLATFORM_TCR_EL2);
-
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("");
-
-	write_reg(TTBR0_EL2, (uint64_t)host->EL2S1_pgd);
-	write_reg(VTTBR_EL2, (uint64_t)host->EL1S2_pgd);
-	set_current_vmid(HOST_VMID);
-
-	dsb();
-	isb();
 }
 
 uint32_t platform_get_next_vmid(uint32_t next_vmid)
@@ -288,33 +224,6 @@ void platform_console_init(void)
 uint8_t *platfrom_get_stack_ptr(uint64_t init_index)
 {
 	return &__stack[(STACK_SIZE * init_index) + STACK_SIZE];
-}
-
-int platform_range_permitted(uint64_t pstart, size_t len)
-{
-	int entry = 0, res = 0;
-	uint64_t pend = (pstart + len) - 1;
-
-	if (pend <= pstart)
-		return res;
-
-	while (noaccess[entry].end) {
-		if ((noaccess[entry].start <= pstart) &&
-		    (pstart <= noaccess[entry].end))
-			break;
-		if ((noaccess[entry].start <= pend) &&
-		    (pend <= noaccess[entry].end))
-			break;
-		if ((pstart < noaccess[entry].start) &&
-		    (noaccess[entry].end < pend))
-			break;
-		entry++;
-	}
-
-	if (!noaccess[entry].end)
-		res = 1;
-
-	return res;
 }
 
 #ifdef TEE_IF

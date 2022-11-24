@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+
+#ifndef __PRODUCT_MMAP_H__
+#define __PRODUCT_MMAP_H__
+
 #include <stdint.h>
 
 /* EL2 (stage 1 only) translation table. Add here any custom mappings that needs to be accessible from EL2 */
@@ -125,10 +130,12 @@ static const memmap st2_secure_memmap[] = {
 };
 
 /* Physical areas for which hyp will deny mapping requests */
-static const memrange noaccess[] = {
+static const struct memrange noaccess[] = {
 	/*          PA start,             PA end*/
 	/* Example: */
 	/*{ 0x0000000000000000, 0x0000000040000000},*/
 	{ 0xE0000000, 0xE2FFFFFF },
 	{ 0, 0 }
 };
+
+#endif /* __PRODUCT_MMAP_H__ */

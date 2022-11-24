@@ -13,6 +13,21 @@
 
 #include "guest.h"
 
+typedef struct {
+	uint64_t start;
+	uint64_t end;
+	uint64_t phys;
+	uint64_t range_size;
+	uint64_t type;
+	uint64_t share;
+	uint64_t perms;
+} memmap;
+
+struct memrange{
+	uint64_t start;
+	uint64_t end;
+};
+
 /**
  * machine_init - Initialize host platform.
  *
@@ -118,6 +133,23 @@ uint8_t *platfrom_get_stack_ptr(uint64_t init_index);
  * @return 1 if permitted, 0 otherwise
  */
 int platform_range_permitted(uint64_t pstart, size_t len);
+
+/**
+ * platform_init_denyrange - initial ranges which are not allowed to be changed
+ *
+ * See platform_range_permitted
+ */
+void platform_init_denyrange(void);
+
+/**
+ * platform_add_denyrange - deny further mappings for the given range
+ *
+ * See platform_range_permitted
+ *
+ * @param pstart the start address of the range
+ * @param len length of the range
+ */
+void platform_add_denyrange(uint64_t pstart, size_t len);
 
 /**
  * platform_entropy - fetch entropy from the platform source

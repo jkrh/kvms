@@ -247,9 +247,12 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_HOST_MAP_STAGE2:
 		guest = get_guest(HOST_VMID);
 		res = guest_validate_range(guest, a1, a2, a3);
-		if (!res)
+		if (!res) {
+			if (a5)
+				platform_add_denyrange(a2, a3);
 			res = mmap_range(guest, STAGE2, a1, a2, a3, a4,
 				 KERNEL_MATTR);
+		}
 		break;
 	case HYP_HOST_BOOTSTEP:
 	/*	res = hyp_bootstep(a1, a2, a3, a4, a5, a6);*/
