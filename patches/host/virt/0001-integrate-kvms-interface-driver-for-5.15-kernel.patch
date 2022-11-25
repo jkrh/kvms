@@ -1,0 +1,648 @@
+From 470191d77ae40df0357cc56baff7cdb3648e5167 Mon Sep 17 00:00:00 2001
+From: Jani Hyvonen <jani.hyvonen@unikie.com>
+Date: Wed, 3 Aug 2022 14:40:32 +0300
+Subject: [PATCH] integrate kvms interface driver for 5.15 kernel
+
+Signed-off-by: Jani Hyvonen <jani.hyvonen@unikie.com>
+Signed-off-by: Martti Takala <martti.takala@unikie.com>
+Signed-off-by: Konsta Karsisto <konsta.karsisto@gmail.com>
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ arch/arm64/configs/defconfig      |   5 +-
+ drivers/staging/Kconfig           |   2 +
+ drivers/staging/Makefile          |   1 +
+ drivers/staging/kvms/Kconfig      |   7 +
+ drivers/staging/kvms/Makefile     |   3 +
+ drivers/staging/kvms/kvms-if.c    | 478 ++++++++++++++++++++++++++++++
+ drivers/staging/kvms/kvms-if.h    |  44 +++
+ include/asm-generic/vmlinux.lds.h |   3 +-
+ 8 files changed, 541 insertions(+), 2 deletions(-)
+ create mode 100644 drivers/staging/kvms/Kconfig
+ create mode 100644 drivers/staging/kvms/Makefile
+ create mode 100644 drivers/staging/kvms/kvms-if.c
+ create mode 100644 drivers/staging/kvms/kvms-if.h
+
+diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
+index ac7d5d172428..1c4e27c7b4c0 100644
+--- a/arch/arm64/configs/defconfig
++++ b/arch/arm64/configs/defconfig
+@@ -76,6 +76,7 @@ CONFIG_CRASH_DUMP=y
+ CONFIG_XEN=y
+ CONFIG_COMPAT=y
+ CONFIG_RANDOMIZE_BASE=y
++CONFIG_RELOCATABLE=y
+ CONFIG_HIBERNATION=y
+ CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y
+ CONFIG_ENERGY_MODEL=y
+@@ -129,7 +130,7 @@ CONFIG_CRYPTO_AES_ARM64_CE_CCM=y
+ CONFIG_CRYPTO_AES_ARM64_CE_BLK=y
+ CONFIG_CRYPTO_CHACHA20_NEON=m
+ CONFIG_CRYPTO_AES_ARM64_BS=m
+-CONFIG_JUMP_LABEL=y
++CONFIG_JUMP_LABEL=n
+ CONFIG_MODULES=y
+ CONFIG_MODULE_UNLOAD=y
+ # CONFIG_CORE_DUMP_DEFAULT_ELF_HEADERS is not set
+@@ -1225,3 +1226,5 @@ CONFIG_VIRTIO_VSOCKETS_COMMON=y
+ CONFIG_VIRTIO_VSOCKETS=y
+ CONFIG_ARM64_PTR_AUTH=n
+ CONFIG_DM_CRYPT=m
++CONFIG_STAGING=y
++CONFIG_KVMS=y
+diff --git a/drivers/staging/Kconfig b/drivers/staging/Kconfig
+index e03627ad4460..25cf703f520f 100644
+--- a/drivers/staging/Kconfig
++++ b/drivers/staging/Kconfig
+@@ -102,4 +102,6 @@ source "drivers/staging/qlge/Kconfig"
+ 
+ source "drivers/staging/wfx/Kconfig"
+ 
++source "drivers/staging/kvms/Kconfig"
++
+ endif # STAGING
+diff --git a/drivers/staging/Makefile b/drivers/staging/Makefile
+index c7f8d8d8dd11..238149c59ff6 100644
+--- a/drivers/staging/Makefile
++++ b/drivers/staging/Makefile
+@@ -41,3 +41,4 @@ obj-$(CONFIG_XIL_AXIS_FIFO)	+= axis-fifo/
+ obj-$(CONFIG_FIELDBUS_DEV)     += fieldbus/
+ obj-$(CONFIG_QLGE)		+= qlge/
+ obj-$(CONFIG_WFX)		+= wfx/
++obj-$(CONFIG_KVMS)		+= kvms/
+diff --git a/drivers/staging/kvms/Kconfig b/drivers/staging/kvms/Kconfig
+new file mode 100644
+index 000000000000..0e60889f012c
+--- /dev/null
++++ b/drivers/staging/kvms/Kconfig
+@@ -0,0 +1,7 @@
++# SPDX-License-Identifier: GPL-2.0
++
++config KVMS
++	tristate "Kvms hypervisor interface module"
++	depends on ARM64
++	help
++		The kvms-if driver enables communication with the kvms hypervisor
+diff --git a/drivers/staging/kvms/Makefile b/drivers/staging/kvms/Makefile
+new file mode 100644
+index 000000000000..714f955fcf57
+--- /dev/null
++++ b/drivers/staging/kvms/Makefile
+@@ -0,0 +1,3 @@
++# SPDX-License-Identifier: GPL-2.0
++
++obj-$(CONFIG_KVMS) += kvms-if.o
+diff --git a/drivers/staging/kvms/kvms-if.c b/drivers/staging/kvms/kvms-if.c
+new file mode 100644
+index 000000000000..03c239504760
+--- /dev/null
++++ b/drivers/staging/kvms/kvms-if.c
+@@ -0,0 +1,478 @@
++// SPDX-License-Identifier: GPL-2.0-only
++
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/fs.h>
++#include <linux/uaccess.h>
++#include <asm-generic/bug.h>
++#include <asm-generic/ioctls.h>
++#include <asm-generic/sections.h>
++#include <asm/cpufeature.h>
++#include <linux/mm.h>
++#include <asm/memory.h>
++#include <asm/kvm_asm.h>
++#include <linux/slab.h>
++#include <../arch/arm64/kvm/hvccall-defines.h>
++#include "kvms-if.h"
++
++MODULE_DESCRIPTION("Kvms hypervisor interface module");
++MODULE_LICENSE("GPL v2");
++
++#define DEVICE_NAME "kvms-if"
++
++/* Execute never XN [54] (and XNX [54:53]) */
++#define XN_SHIFT		54
++#define XN_EXEC			(0x0UL << XN_SHIFT)
++#define XN_XN			(0x1UL << XN_SHIFT)
++
++#define XNX_TTS2UXN_SHIFT	53
++#define XNX_EL1_EXEC_EL0_EXEC	(0x0UL << XNX_TTS2UXN_SHIFT)
++#define XNX_EL1_XN_EL0_EXEC	(0x1UL << XNX_TTS2UXN_SHIFT)
++#define XNX_EL1_XN_EL0_XN	(0x2UL << XNX_TTS2UXN_SHIFT)
++#define XNX_EL1_EXEC_EL0_XN	(0x3UL << XNX_TTS2UXN_SHIFT)
++
++/* Shareability SH [9:8], Stage 1 and 2 */
++#define SH_SHIFT		0x8
++#define SH_NO			(0x0 << SH_SHIFT)
++#define SH_OUT			(0x2 << SH_SHIFT)
++#define SH_INN			(0x3 << SH_SHIFT)
++
++/* Data access permissions [7:6] S2AP */
++#define S2AP_SHIFT		6
++#define S2AP_MASK		(0x3UL << S2AP_SHIFT)
++#define S2AP_NONE		(0 << S2AP_SHIFT)
++#define S2AP_READ		(1UL << S2AP_SHIFT)
++#define S2AP_WRITE		(2UL << S2AP_SHIFT)
++#define S2AP_RW			(3UL << S2AP_SHIFT)
++
++/* Stage 2 memory type [5:4] (MemAttr[3:2]) */
++#define S2_MEM_ATTR_SHIFT	2
++#define S2_MEM_TYPE_SHIFT	(S2_MEM_ATTR_SHIFT + 2)
++#define S2_MEM_TYPE_MASK	(0x3 << S2_MEM_TYPE_SHIFT)
++#define S2_DEVICE		(0x0 << S2_MEM_TYPE_SHIFT)
++#define S2_ONONE		(0x1 << S2_MEM_TYPE_SHIFT)
++#define S2_OWT			(0x2 << S2_MEM_TYPE_SHIFT)
++#define S2_OWB			(0x3 << S2_MEM_TYPE_SHIFT)
++
++/* Stage 2 memory type [3:2] (MemAttr[1:0]) when MemAttr[3:2] != 0b00 */
++/* Inner Non-cacheable */
++#define S2_INONE		(0x1 << S2_MEM_ATTR_SHIFT)
++/* Inner Write-Through Cacheable */
++#define S2_IWT			(0x2 << S2_MEM_ATTR_SHIFT)
++/* Inner Write-Back Cacheable */
++#define S2_IWB			(0x3 << S2_MEM_ATTR_SHIFT)
++
++/* Stage 2 memory type */
++#define S2_CACHED_OWB_IWB	(S2_OWB | S2_IWB)
++
++struct log_frag {
++	u64 frag;
++};
++
++extern char vdso_start[], vdso_end[];
++
++enum section_attrs {
++	KERNEL_TEXT_P1_ATTR = 0,
++	KERNEL_TEXT_P2_ATTR,
++	HYP_TEXT_ATTR,
++	RODATA_ATTR,
++	RO_AFTER_INIT_ATTR,
++	VDSO_ATTR,
++	LAST_ATTR
++};
++
++struct hypdrv_mem_region vmlinux_sections[LAST_ATTR] = {
++#ifndef CONFIG_JUMP_LABEL
++	{_stext, __hyp_idmap_text_start, SH_OUT | S2AP_READ | S2_CACHED_OWB_IWB, "_text part 1", 1},
++	{__hyp_text_end, _etext, SH_OUT | S2AP_READ | S2_CACHED_OWB_IWB, "_text part 2", 1},
++#else
++#pragma warning "Kernel text not protected. Check CONFIG_JUMP_LABEL"
++#endif
++	{__hyp_idmap_text_start, __hyp_text_end, SH_OUT | S2AP_READ | S2_CACHED_OWB_IWB, "__hyp_text", 1},
++	{__start_rodata, __end_rodata, SH_OUT | S2AP_READ | S2_CACHED_OWB_IWB, "rodata", 0},
++	/* Change ro_after_init section to read only after init has completed (if need to be) */
++	{__start_ro_after_init, __end_ro_after_init, SH_OUT | S2AP_RW | S2_CACHED_OWB_IWB, "ro_after_init", 0},
++	{vdso_start, vdso_end, SH_OUT | S2AP_READ | S2_CACHED_OWB_IWB, "vdso", 0},
++};
++
++static const char region_name[] = "region";
++
++static int major;
++static int dopen;
++
++/*
++ * Check whether EL0 and EL1 execution permissions can be specified separately.
++ * XN bit 53 usage.
++ */
++static inline bool cpu_has_tts2uxn(void)
++{
++	u64 mmfr1;
++
++	mmfr1 = read_cpuid(ID_AA64MMFR1_EL1);
++	return cpuid_feature_extract_unsigned_field(mmfr1,
++						    ID_AA64MMFR1_XNX_SHIFT);
++}
++
++
++static u64 kaddr_to_phys(u64 kaddr)
++{
++	return virt_to_phys((void *)kaddr);
++}
++
++static int
++do_host_map(struct hypdrv_mem_region *reg)
++{
++	u64 size, pstart, pend;
++
++	if (!reg->name)
++		reg->name = region_name;
++
++	if (!PAGE_ALIGNED((u64)reg->start)) {
++		pr_err("kvms-if %s region %s start: %llx not page aligned\n",
++		       __func__, reg->name, (u64)reg->start);
++		return -EINVAL;
++	}
++
++	size = (u64)reg->end - (u64)reg->start;
++	if (!PAGE_ALIGNED((u64)size)) {
++		pr_err("kvms-if %s region %s size: %llx not page aligned\n",
++		       __func__, reg->name, size);
++		return -EINVAL;
++	}
++
++	pstart = kaddr_to_phys((u64)reg->start);
++	pend   = kaddr_to_phys((u64)reg->end);
++
++	pr_info("kvms-if %s: region: %s %llx %llx %llx [ %llx %llx %llx ]\n",
++		__func__, reg->name, (u64)reg->start, (u64)reg->end, reg->prot, pstart,
++		pend, size);
++
++	return __kvms_hvc_cmd(HYP_HOST_MAP_STAGE2, pstart,
++			      pstart, size, reg->prot, reg->lock);
++}
++
++static int
++do_hvc_lock(void)
++{
++	return __kvms_hvc_cmd(HYP_HOST_SET_LOCKFLAGS,
++			      HOST_STAGE1_LOCK |
++			      HOST_STAGE2_LOCK |
++			      HOST_KVM_CALL_LOCK,
++			      0, 0, 0);
++}
++
++static int
++kernel_lock(void)
++{
++	int err, i;
++
++	preempt_disable();
++	local_irq_disable();
++
++	for (i = 0; i < LAST_ATTR; i++) {
++		err = do_host_map(&vmlinux_sections[i]);
++		if (err)
++			pr_err("kvms-if %s: map failed %d\n", vmlinux_sections[i].name, err);
++	}
++
++	if (!err)
++		err = do_hvc_lock();
++
++	local_irq_enable();
++	preempt_enable();
++
++	if (err)
++		pr_err("kvms-if %s: return %d\n", __func__, err);
++
++	return err;
++}
++
++static int device_open(struct inode *inode, struct file *filp)
++{
++	if (dopen)
++		return -EBUSY;
++
++	dopen = 1;
++	return 0;
++}
++
++static int device_release(struct inode *inode, struct file *filp)
++{
++	dopen = 0;
++
++	return 0;
++}
++
++static ssize_t
++device_read(struct file *filp, char *buffer, size_t length, loff_t *off)
++{
++	uint64_t res;
++
++	res = __kvms_hvc_cmd(HYP_READ_LOG, 0, 0, 0, 0);
++	if (copy_to_user(buffer, &res, sizeof(uint64_t)))
++		return -EFAULT;
++
++	return res;
++}
++
++static ssize_t
++device_write(struct file *filp, const char *buf, size_t len, loff_t *off)
++{
++	return -ENOTSUPP;
++}
++
++#ifdef DEBUG
++static ssize_t
++do_write(struct hypdrv_mem_region *reg)
++{
++	u64 *section_start;
++	u64 *section_end;
++	u64 *pos;
++
++	section_start = (u64 *) kaddr_to_phys(reg->start);
++	section_end   = (u64 *) kaddr_to_phys(reg->end);
++
++	for (pos = section_start; pos < section_end; pos++)
++		*pos = 0xdeadbeef;
++
++	return 0;
++}
++#endif
++
++static ssize_t
++do_savekeys(void __user *argp)
++{
++	uint64_t ret = -ENODATA;
++	struct encrypted_keys *p;
++	u64 len = 1024;
++	uint8_t guest_id[32] = "dummy name";
++
++	p = kmalloc(sizeof(struct encrypted_keys), GFP_KERNEL);
++	if (!p)
++		return -ENOMEM;
++	ret = copy_from_user(p, argp, sizeof(struct encrypted_keys));
++	if (ret)
++		return -EIO;
++	/* FIXME:
++	 * Current implementation requires that kernel gives an unique value
++	 * for each VM. Unique value should be generated secure way.
++	 */
++	ret = __kvms_hvc_cmd(HYP_DEFINE_GUEST_ID, p->vmid,
++			    (u64) &guest_id, (u64) sizeof(guest_id), 0);
++	if (ret)
++		return ret;
++
++
++
++	p->len = sizeof(p->buf);
++	ret = __kvms_hvc_cmd(HYP_SAVE_KEYS, p->vmid,
++			    (u64) p->buf, (u64) &len, 0);
++	p->len = (u32) len;
++	ret = copy_to_user(argp, p, sizeof(struct encrypted_keys));
++	if (ret)
++		return ret;
++	kfree(p);
++	return 0;
++
++}
++
++static ssize_t
++do_loadkeys(void __user *argp)
++{
++	uint64_t ret = -ENODATA;
++	struct encrypted_keys *p;
++	uint8_t guest_id[] = "dummy name";
++
++	p = kmalloc(sizeof(struct encrypted_keys), GFP_KERNEL);
++	if (!p)
++		return -ENOMEM;
++	ret = copy_from_user(p, argp, sizeof(struct encrypted_keys));
++	if (ret)
++		return -EIO;
++
++	/* FIXME:
++	 * Current implementation requires that kernel gives an unique value
++	 * for each VM. Unique value should be generated secure way.
++	 */
++	ret = __kvms_hvc_cmd(HYP_DEFINE_GUEST_ID, p->vmid,
++			    (u64) &guest_id, (u64) sizeof(guest_id), 0);
++	if (ret)
++		return ret;
++
++	ret = __kvms_hvc_cmd(HYP_LOAD_KEYS, p->vmid, (u64) &p->buf, (u64) p->len, 0);
++	if (ret)
++		return ret;
++
++	kfree(p);
++	return 0;
++}
++
++static ssize_t
++do_keygen(void __user *argp)
++{
++	struct guest_key gkeys;
++	uint64_t ret;
++	u32 bsize = 32;
++
++	ret = copy_from_user(&gkeys, argp, sizeof(struct guest_key));
++	if (ret)
++		return -EIO;
++
++	ret = __kvms_hvc_cmd(HYP_GENERATE_KEY,
++			    (u64) &gkeys.key, (u64) &bsize, 1,
++			    (u64)&gkeys.name);
++	if (ret)
++		return ret;
++
++	ret = copy_to_user(argp, &gkeys, sizeof(struct guest_key));
++	if (ret)
++		return ret;
++
++	return 0;
++
++}
++
++static ssize_t
++do_getkey(void __user *argp)
++{
++	struct guest_key gkeys;
++	uint64_t ret;
++	u32 bsize = 32;
++
++	ret = copy_from_user(&gkeys, argp, sizeof(struct guest_key));
++	if (ret)
++		return -EIO;
++
++	ret = __kvms_hvc_cmd(HYP_GET_KEY, (u64) &gkeys.key, (u64) &bsize, 1,
++			    (u64) &gkeys.name);
++	if (ret)
++		return ret;
++
++	ret = copy_to_user(argp, &gkeys, sizeof(struct guest_key));
++	if (ret)
++		return -EIO;
++
++	return 0;
++}
++
++static ssize_t
++do_read(void __user *argp)
++{
++	struct log_frag log = { 0 };
++	uint64_t res, ret;
++	int n;
++
++	res = __kvms_hvc_cmd(HYP_READ_LOG, 0, 0, 0, 0);
++
++	n = res & 0xFF;
++	if (n == 0 || n > 7)
++		return -ENODATA;
++
++	log.frag = res;
++	ret = copy_to_user(argp, &log, sizeof(log));
++
++	return ret;
++}
++
++int get_region(struct hypdrv_mem_region *reg, void __user *argp)
++{
++	int ret = 0;
++
++	ret = copy_from_user(reg, argp, sizeof(struct hypdrv_mem_region));
++
++	return ret;
++}
++
++static long
++device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
++{
++	struct hypdrv_mem_region reg;
++	void __user *argp = (void __user *) arg;
++	int ret = -ENOTSUPP;
++
++	switch (cmd) {
++	case KVMS_IOCTL_KERNEL_MMAP:
++		ret = get_region(&reg, argp);
++		if (ret == 0)
++			return do_host_map(&reg);
++		break;
++#ifdef DEBUG
++	case KVMS_IOCTL_KERNEL_WRITE:
++		ret = get_region(&reg, argp);
++		if (ret == 0)
++			return do_write(&reg);
++		break;
++#endif
++	case KVMS_IOCTL_READ_LOG:
++		ret = do_read(argp);
++		break;
++	case KVMS_IOCTL_GENERATE_KEY:
++		ret =  do_keygen(argp);
++		break;
++	case KVMS_IOCTL_READ_KEY:
++		ret =  do_getkey(argp);
++		break;
++	case KVMS_IOCTL_SAVE_KEYS:
++		ret =  do_savekeys(argp);
++		break;
++	case KVMS_IOCTL_LOAD_KEYS:
++		ret =  do_loadkeys(argp);
++		break;
++	case TCGETS:
++#ifdef DEBUG
++		pr_info("kvms-if: not a TTY\n");
++#endif
++		ret = -ENOTSUPP;
++		break;
++	default:
++		WARN(1, "kvms-if: unknown ioctl: 0x%x\n", cmd);
++	}
++
++	return ret;
++}
++
++static const struct file_operations fops = {
++	.read = device_read,
++	.write = device_write,
++	.open = device_open,
++	.release = device_release,
++	.unlocked_ioctl = device_ioctl,
++};
++
++int __init init_module(void)
++{
++	pr_info("kvms-if hypervisor driver\n");
++
++	major = register_chrdev(0, DEVICE_NAME, &fops);
++	if (major < 0)
++		pr_err("kvms-if: register_chrdev failed with %d\n", major);
++	pr_info("kvms-if mknod /dev/%s c %d 0\n", DEVICE_NAME, major);
++
++	/* Check extended execute never support */
++	if (cpu_has_tts2uxn()) {
++		vmlinux_sections[KERNEL_TEXT_P1_ATTR].prot |= XNX_EL1_EXEC_EL0_XN;
++		vmlinux_sections[KERNEL_TEXT_P2_ATTR].prot |= XNX_EL1_EXEC_EL0_XN;
++		vmlinux_sections[HYP_TEXT_ATTR].prot |= XNX_EL1_XN_EL0_XN;
++		vmlinux_sections[RODATA_ATTR].prot |= XNX_EL1_XN_EL0_XN;
++		vmlinux_sections[RO_AFTER_INIT_ATTR].prot |= XNX_EL1_XN_EL0_XN;
++		vmlinux_sections[VDSO_ATTR].prot |= XNX_EL1_XN_EL0_EXEC;
++	} else {
++		vmlinux_sections[KERNEL_TEXT_P1_ATTR].prot |= XN_EXEC;
++		vmlinux_sections[KERNEL_TEXT_P2_ATTR].prot |= XN_EXEC;
++		vmlinux_sections[HYP_TEXT_ATTR].prot |= XN_XN;
++		vmlinux_sections[RODATA_ATTR].prot |= XN_XN;
++		vmlinux_sections[RO_AFTER_INIT_ATTR].prot |= XN_XN;
++		vmlinux_sections[VDSO_ATTR].prot |= XN_EXEC;
++	}
++
++	return kernel_lock();
++}
++
++void cleanup_module(void)
++{
++	if (major > 0)
++		unregister_chrdev(major, DEVICE_NAME);
++	major = 0;
++}
++
++late_initcall(init_module);
+diff --git a/drivers/staging/kvms/kvms-if.h b/drivers/staging/kvms/kvms-if.h
+new file mode 100644
+index 000000000000..bd06d78379f3
+--- /dev/null
++++ b/drivers/staging/kvms/kvms-if.h
+@@ -0,0 +1,44 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef __HYP_DRV_H__
++#define __HYP_DRV_H__
++
++struct hypdrv_mem_region {
++	char *start;
++	char *end;
++	u64 prot;
++	const char *name;
++	u64 lock;
++};
++
++struct guest_key {
++	u32 type;
++	char name[16];
++	unsigned char key[32];
++};
++struct encrypted_keys {
++	u64 vmid;
++	u32 len;
++	char buf[1024];
++};
++
++#define KERNEL_LOCK	1
++#define KERNEL_MMAP	2
++#define KERNEL_WRITE	3
++#define READ_LOG	4
++#define GENERATE_KEY	5
++#define READ_KEY	6
++#define SAVE_KEYS	7
++#define LOAD_KEYS	8
++
++#define KVMS_IOCTL_BASE 0xDE
++#define KVMS_IOCTL_KERNEL_LOCK _IO(KVMS_IOCTL_BASE, KERNEL_LOCK)
++#define KVMS_IOCTL_KERNEL_MMAP _IOW(KVMS_IOCTL_BASE, KERNEL_MMAP, struct hypdrv_mem_region)
++#define KVMS_IOCTL_KERNEL_WRITE _IOW(KVMS_IOCTL_BASE, KERNEL_WRITE, struct hypdrv_mem_region)
++#define KVMS_IOCTL_READ_LOG _IOR(KVMS_IOCTL_BASE, READ_LOG, struct log_frag)
++#define KVMS_IOCTL_GENERATE_KEY _IOWR(KVMS_IOCTL_BASE, GENERATE_KEY, struct guest_key)
++#define KVMS_IOCTL_READ_KEY _IOWR(KVMS_IOCTL_BASE, READ_KEY, struct guest_key)
++#define KVMS_IOCTL_SAVE_KEYS _IOWR(KVMS_IOCTL_BASE, SAVE_KEYS, struct encrypted_keys)
++#define KVMS_IOCTL_LOAD_KEYS _IOW(KVMS_IOCTL_BASE, LOAD_KEYS, struct encrypted_keys)
++
++#endif // __HYP_DRV_H__
+diff --git a/include/asm-generic/vmlinux.lds.h b/include/asm-generic/vmlinux.lds.h
+index 9eac202fbcfd..8afe93334094 100644
+--- a/include/asm-generic/vmlinux.lds.h
++++ b/include/asm-generic/vmlinux.lds.h
+@@ -413,11 +413,12 @@
+  */
+ #ifndef RO_AFTER_INIT_DATA
+ #define RO_AFTER_INIT_DATA						\
+-	. = ALIGN(8);							\
++	. = ALIGN(PAGE_SIZE);						\
+ 	__start_ro_after_init = .;					\
+ 	*(.data..ro_after_init)						\
+ 	JUMP_TABLE_DATA							\
+ 	STATIC_CALL_DATA						\
++	. = ALIGN(PAGE_SIZE);						\
+ 	__end_ro_after_init = .;
+ #endif
+ 
+-- 
+2.25.1
+
