@@ -34,16 +34,19 @@ else
 export SANITIZER_OPTS ?=
 endif
 
-ifeq ($(USE_HW_CRYPTO),1)
-export CFLAGS := -march=armv8-a+crypto -DUSE_HW_CRYPTO=1
-else
-export CFLAGS := -march=armv8-a+nosimd -mgeneral-regs-only
-endif
-export CFLAGS += \
+export CFLAGS := \
 	--sysroot=$(TOOLDIR) --no-sysroot-suffix -fstack-protector-strong -mstrict-align \
 	-static -ffreestanding -fno-hosted -std=c99 -fno-omit-frame-pointer -fno-data-sections \
 	$(DEFINES) $(OPTS) $(INCLUDES) $(WARNINGS) $(SANITIZER_OPTS)
 
+ifeq ($(USE_HW_CRYPTO),1)
+export CFLAGS += -DUSE_HW_CRYPTO=1
+export CFLAGS_MBED := $(CFLAGS) -march=armv8-a+crypto
+else
+export CFLAGS_MBED += $(CFLAGS) -march=armv8-a+nosimd -mgeneral-regs-only
+endif
+
+export CFLAGS += -march=armv8-a+nosimd -mgeneral-regs-only
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
 export LDFLAGS := -nostdlib -O1 --gc-sections --build-id=none \
 		-L$(BASE_DIR)/mbedtls/library \
@@ -55,4 +58,4 @@ export LDFLAGS := -nostdlib -O1 --gc-sections --build-id=none \
 export SUBMAKETOOLS := CROSS_COMPILE=$(CROSS_COMPILE) CC=$(CC) LD=$(LD) \
 	AR=$(AR) OBJCOPY=$(OBJCOPY) KERNEL_DIR=$(KERNEL_DIR)
 export SUBMAKEFLAGS := $(SUBMAKETOOLS) CFLAGS='$(CFLAGS)'
-export MBEDFLAGS := $(SUBMAKETOOLS) CFLAGS='$(CFLAGS) -U_GNU_SOURCE'
+export MBEDFLAGS := $(SUBMAKETOOLS) CFLAGS='$(CFLAGS_MBED) -U_GNU_SOURCE'

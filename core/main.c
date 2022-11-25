@@ -85,7 +85,7 @@ int early_setup(void)
 int crypto_init(void)
 {
 	kvm_guest_t *host;
-	simd_t crypto_ctx;
+	platform_crypto_ctx_t crypto_ctx;
 	uint8_t key[32];
 	int res;
 

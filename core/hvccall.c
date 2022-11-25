@@ -69,6 +69,7 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		      register_t a8, register_t a9)
 {
 	kvm_guest_t *guest = NULL;
+	platform_crypto_ctx_t crypto_ctx;
 	int64_t res = -EINVAL;
 
 	guest = get_guest(get_current_vmid());
@@ -125,7 +126,9 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		break;
 
 	case HYP_GUEST_DO_IMAGE_CHECK:
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 		res = check_guest_image(guest, a1);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 #ifdef DEBUG
 	case HYP_TRANSLATE:
@@ -153,7 +156,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	int64_t res = -EINVAL;
 	hyp_func_t *func;
 	uint32_t vmid;
-	simd_t crypto_ctx;
+	platform_crypto_ctx_t crypto_ctx;
 	int ct;
 
 #ifdef DEBUG
