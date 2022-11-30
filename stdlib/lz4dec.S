@@ -1,3 +1,7 @@
+//
+// MIT license lz4 decompressor, source:
+// https://github.com/Siguza/lz4dec
+//
 #ifdef NO_GLOBAL
     .macro sym name
     L_\name:

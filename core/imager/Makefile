@@ -8,7 +8,8 @@ LOADR_INCLUDES := -I$(BASE_DIR)/core -I$(BASE_DIR)/stdlib
 LOADR_LIBS := -L$(OBJDIR) -lcore -lstdlib
 LOADR_CFLAGS := $(CFLAGS) -static -ffreestanding -fno-hosted -Wno-main -mstrict-align \
 		-march=armv8-a+nosimd -mgeneral-regs-only -nostdlib -fpic -fPIC \
-		-fpie --sysroot=$(TOOLDIR) $(LOADR_INCLUDES) $(LOADR_LIBS)
+		-fpie --sysroot=$(TOOLDIR) $(LOADR_INCLUDES) $(LOADR_LIBS) \
+		-DUNSAFE_LZ4
 LOAD_LDFLAGS :=	-Wl,-T./ld.out -Wl,-Ttext=0xC0081000
 LOADR_CSOURCES := lmain.c
 
