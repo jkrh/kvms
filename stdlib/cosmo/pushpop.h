@@ -1,6 +1,0 @@
-#ifndef COSMOPOLITAN_LIBC_BITS_PUSHPOP_H_
-#define COSMOPOLITAN_LIBC_BITS_PUSHPOP_H_
-
-#define pushpop(x) (x)
-
-#endif /* COSMOPOLITAN_LIBC_BITS_PUSHPOP_H_ */
