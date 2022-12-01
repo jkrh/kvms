@@ -56,8 +56,8 @@ set -e
 [ -z "$KERNEL" ] && KERNEL="$ANDROID_DIR/Image"
 [ -z "$PORT" ] && PORT=$((2000 + RANDOM % 1000))
 [ -z "$NET" ] && NETOPTS="-device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$LOCALIP:$PORT-192.168.7.2:22"
-[ -z "$MEM" ] && MEM=2048
-[ -z "$SMP" ] && SMP="-smp 4"
+[ -z "$MEM" ] && MEM=4096
+[ -z "$SMP" ] && SMP="-smp 8"
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICESOCK="unix=on,addr=$SPICEMNT/sock/$PORT"
 [ -z "$SCREEN" ] && SCREEN="-serial mon:stdio -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless,gl=on -spice $SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migration=on $VDAGENT"
@@ -79,7 +79,9 @@ if [ "$USER" = "root" ]; then
 	[ -d /dev/dri ] && chmod 0666 /dev/dri/render*
 fi
 
-USB="-device qemu-xhci -device usb-kbd -device usb-tablet"
+USB="-device qemu-xhci"
+INPUT="-device virtio-mouse-pci,disable-legacy=on -device virtio-keyboard-pci,disable-legacy=on"
+ADB="-device vhost-vsock-pci,guest-cid=3"
 RNG="-device virtio-rng-pci,id=rng0,max-bytes=1024,period=2000"
 BALLOON="-device virtio-balloon-pci,id=balloon0"
 
@@ -87,7 +89,7 @@ INITRD="-initrd ${ANDROID_DIR}/ramdisk.img"
 SUPER="-drive file=${ANDROID_DIR}/composite.img,format=raw"
 PARTITIONS="$INITRD $SUPER"
 
-KERNEL_OPTS="ro selinux=0 nokaslr console=ttyAMA0 loglevel=8 androidboot.boot_devices=4010000000.pcie androidboot.fstab_suffix=f2fs androidboot.slot_suffix=_a androidboot.hardware.hwcomposer=drm_minigbm androidboot.selinux=permissive hw.gpu.mode=mesa ro.kernel.qemu.gltransport=virtio-gpu androidboot.hardware=cutf_cvm androidboot.hardware.gltransport=virtio-gpu androidboot.hardware.vulkan=pastel androidboot.hardware.egl=mesa androidboot.hardware.gralloc=minigbm androidboot.lcd_density=160"
+KERNEL_OPTS="ro selinux=0 nokaslr console=ttyAMA0 loglevel=8 androidboot.boot_devices=4010000000.pcie androidboot.fstab_suffix=f2fs androidboot.slot_suffix=_a androidboot.hardware.hwcomposer=drm androidboot.cpuvulkan.version=0 androidboot.selinux=permissive hw.gpu.mode=mesa ro.kernel.qemu.gltransport=virtio-gpu androidboot.hardware=cutf_cvm androidboot.hardware.gltransport=virtio-gpu androidboot.hardware.vulkan=pastel androidboot.hardware.egl=mesa androidboot.hardware.gralloc=minigbm androidboot.lcd_density=160"
 
 if [ -z "$KVM" ]; then
 CPU="-cpu max,${PROFILE} "
@@ -102,7 +104,7 @@ echo "- Spice server at '$SPICESOCK'"
 echo "- Host wlan ip $LOCALIP"
 echo "- $PROFILE"
 
-echo $TOOLDIR/qemu-system-aarch64 -kernel $KERNEL $DTB $USB $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
+echo $TOOLDIR/qemu-system-aarch64 -kernel $KERNEL $DTB $USB $INPUT $ADB $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
 
-#[ -n "$DEBUG" ] && gdb $TOOLDIR/qemu-system-aarch64 -ex "r -kernel $KERNEL $DTB $USB $PARTITIONS $SCREEN -append \"$KERNEL_OPTS\" $QEMUOPTS" && exit 0
-$TOOLDIR/qemu-system-aarch64 -kernel $KERNEL $DTB $USB $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
+#[ -n "$DEBUG" ] && gdb $TOOLDIR/qemu-system-aarch64 -ex "r -kernel $KERNEL $DTB $USB $INPUT $ADB $PARTITIONS $SCREEN -append \"$KERNEL_OPTS\" $QEMUOPTS" && exit 0
+$TOOLDIR/qemu-system-aarch64 -kernel $KERNEL $DTB $USB $INPUT $ADB $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
