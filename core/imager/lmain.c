@@ -6,6 +6,7 @@
 #include <errno.h>
 
 #include "lz4.h"
+#include "lsymbols.h"
 
 #define wfe() __asm__ __volatile__("wfe\n" : : :);
 #define NORETURN __attribute__ ((noreturn))
@@ -14,8 +15,7 @@
 #define PAGE_SIZE 4096
 
 uint8_t __stack[PAGE_SIZE] ALIGN(16);
-extern char _binary_hyp_binary_o_lz4_start[];
-extern char _binary_hyp_binary_o_lz4_end[];
+extern char HYP_BIN_START[];
 typedef int hyp_func_t(uint64_t, ...);
 
 NORETURN
@@ -27,12 +27,8 @@ void hyp_abort(int res UNUSED)
 int uncompress_hyp(void *addr)
 {
 	uint64_t res;
-	size_t hsz;
 
-	hsz = (uint64_t)&_binary_hyp_binary_o_lz4_end -
-	      (uint64_t)&_binary_hyp_binary_o_lz4_start;
-
-	res = lz4dec((void *)&_binary_hyp_binary_o_lz4_start, addr, hsz);
+	res = lz4dec((void *)&HYP_BIN_START, addr, HYP_BIN_SIZE);
 	if (!res)
 		return -EFAULT;
 

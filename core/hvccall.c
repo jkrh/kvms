@@ -47,7 +47,7 @@ extern bool apiwarned;
 bool at_debugstop = false;
 extern spinlock_t core_lock;
 
-hyp_func_t *__fpsimd_guest_restore;
+hyp_func_t *__fpsimd_guest_restore DATA;
 spinlock_t crash_lock;
 
 int is_apicall(uint64_t cn)

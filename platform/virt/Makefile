@@ -10,7 +10,7 @@ PORT := 10022
 DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd
 USB := -device qemu-xhci -device usb-kbd -device usb-tablet
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
-COMP_IMG ?= $(BASE_DIR)/core/imager/hyp-loader
+COMP_IMG ?= $(OBJDIR)/$(PLATFORM)/hyp-loader
 USE_COMP_IMG ?= 0
 
 SPICESOCK := /tmp/host

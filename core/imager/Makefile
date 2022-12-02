@@ -1,11 +1,17 @@
 LZ4DIR := $(BASE_DIR)/oss/lz4
+ifeq ($(PLATFORM),virt)
+OUTDIR := $(OBJDIR)/$(PLATFORM)
+else
+OUTDIR := $(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)
+endif
+export OUTDIR := $(OUTDIR)
 PHONY := all clean
 
 include $(BASE_DIR)/core/hosttools.mk
 
 CTOOL_CFLAGS := $(CFLAGS) -I$(LZ4DIR)/lib -L$(LZ4DIR)/lib -llz4
-LOADR_INCLUDES := -I$(BASE_DIR)/core -I$(BASE_DIR)/stdlib
-LOADR_LIBS := -L$(OBJDIR) -lcore -lstdlib
+LOADR_INCLUDES := -I$(BASE_DIR)/core -I$(BASE_DIR)/stdlib -I$(OUTDIR)
+LOADR_LIBS := -L$(OBJDIR) -L$(OUTDIR) -lcore -lstdlib
 LOADR_CFLAGS := $(CFLAGS) -static -ffreestanding -fno-hosted -Wno-main -mstrict-align \
 		-march=armv8-a+nosimd -mgeneral-regs-only -nostdlib -fpic -fPIC \
 		-fpie --sysroot=$(TOOLDIR) $(LOADR_INCLUDES) $(LOADR_LIBS) \
@@ -13,27 +19,29 @@ LOADR_CFLAGS := $(CFLAGS) -static -ffreestanding -fno-hosted -Wno-main -mstrict-
 LOAD_LDFLAGS :=	-Wl,-T./ld.out -Wl,-Ttext=0xC0081000
 LOADR_CSOURCES := lmain.c
 
-all: hyp-loader.bin
+all: $(OUTDIR)/hyp-loader.bin
 
-lz4:
+$(OUTDIR)/lz4:
 	$(MAKE) -C $(LZ4DIR) default
 
-comptool: lz4
+$(OUTDIR)/comptool: $(OUTDIR)/lz4
 	@$(CC) -o $@ comptool.c $(LZ4DIR)/lib/lz4.c $(LZ4DIR)/lib/lz4hc.c $(CTOOL_CFLAGS)
 
-hyp-binary.o: comptool
-	@./comptool $(OBJDIR)/$(PLATFORM)/$(PROG)*.bin $@.lz4
+$(OUTDIR)/hyp-binary.o: $(OUTDIR)/comptool
+	@$< $(OUTDIR)/$(PROG)*.bin $@.lz4
 	@$(CROSS_COMPILE)ld -r -b binary -o $@ $@.lz4
 
-lreset.o:
+$(OUTDIR)/lreset.o:
 	@$(CROSS_COMPILE)gcc -o $@ -c lreset.S $(LOADR_CFLAGS)
 
-hyp-loader: hyp-binary.o lreset.o
+$(OUTDIR)/lsymbols.h: $(OUTDIR)/hyp-binary.o
+	$(BASE_DIR)/core/imager/genlsymheader.sh
+
+$(OUTDIR)/hyp-loader: $(OUTDIR)/lsymbols.h $(OUTDIR)/lreset.o
 	@$(CROSS_COMPILE)gcc -o $@ lmain.c $(LOADR_CFLAGS) $(LOAD_LDFLAGS)
 
-hyp-loader.bin: hyp-loader
-	@$(CROSS_COMPILE)objcopy -O binary hyp-loader hyp-loader.bin
+$(OUTDIR)/hyp-loader.bin: $(OUTDIR)/hyp-loader
+	@$(CROSS_COMPILE)objcopy -O binary $< $@
 
 clean:
 	$(MAKE) -C $(LZ4DIR) clean
-	@rm -f comptool hyp-binary hyp-loader *.bin *.o *.lz4
