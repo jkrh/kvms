@@ -1,5 +1,4 @@
 PROG := $(OBJDIR)/$(PLATFORM)/hyp
-DEVMEM := $(OBJDIR)/$(PLATFORM)/devmem
 LIBNAME := lib$(PLATFORM).a
 QEMU := qemu-system-aarch64
 
@@ -38,7 +37,7 @@ HYP_IMAGE := -device loader,file=$(PROG).bin,addr=0xC0000000,force-raw=true
 endif
 
 QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUGOPTS) \
-	    -machine virt,virtualization=on,secure=off,gic-version=3,highmem=off \
+	    -machine virt,virtualization=on,secure=off,gic-version=3 \
 	    -cpu max,sve=off -smp 4 -m 4G $(NETWORK) $(USB) $(BOOTIMG) \
 	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)' $(HYP_IMAGE)
 

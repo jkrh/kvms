@@ -20,7 +20,7 @@
 #define VA_BITS 48
 #define VA_WIDTH (64 - VA_BITS)
 #define PLATFORM_VTCR_EL2      (0x623580 | VA_WIDTH)
-#define PLATFORM_TCR_EL2       (0x80823500 | VA_WIDTH)
+#define PLATFORM_TCR_EL2       (0x80853500 | VA_WIDTH)
 #else
 #define PLATFORM_VTCR_EL2	0x61355C
 #define PLATFORM_TCR_EL2	0x80813519
@@ -51,6 +51,8 @@ int console_putc(unsigned char);
 #define GIC_DIST_SZ 0x10000
 
 #define PHYS_OFFSET 0x40000000UL
+#define PCI_HIGHMEM_1 0x4010000000UL
+#define PCI_HIGHMEM_2 0x8000000000UL
 #define VIRT_UART 0x09000000UL
 
 #define PLATFORM_SMP_CORE_INDEX	((read_reg(mpidr_el1) & MPIDR_AFF0_MASK) \

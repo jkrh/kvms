@@ -100,15 +100,28 @@ cont:
 		stage = STAGE2;
 		goto nextmap;
 	}
+	/* Host ram, HYP */
 	perms = PAGE_KERNEL_RWX;
 	res = mmap_range(host, EL2_STAGE1, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 4, perms, NORMAL_MEMORY);
 	if (res)
 		goto error;
 
-	perms = ((SH_INN<<8) | PAGE_HYP_RWX);
+	/* Host ram, Linux */
+	perms = ((SH_INN << 8) | PAGE_HYP_RWX);
 	res = mmap_range(host, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
 			 SZ_1G * 3, perms, S2_NORMAL_MEMORY);
+	if (res)
+		goto error;
+
+	/* Higmmem area, Linux */
+	perms = ((SH_INN << 8) | PAGE_HYP_RW);
+	res = mmap_range(host, STAGE2, PCI_HIGHMEM_1, PCI_HIGHMEM_1,
+			 SZ_1M * 2, perms, S2_DEV_NGNRE);
+	if (res)
+		goto error;
+	res = mmap_range(host, STAGE2, PCI_HIGHMEM_2, PCI_HIGHMEM_2,
+			 SZ_1M * 2, perms, S2_DEV_NGNRE);
 	if (res)
 		goto error;
 

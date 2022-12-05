@@ -31,7 +31,7 @@
 	"' by " XSTR(BUILDUSER) "@" XSTR(BUILDHOST) "\n"
 #define TOOL_BANNER_STR "HYP toolchain version "
 #define TOOL_BANNER TOOL_BANNER_STR __VERSION__ "\n"
-#define HYP_VERSION "HYP version " XSTR(GHEAD)
+#define HYP_VERSION "HYP version " XSTR(GHEAD) "\n"
 
 struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
