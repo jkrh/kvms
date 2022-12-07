@@ -10,21 +10,10 @@
 #include "platform_api.h"
 #include "arm-sysregs.h"
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)
-#define TABLE_LEVELS    4
-#else
-#define TABLE_LEVELS    3
-#endif
-
-#if TABLE_LEVELS == 4
 #define VA_BITS 48
 #define VA_WIDTH (64 - VA_BITS)
 #define PLATFORM_VTCR_EL2      (0x623580 | VA_WIDTH)
 #define PLATFORM_TCR_EL2       (0x80853500 | VA_WIDTH)
-#else
-#define PLATFORM_VTCR_EL2	0x61355C
-#define PLATFORM_TCR_EL2	0x80813519
-#endif
 
 /*
  * 0: device_sorder

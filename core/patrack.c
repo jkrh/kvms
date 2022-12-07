@@ -263,11 +263,11 @@ int patrack_mmap(struct kvm_guest *guest, uint64_t s1_addr, uint64_t ipa,
 	for (r = tpool->hint; r < tpool->num_tables; r++) {
 		if (!tpool->used[r])
 			t++;
-		if (t >= TABLE_LEVELS)
+		if (t >= MAX_TABLE_LEVELS)
 			break;
 	}
 
-	if ((t < TABLE_LEVELS) &&
+	if ((t < MAX_TABLE_LEVELS) &&
 	     guest->mempool[tpool->currentchunk].next == GUEST_MEMCHUNKS_MAX) {
 		uint64_t plen;
 		struct ptable *pool;

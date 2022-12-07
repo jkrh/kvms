@@ -157,6 +157,43 @@ int console_putc(unsigned char c)
 	return _IO_putc((int)c, NULL);
 }
 
+static int set_table_levels(kvm_guest_t *host)
+{
+	uint64_t vtcr_el2, t0sz;
+
+	vtcr_el2 = PLATFORM_VTCR_EL2;
+
+	switch (VTCR_GET_GRANULE_SIZE(vtcr_el2)) {
+	case GRANULE_SIZE_4KB:
+		switch (VTCR_SL0(vtcr_el2)) {
+		case 0:
+			host->table_levels_el1s2 = 2;
+			break;
+		case 1:
+			host->table_levels_el1s2 = 3;
+			break;
+		case 2:
+			host->table_levels_el1s2 = 4;
+			break;
+		default:
+			return -ENOTSUP;
+		}
+		break;
+	/* We only support 4kB granule for now. Flow through */
+	case GRANULE_SIZE_16KB:
+	case GRANULE_SIZE_64KB:
+	default:
+		return -ENOTSUP;
+	}
+	t0sz = TCR_ELx_T0SZ(PLATFORM_TCR_EL2);
+	host->table_levels_el2s1 = s1_t0sz_to_levels(t0sz);
+
+	if (host->table_levels_el2s1 == 0)
+		return -ENOTSUP;
+
+	return 0;
+}
+
 int machine_init(kvm_guest_t *host)
 {
 	int res;
@@ -175,6 +212,7 @@ bool machine_init_ready(void)
 
 int platform_init_host_pgd(kvm_guest_t *host)
 {
+	int res;
 
 	if (!host)
 		return -EINVAL;
@@ -185,11 +223,11 @@ int platform_init_host_pgd(kvm_guest_t *host)
 	if (!host->EL2S1_pgd || !host->EL1S2_pgd)
 		return -ENOMEM;
 
-	host->table_levels_el1s2 = TABLE_LEVELS;
-	host->table_levels_el1s1 = TABLE_LEVELS;
-	host->table_levels_el2s1 = TABLE_LEVELS;
-	host->ramend = 0x200000000UL;
+	res = set_table_levels(host);
+	if (res)
+		return res;
 
+	host->ramend = 0x200000000UL;
 	return 0;
 }
 
