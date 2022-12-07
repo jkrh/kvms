@@ -20,7 +20,7 @@ $(info KERNEL_DIR:	$(KERNEL_DIR))
 $(info PLATFORM:	$(PLATFORM))
 $(info CHIPSET:		$(CHIPSET))
 
-all: check dirs
+all: check dirs comp-image
 check:
 	@[ "${KERNEL_DIR}" ] && echo -n "" || ( echo "KERNEL_DIR is not set"; exit 1 )
 	@[ "${PLATFORM}" ] && echo -n "" || ( echo "PLATFORM is not set"; exit 1 )
