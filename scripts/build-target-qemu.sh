@@ -206,6 +206,31 @@ do_android_emulator()
 	python android/build/python/cmake.py $EMUCONFIG --noqtwebengine --noshowprefixforinfo --target linux_aarch64
 }
 
+do_host_cvd_package()
+{
+        HOSTCVDDIR=$BASE_DIR/oss/ubuntu/build/android-cuttlefish
+        if [ ! -d "$HOSTCVDDIR" ]; then
+                git clone https://github.com/google/android-cuttlefish $HOSTCVDDIR
+        fi
+        if [ ! -f "$HOSTCVDDIR/cuttlefish-base_*_*64.deb" ]; then
+                sudo -E chroot $CHROOTDIR qemu-aarch64-static /bin/bash -c \
+                        "cd build/android-cuttlefish; \
+                        for dir in base frontend; \
+                        do cd \$dir; debuild -i -us -uc -b -d; cd ..; done"
+                sudo -E chroot $CHROOTDIR sh -c "cd build/android-cuttlefish; \
+                        dpkg -i ./cuttlefish-base_*_*64.deb \
+                        || apt-get install -f"
+                sudo -E chroot $CHROOTDIR sh -c "cd build/android-cuttlefish; \
+                        dpkg -i ./cuttlefish-user_*_*64.deb \
+                        || apt-get install -f"
+                sudo -E chroot $CHROOTDIR sh -c \
+                        "addgroup kvm; addgroup cvdnetwork; addgroup render"
+                sudo -E chroot $CHROOTDIR sh -c \
+                        "usermod -aG kvm,cvdnetwork,render \$USER"
+        fi
+
+}
+
 [ -n "$CLEAN" ] && do_clean
 do_sysroot
 do_spice
@@ -213,5 +238,5 @@ do_spice
 do_qemu
 [ -n "$ANDROID_EMU" ] && do_android_emulator
 [ -z "$STATIC" ] && do_hybris
-
+[-n "$HOSTCVD"] do_host_cvd_package
 echo "All ok!"
