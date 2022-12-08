@@ -38,7 +38,7 @@ endif
 
 QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUGOPTS) \
 	    -machine virt,virtualization=on,secure=off,gic-version=3 \
-	    -cpu max,sve=off -smp 4 -m 4G $(NETWORK) $(USB) $(BOOTIMG) \
+	    -cpu max,sve=off,lpa2=off -smp 4 -m 4G $(NETWORK) $(USB) $(BOOTIMG) \
 	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)' $(HYP_IMAGE)
 
 ifeq ($(QEMUDEBUG),1)
