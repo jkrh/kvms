@@ -174,13 +174,14 @@ do_qemu()
 
 do_hybris()
 {
-	cd $BASE_DIR/oss/ubuntu/build
-	sudo rm -rf libhybris
-	git clone https://github.com/libhybris/libhybris.git
-	cd libhybris; patch -p1 < $BASE_DIR/scripts/hybris.patch
-	tar xf $BASE_DIR/scripts/android-headers.tar.bz2 -C $BASE_DIR/oss/ubuntu/usr/local
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/libhybris/hybris; ./autogen.sh"
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/libhybris/hybris; ./configure --prefix=/usr --enable-arch=arm64 --enable-adreno-quirks --enable-mesa --enable-ubuntu-linker-overrides --enable-property-cache --with-android-headers=/usr/local/android/headers; make -j$NJOBS; make install"
+	if [ -d "$ANDROID_BASE" ]; then
+		cd $BASE_DIR/oss/ubuntu/build
+		sudo rm -rf libhybris
+		git clone https://github.com/libhybris/libhybris.git
+		./libhybris/utils/extract-headers.sh $ANDROID_BASE   $BASE_DIR/oss/ubuntu/usr/local/android/headers
+		sudo -E chroot $CHROOTDIR sh -c "cd /build/libhybris/hybris; ./autogen.sh"
+		sudo -E chroot $CHROOTDIR sh -c "cd /build/libhybris/hybris; ./configure --prefix=/usr --enable-arch=arm64 --enable-adreno-quirks --enable-mesa --enable-ubuntu-linker-overrides --enable-property-cache --with-android-headers=/usr/local/android/headers; make -j$NJOBS; make install"
+	fi
 }
 
 do_android_emulator()
