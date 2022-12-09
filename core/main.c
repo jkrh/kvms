@@ -251,7 +251,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 	}
 
 	gettimeofday(&tv2, NULL);
-	LOG("HYP: core %ld initialization latency was %ldms\n",
+	LOG("HYP core %ld initialization latency was %ldms\n",
 	     init_index, (tv2.tv_usec - tv1.tv_usec) / 1000);
 	spin_unlock(&entrylock);
 

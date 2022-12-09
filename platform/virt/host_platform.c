@@ -110,7 +110,12 @@ cont:
 	/* Host ram, Linux */
 	perms = ((SH_INN << 8) | PAGE_HYP_RWX);
 	res = mmap_range(host, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
-			 SZ_1G * 3, perms, S2_NORMAL_MEMORY);
+			 SZ_1G * 4, perms, S2_NORMAL_MEMORY);
+	if (res)
+		goto error;
+
+	/* Dig the hypervisor hole */
+	res = unmap_range(host, STAGE2, HYP_ADDRESS, HYP_SIZE);
 	if (res)
 		goto error;
 
@@ -198,9 +203,8 @@ int machine_init(kvm_guest_t *host)
 {
 	int res;
 
-	init_ready = false;
-	res = machine_virt(host);
 	init_ready = true;
+	res = machine_virt(host);
 
 	return res;
 }

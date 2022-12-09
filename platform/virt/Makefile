@@ -4,7 +4,7 @@ QEMU := qemu-system-aarch64
 
 KERNEL := $(KERNEL_DIR)/arch/arm64/boot/Image
 VMLINUX := $(KERNEL_DIR)/vmlinux
-KERNEL_OPTS := root=/dev/vda1 console=ttyAMA0 mem=3G nokaslr loglevel=8 rw
+KERNEL_OPTS := root=/dev/vda1 console=ttyAMA0 mem=4G nokaslr loglevel=8 rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd
@@ -12,6 +12,8 @@ USB := -device qemu-xhci -device usb-kbd -device usb-tablet
 NETWORK := -device e1000,netdev=net0 -netdev user,id=net0,host=192.168.7.1,net=192.168.7.0/24,restrict=off,hostname=guest,hostfwd=tcp:$(WAYOUT):$(PORT)-192.168.7.2:22
 COMP_IMG ?= $(OBJDIR)/$(PLATFORM)/hyp-loader
 USE_COMP_IMG ?= 0
+DTB := $(OBJDIR)/$(PLATFORM)/virt.dtb
+DTC := dtc
 
 SPICESOCK := /tmp/host
 VDAGENT := -device virtio-serial-pci -device virtserialport,chardev=spicechannel0,name=spice.0 -chardev spicevmc,id=spicechannel0,name=vdagent
@@ -39,7 +41,7 @@ endif
 QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUGOPTS) \
 	    -machine virt,virtualization=on,secure=off,gic-version=3 \
 	    -cpu max,sve=off,lpa2=off -smp 4 -m 4G $(NETWORK) $(USB) $(BOOTIMG) \
-	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)' $(HYP_IMAGE)
+	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)' -dtb $(DTB) $(HYP_IMAGE)
 
 ifeq ($(QEMUDEBUG),1)
 QEMUCMD := gdb $(QEMU)-debug -ex "r $(QEMUOPTS) -serial stdio -display none"
@@ -55,7 +57,10 @@ include $(BASE_DIR)/core/common.mk
 
 all: $(PROG).bin
 
-run:
+$(DTB):
+	@$(DTC) -I dts -O dtb virt.dts -o $@ > /dev/null 2>&1
+
+run: $(DTB)
 	@echo "------------------------------------------------------------------------------------------"
 ifeq ($(GRAPHICS),1)
 	@echo "Graphics available at 'spice+unix://$(SPICESOCK)'"
