@@ -27,7 +27,7 @@
 
 		hyp: hyp_reserved@c0000000 {
 			no-map;
-			reg = <0x8 0xc0000000 0x0 0x10000000>;
+			reg = <0x0 0xc0000000 0x0 0x10000000>;
 			phandle = <0x121>;
 		};
 	};
