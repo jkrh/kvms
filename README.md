@@ -115,35 +115,15 @@ system registers are emulated and full access from KVM is required.
 TBC: Floating point registers, QEMU state sync breakage
 
 
-Guest hardening
----------------
-- Follow the TDX prior art at:
-  https://github.com/intel/tdx/blob/guest/arch/x86/kernel/tdx-filter.c
-- Some sample patches under 'patches' directory
-
-
-Migration support TODO
------------------------
-- Dirty bitmask handling (partly done)
-- Key export / import
-- QEMU register get/set support
-- ??
-
-
 SHORT TERM TODO
 ----------------
 1) Memory pressure testing
 2) Hardened / versatile guest config and patches. We need guest configs and
    patches for various use cases. XHCI USB emulation support currently is one
    big hack (works but is insecure).
+   https://github.com/intel/tdx/blob/guest/arch/x86/kernel/tdx-filter.c
 3) Migration support
-4) Finish android hardware support (32bit environment goes SIGILL)
-5) Add locking mechanism for guest specific EL2 mappings that are not allowed
-   to be changed after VM has been initialized. At the moment the protection
-   is for all EL2 mappings which prevents from creating new VMs after the lock
-   has been set
-6) QEMU protected guest support to give the madvise() hint to KSM not to scan
+4) QEMU protected guest support to give the madvise() hint to KSM not to scan
    the guest memory: -cpu=host,protected-guest-support=kvms
-7) IPI based debug stops, backtraces, tlb flushes when needed
-8) Libhybris based GPU access for QEMU
-9) Guest separation via virtio parsing (POC seems promising !)
+5) Guest separation via virtio parsing
+6) Read-only host kernel (stage2 locked stage1 page tables)
