@@ -263,16 +263,12 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		goto out;
 	}
 	res = get_range_info(guest, ipa);
-	if (!res) {
+	/* Check if the element was freed already */
+	if (!res || res->vmid == INVALID_VMID) {
 		ret = -ENOENT;
 		goto out;
 	}
 	if (res->vmid != guest->vmid) {
-		/* Check if the element was freed already */
-		if (res->vmid == INVALID_VMID) {
-			ret = -ENOENT;
-			goto out;
-		}
 		ERROR("page owner fault: %u != %u\n", res->vmid, guest->vmid);
 		ret = -EFAULT;
 		goto out;
