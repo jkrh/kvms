@@ -180,7 +180,7 @@ do_hybris()
 		git clone https://github.com/libhybris/libhybris.git
 		./libhybris/utils/extract-headers.sh $ANDROID_BASE   $BASE_DIR/oss/ubuntu/usr/local/android/headers
 		sudo -E chroot $CHROOTDIR sh -c "cd /build/libhybris/hybris; ./autogen.sh"
-		sudo -E chroot $CHROOTDIR sh -c "cd /build/libhybris/hybris; ./configure --prefix=/usr --enable-arch=arm64 --enable-adreno-quirks --enable-mesa --enable-ubuntu-linker-overrides --enable-property-cache --with-android-headers=/usr/local/android/headers; make -j$NJOBS; make install"
+		sudo -E chroot $CHROOTDIR sh -c "cd /build/libhybris/hybris; ./configure --prefix=/usr --enable-arch=arm64 --enable-adreno-quirks --enable-mesa --enable-ubuntu-linker-overrides --enable-wayland --enable-property-cache --with-android-headers=/usr/local/android/headers; make -j$NJOBS; make install"
 	fi
 }
 
