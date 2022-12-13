@@ -607,6 +607,10 @@ int print_encryption_state(uint32_t vmid)
 			y++;
 		}
 
+		if (guest->hyp_page_data[i]->vmid == INVALID_VMID) {
+			printf("REUSED\n");
+			goto cont;
+		}
 		if (vmid == HOST_VMID)
 			phys = (uint64_t)virt_to_phys((void *)ipa);
 		else
@@ -626,7 +630,7 @@ int print_encryption_state(uint32_t vmid)
 				printf("HASHERR\n");
 		} else
 			printf("UNMAPPED\n");
-
+cont:
 		z++;
 	}
 	write_reg(TTBR0_EL1, pgd0);
