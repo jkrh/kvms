@@ -11,8 +11,6 @@
 
 extern int __getchar(void);
 
-static struct timeval boot_ts ALIGN(16);
-
 #ifdef SPINNER
 const char bars[] = { '/', '-', '\\', '|' };
 const int nb = sizeof(bars) / sizeof(char);
@@ -48,7 +46,6 @@ uint64_t read_log(void)
 
 void log_init()
 {
-	gettimeofday(&boot_ts, NULL);
 }
 
 static int __printbuf(char *buf)
@@ -72,16 +69,14 @@ void __log(int level, const char *func, const char *fmt, ...)
 {
 	char buf[BUFSIZE];
 	struct timeval tv2;
-	register uint64_t ts;
 	va_list args;
 
 	gettimeofday(&tv2, NULL);
-	ts = (tv2.tv_usec - boot_ts.tv_usec) / 1000;
 
 	if (level)
 		printf("\033[0;31m");
 
-	printf("[%*.*lu] %*.*s ", 12, 12, ts, 16, 16, func);
+	printf("[%*.*lu] %*.*s ", 12, 12, us_to_ms(tv2.tv_usec), 20, 20, func);
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf) - 1, fmt, args);
 	va_end(args);

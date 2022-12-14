@@ -36,9 +36,6 @@
 struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
 uint8_t crypto_buf[PAGE_SIZE*4];
-
-struct timeval tv1 ALIGN(16);
-struct timeval tv2 ALIGN(16);
 uint8_t init_index;
 
 extern uint8_t hyp_malloc_pool[MALLOC_POOL_SIZE];
@@ -184,6 +181,7 @@ void hyp_warm_entry(uint64_t core_index)
 
 int main(int argc UNUSED, char **argv UNUSED)
 {
+	struct timeval tv ALIGN(16);
 	kvm_guest_t *host;
 	int res;
 
@@ -197,7 +195,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 			     : "memory");
 
 	init_index = smp_processor_id();
-	gettimeofday(&tv1, NULL);
+	gettimeofday(&tv, NULL);
 	platform_console_init();
 
 	if (init_index == 0) {
@@ -250,9 +248,9 @@ int main(int argc UNUSED, char **argv UNUSED)
 		       sizeof(mbedtls_aes_context));
 	}
 
-	gettimeofday(&tv2, NULL);
-	LOG("HYP core %ld initialization latency was %ldms\n",
-	     init_index, (tv2.tv_usec - tv1.tv_usec) / 1000);
+	gettimeofday(&tv, NULL);
+	LOG("HYP core %ld initialization time was %ldms\n",
+	     init_index, us_to_ms(tv.tv_usec));
 	spin_unlock(&entrylock);
 
 	enter_el1_cold();

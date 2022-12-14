@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include <errno.h>
+#include <sys/time.h>
 
 #include "hvccall-defines.h"
 #include "mm.h"
@@ -112,6 +113,13 @@ struct guest_exitlog {
 #define MIN_UNIQUE_ID_LEN 8
 #define GUEST_ID_LEN 16
 
+struct share_tracker {
+	struct timeval last_nag;
+	struct timeval boottime;
+	uint32_t shared_pages;
+	uint32_t last_spc;
+};
+
 struct kvm_guest {
 	uint32_t vmid;
 	guest_state_t state;
@@ -122,6 +130,7 @@ struct kvm_guest {
 	struct ptable *EL2S1_pgd;   /* ttbr0_el2 */
 	struct tablepool el2_tablepool;
 	struct tablepool s2_tablepool;
+	struct share_tracker st;
 	void *kvm;	/* struct kvm */
 	kvm_memslots slots[KVM_MEM_SLOTS_NUM];
 	rwlock_t page_data_lock;
@@ -555,5 +564,13 @@ int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len);
  *         otherwise
  */
  int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len);
+
+#ifdef DEBUG
+ void share_increment(kvm_guest_t *guest);
+ void share_decrement(kvm_guest_t *guest, uint64_t map_addr);
+#else
+ static inline void share_increment(kvm_guest_t *guest) { };
+ static inline void share_decrement(kvm_guest_t *guest, uint64_t map_addr) { };
+#endif
 
 #endif // __KVM_GUEST_H__

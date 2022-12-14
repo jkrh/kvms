@@ -487,6 +487,7 @@ kvm_guest_t *alloc_guest(void *kvm)
 		set_blinding_default(guest);
 	}
 
+	gettimeofday(&guest->st.boottime, NULL);
 	return guest;
 }
 
@@ -1225,6 +1226,8 @@ cont:
 				 S2_NORMAL_MEMORY);
 		if (res)
 			panic("mmap_range failed with error %d\n", res);
+
+		share_increment(guest);
 	} else  {
 		res = remove_host_range(guest, vaddr, len, false);
 		if (res)
@@ -1338,6 +1341,8 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 			else
 				__flush_dcache_area((void *)paddr, PAGE_SIZE);
 		}
+		share_decrement(guest, map_addr);
+
 		/*
 		 * Detach the page from the guest
 		 */
@@ -2214,11 +2219,45 @@ err:
 #endif
 }
 
+#ifdef DEBUG
 int kernel_integrity_ok(const kvm_guest_t *guest)
 {
-#ifdef DEBUG
 	return 1;
-#else
-	return guest->kic_status == KIC_PASSED;
-#endif
 }
+
+void share_increment(kvm_guest_t *guest)
+{
+	struct timeval ts;
+
+	/*
+	 * Try to log if we leak shares. This is a good remainder to
+	 * make sure shares stay sane and the shared areas walk down
+	 * in size.
+	 */
+	guest->st.shared_pages++;
+	gettimeofday(&ts, NULL);
+
+	if ((ts.tv_sec - guest->st.boottime.tv_sec) >=
+	     EXPECTED_BOOT_TIME_IN_SECONDS) {
+		if ((guest->st.shared_pages > guest->st.last_spc) &&
+		   ((ts.tv_sec - guest->st.last_nag.tv_sec) >= 10)) {
+			LOG("note: guest %u share count %u\n",
+			    guest->vmid,
+			    guest->st.shared_pages);
+			gettimeofday(&guest->st.last_nag, NULL);
+			guest->st.last_spc = guest->st.shared_pages;
+		}
+	}
+}
+
+void share_decrement(kvm_guest_t *guest, uint64_t map_addr)
+{
+	if (is_share(guest, map_addr, PAGE_SIZE) == 1)
+		guest->st.shared_pages--;
+}
+#else
+int kernel_integrity_ok(const kvm_guest_t *guest)
+{
+	return guest->kic_status == KIC_PASSED;
+}
+#endif

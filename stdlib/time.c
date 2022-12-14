@@ -9,7 +9,9 @@
 #define MICROSECONDS 1000000
 #define NANOSECONDS  1000000000
 
-int gettimeofday(struct timeval *tv, void *tz)
+static struct timeval boot_ts;
+
+int __gettimeofday(struct timeval *tv, void *tz)
 {
 	uint64_t cntptval_org;
 	uint64_t cntfrq_org;
@@ -26,6 +28,22 @@ int gettimeofday(struct timeval *tv, void *tz)
 	val = cntptval_org * SECONDS;
 	val = val / cntfrq_org;
 	tv->tv_sec = val;
+
+	return 0;
+}
+
+int gettimeofday(struct timeval *tv, void *tz)
+{
+	__gettimeofday(tv, NULL);
+
+	if (!boot_ts.tv_usec)
+		memcpy(&boot_ts, tv, sizeof(boot_ts));
+
+	if (tv->tv_usec < boot_ts.tv_usec)
+		memcpy(&boot_ts, tv, sizeof(boot_ts));
+
+	tv->tv_usec -= boot_ts.tv_usec;
+	tv->tv_sec  -= boot_ts.tv_sec;
 
 	return 0;
 }
