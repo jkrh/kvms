@@ -1,0 +1,781 @@
+From 8b3a8f09a2a5370b80279ec85e7453ec2347a7ca Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Tue, 13 Dec 2022 10:18:03 +0200
+Subject: [PATCH] kvm: 'encrypted memory' draft for arm64 - 5.15
+
+Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ arch/arm64/Kconfig                      |   2 +
+ arch/arm64/configs/defconfig            |   9 +-
+ arch/arm64/include/asm/mem_encrypt.h    |  14 +++
+ arch/arm64/kernel/paravirt.c            |   9 ++
+ arch/arm64/kvm/hvccall-defines.h        | 117 ++++++++++++++++++++++++
+ arch/arm64/mm/Makefile                  |   3 +-
+ arch/arm64/mm/set_memory.c              |  98 ++++++++++++++++++++
+ drivers/gpu/drm/virtio/virtgpu_object.c |  31 ++++++-
+ drivers/gpu/drm/virtio/virtgpu_vq.c     |   4 +-
+ drivers/irqchip/irq-gic-v3-its.c        |  38 ++++++++
+ drivers/usb/core/message.c              |  10 +-
+ drivers/usb/host/xhci-mem.c             |  31 +++++--
+ drivers/virtio/virtio_ring.c            |  40 ++++----
+ include/asm-generic/set_memory.h        |   5 +
+ 14 files changed, 381 insertions(+), 30 deletions(-)
+ create mode 100644 arch/arm64/include/asm/mem_encrypt.h
+ create mode 100644 arch/arm64/kvm/hvccall-defines.h
+ create mode 100644 arch/arm64/mm/set_memory.c
+
+diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
+index 9d3cbe786f8d..7c7654205c2a 100644
+--- a/arch/arm64/Kconfig
++++ b/arch/arm64/Kconfig
+@@ -116,6 +116,8 @@ config ARM64
+ 	select GENERIC_ALLOCATOR
+ 	select GENERIC_ARCH_TOPOLOGY
+ 	select GENERIC_CLOCKEVENTS_BROADCAST
++	select ARCH_HAS_FORCE_DMA_UNENCRYPTED
++	select ARCH_HAS_MEM_ENCRYPT
+ 	select GENERIC_CPU_AUTOPROBE
+ 	select GENERIC_CPU_VULNERABILITIES
+ 	select GENERIC_EARLY_IOREMAP
+diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
+index 4972a81d40d6..f3c1b06d669d 100644
+--- a/arch/arm64/configs/defconfig
++++ b/arch/arm64/configs/defconfig
+@@ -668,7 +668,7 @@ CONFIG_VIDEO_RCAR_DRIF=m
+ CONFIG_VIDEO_IMX219=m
+ CONFIG_VIDEO_OV5645=m
+ CONFIG_VIDEO_QCOM_CAMSS=m
+-CONFIG_DRM=m
++CONFIG_DRM=y
+ CONFIG_DRM_I2C_NXP_TDA998X=m
+ CONFIG_DRM_MALI_DISPLAY=m
+ CONFIG_DRM_NOUVEAU=m
+@@ -1213,3 +1213,10 @@ CONFIG_DEBUG_KERNEL=y
+ # CONFIG_DEBUG_PREEMPT is not set
+ # CONFIG_FTRACE is not set
+ CONFIG_MEMTEST=y
++CONFIG_DMA_DIRECT_REMAP=y
++CONFIG_DMA_REMAP=y
++CONFIG_ARCH_HAS_DMA_MARK_CLEAN=y
++CONFIG_ARCH_HAS_FORCE_DMA_UNENCRYPTED=y
++CONFIG_ARCH_HAS_MEM_ENCRYPT=y
++CONFIG_DRM_VIRTIO_GPU=y
++CONFIG_VIRTIO_INPUT=y
+diff --git a/arch/arm64/include/asm/mem_encrypt.h b/arch/arm64/include/asm/mem_encrypt.h
+new file mode 100644
+index 000000000000..06682f03841a
+--- /dev/null
++++ b/arch/arm64/include/asm/mem_encrypt.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef _ASMARM_MEMENC_H
++#define _ASMARM_MEMENC_H
++
++int set_memory_encrypted(unsigned long addr, int numpages);
++int set_memory_decrypted(unsigned long addr, int numpages);
++int set_gpa_decrypted(unsigned long gpa, int numpages);
++
++static inline bool mem_encrypt_active(void)
++{
++	return true;
++};
++#endif
+diff --git a/arch/arm64/kernel/paravirt.c b/arch/arm64/kernel/paravirt.c
+index 57c7c211f8c7..13e5d7ebac3d 100644
+--- a/arch/arm64/kernel/paravirt.c
++++ b/arch/arm64/kernel/paravirt.c
+@@ -23,6 +23,7 @@
+ #include <asm/paravirt.h>
+ #include <asm/pvclock-abi.h>
+ #include <asm/smp_plat.h>
++#include <asm/mem_encrypt.h>
+ 
+ struct static_key paravirt_steal_enabled;
+ struct static_key paravirt_steal_rq_enabled;
+@@ -96,6 +97,8 @@ static int stolen_time_cpu_online(unsigned int cpu)
+ 	struct pvclock_vcpu_stolen_time *kaddr = NULL;
+ 	struct pv_time_stolen_time_region *reg;
+ 	struct arm_smccc_res res;
++	unsigned long addr;
++	int err, numpages;
+ 
+ 	reg = this_cpu_ptr(&stolen_time_region);
+ 
+@@ -110,6 +113,12 @@ static int stolen_time_cpu_online(unsigned int cpu)
+ 
+ 	rcu_assign_pointer(reg->kaddr, kaddr);
+ 
++	numpages = round_up(sizeof(struct pvclock_vcpu_stolen_time), PAGE_SIZE) >> PAGE_SHIFT;
++	addr = round_down((u64)res.a0, PAGE_SIZE);
++	err = set_memory_decrypted((unsigned long)addr, numpages);
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	if (!reg->kaddr) {
+ 		pr_warn("Failed to map stolen time data structure\n");
+ 		return -ENOMEM;
+diff --git a/arch/arm64/kvm/hvccall-defines.h b/arch/arm64/kvm/hvccall-defines.h
+new file mode 100644
+index 000000000000..6b2ce07a529e
+--- /dev/null
++++ b/arch/arm64/kvm/hvccall-defines.h
+@@ -0,0 +1,117 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __HYP_API__
++#define __HYP_API__
++
++#ifndef __ASSEMBLY__
++/*
++ * Kernel-visible struct pointer to call security critical operations
++ * from the kernel EL2 blob.
++ */
++struct hyp_extension_ops {
++	int	(*load_host_stage2)(void);
++	int	(*load_guest_stage2)(uint64_t vmid);
++	void	(*save_host_traps)(void);
++	void	(*restore_host_traps)(void);
++	void	*(*hyp_vcpu_regs)(uint64_t vmid, uint64_t vcpuid);
++	uint64_t (*guest_enter)(void *vcpu);
++	void	(*sysreg_restore_guest)(uint64_t vmid, uint64_t vcpuid);
++	void	(*sysreg_save_guest)(uint64_t vmid, uint64_t vcpuid);
++};
++#define KVMS_SYMPFX(name) __kvms_##name
++#define NVHE_SYMPFX(name) __kvm_nvhe_##name
++#define _WEAK_ALIAS(name, aliasname) \
++	extern __typeof (name) aliasname __attribute__ ((weak, alias (#name)));
++#define WEAK_ALIAS(name, aliasname) _WEAK_ALIAS (name, aliasname)
++#define KVMS_SYMBOL(name) WEAK_ALIAS(name, KVMS_SYMPFX(name))
++#endif
++
++/*
++ * Base addressing for data sharing
++ */
++#define KERNEL_MAP	0xFFFFFFF000000000
++#define KERN_VA_MASK	0x0000000FFFFFFFFF
++#define CALL_MASK	KERN_VA_MASK
++#define KERNEL_BASE	0x4000000000
++
++/*
++ * Kernel lock flags
++ */
++#define HOST_STAGE1_LOCK		0x1
++#define HOST_STAGE2_LOCK		0x2
++#define HOST_KVM_CALL_LOCK		0x4
++#define HOST_PT_LOCK			0x8
++#define HOST_KVM_TRAMPOLINE_LOCK	0x10
++#define HOST_STAGE1_EXEC_LOCK		0x20
++#define	HOST_LOCKFLAG_MASK		0x3F
++
++/*
++ * Host protection support
++ */
++#define HYP_FIRST_HOSTCALL		0x8000
++#define HYP_HOST_MAP_STAGE1		0x8000
++#define HYP_HOST_MAP_STAGE2		0x8001
++#define HYP_HOST_UNMAP_STAGE1		0x8002
++#define HYP_HOST_UNMAP_STAGE2		0x8003
++#define HYP_HOST_BOOTSTEP		0x8004
++#define HYP_HOST_GET_VMID		0x8005
++#define HYP_HOST_SET_LOCKFLAGS		0x8006
++#define HYP_HOST_PREPARE_STAGE1		0x8007
++#define HYP_HOST_PREPARE_STAGE2		0x8008
++#define HYP_HOST_SWAP_PAGE		0x8009
++#define HYP_HOST_RESTORE_SWAP_PAGE	0x800A
++#define HYP_LAST_HOSTCALL		HYP_HOST_RESTORE_SWAP_PAGE
++
++/*
++ * KVM guest support
++ */
++#define HYP_FIRST_GUESTCALL		0x9000
++#define HYP_READ_MDCR_EL2		0x9000
++#define HYP_SET_HYP_TXT			0x9001
++#define HYP_SET_TPIDR			0x9002
++#define HYP_INIT_GUEST			0x9003
++#define HYP_FREE_GUEST			0x9004
++#define HYP_UPDATE_GUEST_MEMSLOT	0x9005
++#define HYP_GUEST_MAP_STAGE2		0x9006
++#define HYP_GUEST_UNMAP_STAGE2		0x9007
++#define HYP_USER_COPY			0x9009
++#define HYP_MKYOUNG			0x900A
++#define HYP_SET_GUEST_MEMORY_OPEN	0x900B
++#define HYP_SET_GUEST_MEMORY_BLINDED	0x900C
++#define HYP_MKOLD			0x900D
++#define HYP_ISYOUNG			0x900E
++#define HYP_TRANSLATE			0x900F
++#define HYP_SET_MEMCHUNK		0x9010
++#define HYP_RELEASE_MEMCHUNK		0x9011
++#define HYP_GUEST_VCPU_REG_RESET	0x9012
++#define HYP_GUEST_MEMMAP		0x9013
++#define HYP_STOP_GUEST			0x9014
++#define HYP_RESUME_GUEST		0x9015
++#define HYP_GUEST_CACHE_OP		0x9020
++#define HYP_REGION_PROTECT		0x9021
++/*
++ * Optional - for debug only.
++ */
++#define HYP_READ_LOG			0xA000
++#define HYP_SYNC_GPREGS			0xA001
++
++/*
++ * Guest specific key support
++ */
++#define HYP_GENERATE_KEY		0xB000
++#define HYP_GET_KEY			0xB001
++#define HYP_DELETE_KEY			0xB002
++#define HYP_SAVE_KEYS			0xB003
++#define HYP_LOAD_KEYS			0xB004
++#define HYP_DEFINE_GUEST_ID		0xB005
++#define HYP_GUEST_INIT_IMAGE_CHECK	0xB006
++#define HYP_GUEST_DO_IMAGE_CHECK	0xB007
++#define HYP_LAST_GUESTCALL		HYP_GUEST_DO_IMAGE_CHECK
++#define STR(x) #x
++#define XSTR(s) STR(s)
++
++#ifndef __ASSEMBLY__
++extern int __kvms_hvc_cmd(unsigned long cmd, ...);
++extern uint64_t __kvms_hvc_get(unsigned long cmd, ...);
++#endif // __ASSEMBLY__
++
++#endif // __HYP_API__
+diff --git a/arch/arm64/mm/Makefile b/arch/arm64/mm/Makefile
+index f188c9092696..0b9f3fb324e2 100644
+--- a/arch/arm64/mm/Makefile
++++ b/arch/arm64/mm/Makefile
+@@ -2,7 +2,8 @@
+ obj-y				:= dma-mapping.o extable.o fault.o init.o \
+ 				   cache.o copypage.o flush.o \
+ 				   ioremap.o mmap.o pgd.o mmu.o \
+-				   context.o proc.o pageattr.o
++				   context.o proc.o pageattr.o \
++				   set_memory.o
+ obj-$(CONFIG_HUGETLB_PAGE)	+= hugetlbpage.o
+ obj-$(CONFIG_PTDUMP_CORE)	+= ptdump.o
+ obj-$(CONFIG_PTDUMP_DEBUGFS)	+= ptdump_debugfs.o
+diff --git a/arch/arm64/mm/set_memory.c b/arch/arm64/mm/set_memory.c
+new file mode 100644
+index 000000000000..9ac1990e9535
+--- /dev/null
++++ b/arch/arm64/mm/set_memory.c
+@@ -0,0 +1,98 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#include <linux/kernel.h>
++#include <asm/memory.h>
++#include <asm/set_memory.h>
++
++#include "../kvm/hvccall-defines.h"
++
++struct device;
++
++static unsigned long __translate(unsigned long addr)
++{
++	register unsigned long ret asm ("x0");
++
++	 __asm__ __volatile__ (
++		"mov	x0, " XSTR(HYP_TRANSLATE) "\n"
++		"mov	x1, %[addr]\n"
++		"hvc	#0\n"
++		:
++		: [addr]"r"(addr)
++		: "memory", "x0", "x1");
++
++	return ret;
++}
++
++static int __set_memory_encrypted(unsigned long addr, int numpages)
++{
++	register int ret asm ("x0");
++
++	__asm__ __volatile__ (
++		"mov	x0, " XSTR(HYP_SET_GUEST_MEMORY_BLINDED) "\n"
++		"mov	x1, %[addr]\n"
++		"mov	x2, %[numpages]\n"
++		"hvc	#0\n"
++		:
++		: [addr]"r"(addr), [numpages]"r"(numpages)
++		: "memory", "x0", "x1", "x2");
++
++	return ret;
++}
++
++int set_memory_encrypted(unsigned long addr, int numpages)
++{
++	unsigned long gpa, phys;
++	int res;
++
++	gpa = virt_to_phys((void *)addr);
++	numpages *= PAGE_SIZE;
++
++	res = __set_memory_encrypted(gpa, numpages);
++	if (res) {
++		phys = __translate(gpa);
++		pr_err("set_memory_encrypted() %lx/%lx/%lx len %d = %d\n",
++		        addr, gpa, phys, numpages, res);
++	}
++	return 0;
++}
++
++static int __set_memory_decrypted(unsigned long addr, int numpages)
++{
++	register int ret asm ("x0");
++
++	__asm__ __volatile__ (
++		"mov	x0, " XSTR(HYP_SET_GUEST_MEMORY_OPEN) "\n"
++		"mov	x1, %[addr]\n"
++		"mov	x2, %[numpages]\n"
++		"hvc	#0\n"
++		:
++		: [addr]"r"(addr), [numpages]"r"(numpages)
++		: "memory", "x0", "x1", "x2");
++
++	return ret;
++}
++
++int set_memory_decrypted(unsigned long addr, int numpages)
++{
++	unsigned long gpa, phys;
++	int res;
++
++	gpa = virt_to_phys((void *)addr);
++	numpages *= PAGE_SIZE;
++
++	res = __set_memory_decrypted(gpa, numpages);
++	if (res) {
++		phys = __translate(gpa);
++		pr_err("set_memory_decrypted() %lx/%lx/%lx len %d = %d\n",
++		       addr, gpa, phys, numpages, res);
++	}
++	return 0;
++}
++
++bool force_dma_unencrypted(__attribute__ ((unused)) struct device *dev)
++{
++	/*
++	 * DMA must be to unencrypted addresses
++	 */
++	return true;
++}
+diff --git a/drivers/gpu/drm/virtio/virtgpu_object.c b/drivers/gpu/drm/virtio/virtgpu_object.c
+index 7e75fb0fc7bd..cec29b97bd04 100644
+--- a/drivers/gpu/drm/virtio/virtgpu_object.c
++++ b/drivers/gpu/drm/virtio/virtgpu_object.c
+@@ -25,6 +25,10 @@
+ 
+ #include <linux/dma-mapping.h>
+ #include <linux/moduleparam.h>
++#include <linux/dma-direct.h>
++
++#include <asm/set_memory.h>
++#include "../kvm/hvccall-defines.h"
+ 
+ #include "virtgpu_drv.h"
+ 
+@@ -146,15 +150,32 @@ struct drm_gem_object *virtio_gpu_create_object(struct drm_device *dev,
+ 	return &dshmem->base;
+ }
+ 
++static int __set_memory_decrypted(unsigned long addr, int len)
++{
++	register int ret asm ("x0");
++
++	__asm__ __volatile__ (
++		"mov    x0, " XSTR(HYP_SET_GUEST_MEMORY_OPEN) "\n"
++		"mov    x1, %[addr]\n"
++		"mov    x2, %[len]\n"
++		"hvc    #0\n"
++		:
++		: [addr]"r"(addr), [len]"r"(len)
++		: "memory", "x0", "x1", "x2");
++
++	return ret;
++}
++
+ static int virtio_gpu_object_shmem_init(struct virtio_gpu_device *vgdev,
+ 					struct virtio_gpu_object *bo,
+ 					struct virtio_gpu_mem_entry **ents,
+ 					unsigned int *nents)
+ {
+-	bool use_dma_api = !virtio_has_dma_quirk(vgdev->vdev);
++	bool use_dma_api = true;
+ 	struct virtio_gpu_object_shmem *shmem = to_virtio_gpu_shmem(bo);
+ 	struct scatterlist *sg;
+-	int si, ret;
++	int si, ret, res, len;
++	void *vaddr;
+ 
+ 	ret = drm_gem_shmem_pin(&bo->base);
+ 	if (ret < 0)
+@@ -196,6 +217,12 @@ static int virtio_gpu_object_shmem_init(struct virtio_gpu_device *vgdev,
+ 			(*ents)[si].addr = cpu_to_le64(sg_dma_address(sg));
+ 			(*ents)[si].length = cpu_to_le32(sg_dma_len(sg));
+ 			(*ents)[si].padding = 0;
++
++			len = round_up(sg->length, PAGE_SIZE);
++			vaddr = (void *)round_down(sg_dma_address(sg), PAGE_SIZE);
++			res = __set_memory_decrypted((u64)vaddr, len);
++			if (res)
++				pr_err("%s set_memory_decrypted %d\n", __func__, res);
+ 		}
+ 	} else {
+ 		for_each_sgtable_sg(shmem->pages, sg, si) {
+diff --git a/drivers/gpu/drm/virtio/virtgpu_vq.c b/drivers/gpu/drm/virtio/virtgpu_vq.c
+index 19a196b48a38..555807800b0a 100644
+--- a/drivers/gpu/drm/virtio/virtgpu_vq.c
++++ b/drivers/gpu/drm/virtio/virtgpu_vq.c
+@@ -601,7 +601,7 @@ void virtio_gpu_cmd_transfer_to_host_2d(struct virtio_gpu_device *vgdev,
+ 	struct virtio_gpu_object *bo = gem_to_virtio_gpu_obj(objs->objs[0]);
+ 	struct virtio_gpu_transfer_to_host_2d *cmd_p;
+ 	struct virtio_gpu_vbuffer *vbuf;
+-	bool use_dma_api = !virtio_has_dma_quirk(vgdev->vdev);
++	bool use_dma_api = true;
+ 	struct virtio_gpu_object_shmem *shmem = to_virtio_gpu_shmem(bo);
+ 
+ 	if (virtio_gpu_is_shmem(bo) && use_dma_api)
+@@ -1022,7 +1022,7 @@ void virtio_gpu_cmd_transfer_to_host_3d(struct virtio_gpu_device *vgdev,
+ 	struct virtio_gpu_object *bo = gem_to_virtio_gpu_obj(objs->objs[0]);
+ 	struct virtio_gpu_transfer_host_3d *cmd_p;
+ 	struct virtio_gpu_vbuffer *vbuf;
+-	bool use_dma_api = !virtio_has_dma_quirk(vgdev->vdev);
++	bool use_dma_api = true;
+ 
+ 	if (virtio_gpu_is_shmem(bo) && use_dma_api) {
+ 		struct virtio_gpu_object_shmem *shmem = to_virtio_gpu_shmem(bo);
+diff --git a/drivers/irqchip/irq-gic-v3-its.c b/drivers/irqchip/irq-gic-v3-its.c
+index 59a5d06b2d3e..016a95902747 100644
+--- a/drivers/irqchip/irq-gic-v3-its.c
++++ b/drivers/irqchip/irq-gic-v3-its.c
+@@ -36,6 +36,7 @@
+ 
+ #include <asm/cputype.h>
+ #include <asm/exception.h>
++#include <asm/set_memory.h>
+ 
+ #include "irq-gic-common.h"
+ 
+@@ -2171,11 +2172,16 @@ static void gic_reset_prop_table(void *va)
+ static struct page *its_allocate_prop_table(gfp_t gfp_flags)
+ {
+ 	struct page *prop_page;
++	int err;
+ 
+ 	prop_page = alloc_pages(gfp_flags, get_order(LPI_PROPBASE_SZ));
+ 	if (!prop_page)
+ 		return NULL;
+ 
++	err = set_memory_decrypted((unsigned long)page_address(prop_page), 1 << get_order(LPI_PROPBASE_SZ));
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	gic_reset_prop_table(page_address(prop_page));
+ 
+ 	return prop_page;
+@@ -2295,6 +2301,7 @@ static int its_setup_baser(struct its_node *its, struct its_baser *baser,
+ 	u32 alloc_pages, psz;
+ 	struct page *page;
+ 	void *base;
++	int err;
+ 
+ 	psz = baser->psz;
+ 	alloc_pages = (PAGE_ORDER_TO_SIZE(order) / psz);
+@@ -2310,6 +2317,10 @@ static int its_setup_baser(struct its_node *its, struct its_baser *baser,
+ 	if (!page)
+ 		return -ENOMEM;
+ 
++	err = set_memory_decrypted((unsigned long)page_address(page), 1 << order);
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	base = (void *)page_address(page);
+ 	baser_phys = virt_to_phys(base);
+ 
+@@ -2730,6 +2741,7 @@ static bool allocate_vpe_l2_table(int cpu, u32 id)
+ 	u64 val;
+ 	struct page *page;
+ 	__le64 *table;
++	int err;
+ 
+ 	if (!gic_rdists->has_rvpeid)
+ 		return true;
+@@ -2776,6 +2788,10 @@ static bool allocate_vpe_l2_table(int cpu, u32 id)
+ 		if (!page)
+ 			return false;
+ 
++		err = set_memory_decrypted((unsigned long)page_address(page), 1 << get_order(psz));
++		if (err)
++			pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 		/* Flush Lvl2 table to PoC if hw doesn't support coherency */
+ 		if (!(val & GICR_VPROPBASER_SHAREABILITY_MASK))
+ 			gic_flush_dcache_to_poc(page_address(page), psz);
+@@ -2800,6 +2816,7 @@ static int allocate_vpe_l1_table(void)
+ 	unsigned int psz = SZ_64K;
+ 	unsigned int np, epp, esz;
+ 	struct page *page;
++	int err;
+ 
+ 	if (!gic_rdists->has_rvpeid)
+ 		return 0;
+@@ -2832,6 +2849,10 @@ static int allocate_vpe_l1_table(void)
+ 	if (val & GICR_VPROPBASER_4_1_VALID)
+ 		goto out;
+ 
++	err = set_memory_decrypted((unsigned long)page_address(page), 1 << get_order(np * PAGE_SIZE));
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	/* First probe the page size */
+ 	val = FIELD_PREP(GICR_VPROPBASER_4_1_PAGE_SIZE, GIC_PAGE_SIZE_64K);
+ 	gicr_write_vpropbaser(val, vlpi_base + GICR_VPROPBASER);
+@@ -2934,12 +2955,17 @@ static int its_alloc_collections(struct its_node *its)
+ static struct page *its_allocate_pending_table(gfp_t gfp_flags)
+ {
+ 	struct page *pend_page;
++	int err;
+ 
+ 	pend_page = alloc_pages(gfp_flags | __GFP_ZERO,
+ 				get_order(LPI_PENDBASE_SZ));
+ 	if (!pend_page)
+ 		return NULL;
+ 
++	err = set_memory_decrypted((unsigned long)page_address(pend_page), 1 << get_order(LPI_PENDBASE_SZ));
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	/* Make sure the GIC will observe the zero-ed page */
+ 	gic_flush_dcache_to_poc(page_address(pend_page), LPI_PENDBASE_SZ);
+ 
+@@ -3263,6 +3289,7 @@ static bool its_alloc_table_entry(struct its_node *its,
+ 	struct page *page;
+ 	u32 esz, idx;
+ 	__le64 *table;
++	int err;
+ 
+ 	/* Don't allow device id that exceeds single, flat table limit */
+ 	esz = GITS_BASER_ENTRY_SIZE(baser->val);
+@@ -3283,6 +3310,11 @@ static bool its_alloc_table_entry(struct its_node *its,
+ 		if (!page)
+ 			return false;
+ 
++		err = set_memory_decrypted((unsigned long)page_address(page),
++					   1 << get_order(baser->psz));
++		if (err)
++			pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 		/* Flush Lvl2 table to PoC if hw doesn't support coherency */
+ 		if (!(baser->val & GITS_BASER_SHAREABILITY_MASK))
+ 			gic_flush_dcache_to_poc(page_address(page), baser->psz);
+@@ -5048,6 +5080,12 @@ static int __init its_probe_one(struct resource *res,
+ 		err = -ENOMEM;
+ 		goto out_unmap_sgir;
+ 	}
++
++	err = set_memory_decrypted((unsigned long)page_address(page),
++				   1 << get_order(ITS_CMD_QUEUE_SZ));
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	its->cmd_base = (void *)page_address(page);
+ 	its->cmd_write = its->cmd_base;
+ 	its->fwnode_handle = handle;
+diff --git a/drivers/usb/core/message.c b/drivers/usb/core/message.c
+index 4d59d927ae3e..660e084b9644 100644
+--- a/drivers/usb/core/message.c
++++ b/drivers/usb/core/message.c
+@@ -89,8 +89,9 @@ static int usb_internal_control_msg(struct usb_device *usb_dev,
+ 				    void *data, int len, int timeout)
+ {
+ 	struct urb *urb;
+-	int retv;
++	int retv, res, numpages;
+ 	int length;
++	u64 addr;
+ 
+ 	urb = usb_alloc_urb(0, GFP_NOIO);
+ 	if (!urb)
+@@ -99,6 +100,13 @@ static int usb_internal_control_msg(struct usb_device *usb_dev,
+ 	usb_fill_control_urb(urb, usb_dev, pipe, (unsigned char *)cmd, data,
+ 			     len, usb_api_blocking_completion, NULL);
+ 
++	if (urb->transfer_buffer_length) {
++		numpages = round_up(urb->transfer_buffer_length, PAGE_SIZE) >> PAGE_SHIFT;
++		addr = round_down((u64)urb->transfer_buffer, PAGE_SIZE);
++		res = set_memory_decrypted(addr, numpages);
++		if (res)
++			pr_err("%s set_memory_decrypted %d\n", __func__, res);
++	}
+ 	retv = usb_start_wait_urb(urb, timeout, &length);
+ 	if (retv < 0)
+ 		return retv;
+diff --git a/drivers/usb/host/xhci-mem.c b/drivers/usb/host/xhci-mem.c
+index 9d9ab7e3560a..c40ad38f4d5c 100644
+--- a/drivers/usb/host/xhci-mem.c
++++ b/drivers/usb/host/xhci-mem.c
+@@ -18,6 +18,23 @@
+ #include "xhci-trace.h"
+ #include "xhci-debugfs.h"
+ 
++static void *xhci_kzalloc_node(size_t size, gfp_t flags, int node)
++{
++	int res, numpages = 0;
++	void *vaddr;
++
++	vaddr = kmalloc_order(size, flags | __GFP_ZERO, 1);
++	if (!vaddr)
++		return NULL;
++
++	numpages += (round_up(size, PAGE_SIZE) >> PAGE_SHIFT);
++	res = set_memory_decrypted((u64)vaddr, numpages);
++	if (res)
++		pr_err("%s set_memory_decrypted %d\n", __func__, res);
++
++	return vaddr;
++}
++
+ /*
+  * Allocates a generic ring segment from the ring pool, sets the dma address,
+  * initializes the segment to zero, and sets the private next pointer to NULL.
+@@ -35,7 +52,7 @@ static struct xhci_segment *xhci_segment_alloc(struct xhci_hcd *xhci,
+ 	int		i;
+ 	struct device *dev = xhci_to_hcd(xhci)->self.sysdev;
+ 
+-	seg = kzalloc_node(sizeof(*seg), flags, dev_to_node(dev));
++	seg = xhci_kzalloc_node(sizeof(*seg), flags, dev_to_node(dev));
+ 	if (!seg)
+ 		return NULL;
+ 
+@@ -376,7 +393,7 @@ struct xhci_ring *xhci_ring_alloc(struct xhci_hcd *xhci,
+ 	int ret;
+ 	struct device *dev = xhci_to_hcd(xhci)->self.sysdev;
+ 
+-	ring = kzalloc_node(sizeof(*ring), flags, dev_to_node(dev));
++	ring = xhci_kzalloc_node(sizeof(*ring), flags, dev_to_node(dev));
+ 	if (!ring)
+ 		return NULL;
+ 
+@@ -475,7 +492,7 @@ struct xhci_container_ctx *xhci_alloc_container_ctx(struct xhci_hcd *xhci,
+ 	if ((type != XHCI_CTX_TYPE_DEVICE) && (type != XHCI_CTX_TYPE_INPUT))
+ 		return NULL;
+ 
+-	ctx = kzalloc_node(sizeof(*ctx), flags, dev_to_node(dev));
++	ctx = xhci_kzalloc_node(sizeof(*ctx), flags, dev_to_node(dev));
+ 	if (!ctx)
+ 		return NULL;
+ 
+@@ -622,7 +639,7 @@ struct xhci_stream_info *xhci_alloc_stream_info(struct xhci_hcd *xhci,
+ 	}
+ 	xhci->cmd_ring_reserved_trbs++;
+ 
+-	stream_info = kzalloc_node(sizeof(*stream_info), mem_flags,
++	stream_info = xhci_kzalloc_node(sizeof(*stream_info), mem_flags,
+ 			dev_to_node(dev));
+ 	if (!stream_info)
+ 		goto cleanup_trbs;
+@@ -1663,7 +1680,7 @@ static int scratchpad_alloc(struct xhci_hcd *xhci, gfp_t flags)
+ 	if (!num_sp)
+ 		return 0;
+ 
+-	xhci->scratchpad = kzalloc_node(sizeof(*xhci->scratchpad), flags,
++	xhci->scratchpad = xhci_kzalloc_node(sizeof(*xhci->scratchpad), flags,
+ 				dev_to_node(dev));
+ 	if (!xhci->scratchpad)
+ 		goto fail_sp;
+@@ -1745,13 +1762,13 @@ struct xhci_command *xhci_alloc_command(struct xhci_hcd *xhci,
+ 	struct xhci_command *command;
+ 	struct device *dev = xhci_to_hcd(xhci)->self.sysdev;
+ 
+-	command = kzalloc_node(sizeof(*command), mem_flags, dev_to_node(dev));
++	command = xhci_kzalloc_node(sizeof(*command), mem_flags, dev_to_node(dev));
+ 	if (!command)
+ 		return NULL;
+ 
+ 	if (allocate_completion) {
+ 		command->completion =
+-			kzalloc_node(sizeof(struct completion), mem_flags,
++			xhci_kzalloc_node(sizeof(struct completion), mem_flags,
+ 				dev_to_node(dev));
+ 		if (!command->completion) {
+ 			kfree(command);
+diff --git a/drivers/virtio/virtio_ring.c b/drivers/virtio/virtio_ring.c
+index 603a6f4345ef..b979806f8ca5 100644
+--- a/drivers/virtio/virtio_ring.c
++++ b/drivers/virtio/virtio_ring.c
+@@ -245,22 +245,7 @@ static inline bool virtqueue_use_indirect(struct virtqueue *_vq,
+ 
+ static bool vring_use_dma_api(struct virtio_device *vdev)
+ {
+-	if (!virtio_has_dma_quirk(vdev))
+-		return true;
+-
+-	/* Otherwise, we are left to guess. */
+-	/*
+-	 * In theory, it's possible to have a buggy QEMU-supposed
+-	 * emulated Q35 IOMMU and Xen enabled at the same time.  On
+-	 * such a configuration, virtio has never worked and will
+-	 * not work without an even larger kludge.  Instead, enable
+-	 * the DMA API if we're a Xen guest, which at least allows
+-	 * all of the sensible Xen configurations to work correctly.
+-	 */
+-	if (xen_domain())
+-		return true;
+-
+-	return false;
++	return true;
+ }
+ 
+ size_t virtio_max_dma_size(struct virtio_device *vdev)
+@@ -331,6 +316,15 @@ static dma_addr_t vring_map_one_sg(const struct vring_virtqueue *vq,
+ 				   struct scatterlist *sg,
+ 				   enum dma_data_direction direction)
+ {
++	unsigned long addr;
++	int numpages, err;
++
++	addr = (unsigned long)page_address(sg_page(sg));
++	numpages = (round_up(sg->length, PAGE_SIZE) >> PAGE_SHIFT);
++	err = set_memory_decrypted(addr, numpages);
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	if (!vq->use_dma_api)
+ 		return (dma_addr_t)sg_phys(sg);
+ 
+@@ -348,6 +342,20 @@ static dma_addr_t vring_map_single(const struct vring_virtqueue *vq,
+ 				   void *cpu_addr, size_t size,
+ 				   enum dma_data_direction direction)
+ {
++	unsigned long addr, mod;
++	int numpages = 0, err;
++
++	addr = (unsigned long)cpu_addr;
++	mod = addr % PAGE_SIZE;
++	if (mod) {
++		addr &= ~(PAGE_SIZE-1);
++		numpages = 1;
++	}
++	numpages += (round_up(size, PAGE_SIZE) >> PAGE_SHIFT);
++	err = set_memory_decrypted(addr, numpages);
++	if (err)
++		pr_err("%s set_memory_decrypted %d\n", __func__, err);
++
+ 	if (!vq->use_dma_api)
+ 		return (dma_addr_t)virt_to_phys(cpu_addr);
+ 
+diff --git a/include/asm-generic/set_memory.h b/include/asm-generic/set_memory.h
+index c86abf6bc7ba..3988080d8eb6 100644
+--- a/include/asm-generic/set_memory.h
++++ b/include/asm-generic/set_memory.h
+@@ -10,4 +10,9 @@ int set_memory_rw(unsigned long addr, int numpages);
+ int set_memory_x(unsigned long addr, int numpages);
+ int set_memory_nx(unsigned long addr, int numpages);
+ 
++#ifdef CONFIG_ARCH_HAS_MEM_ENCRYPT
++int set_memory_encrypted(unsigned long addr, int numpages);
++int set_memory_decrypted(unsigned long addr, int numpages);
++#endif
++
+ #endif
+-- 
+2.25.1
+
