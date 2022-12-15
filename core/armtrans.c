@@ -937,7 +937,9 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (length != PAGE_SIZE)
 			return -EPERM;
 
-		__pt_walk(block.pgd, vaddr, &pte, 0, NULL);
+		if (__pt_walk(block.pgd, vaddr, &pte, 0, NULL) == ~0UL)
+			return -EPERM;
+
 		attr = (*pte &
 			(PROT_MASK_STAGE2 | TYPE_MASK_STAGE2));
 		nattr = (type | prot);
