@@ -29,7 +29,6 @@
  */
 
 HYP_BASE = 0xE0000000;
-HYP_VECTOR_OFFSET = 0x10000;
 HYP_SIZE = 0x3000000;
 HYP_LIMIT = (HYP_BASE + HYP_SIZE);
 
@@ -50,7 +49,7 @@ SECTIONS
         __TEXT_START__ = .;
         *hyp_entrypoint.o(.text*)
         *(.text*)
-        . = HYP_VECTOR_OFFSET;
+        . = ALIGN(2048);
         *(.vectors*)
         . = NEXT(4096);
         __TEXT_END__ = .;
