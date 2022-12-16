@@ -6,9 +6,12 @@
 #include <stdint.h>
 #include "commondefines.h"
 
-#define HYP_ADDRESS 0xC0000000UL
-#define HYP_SIZE (SZ_1M * 256)
-#define HYP_END (HYP_ADDRESS + HYP_SIZE - 1)
+extern uint64_t __HYP_BASE[];
+extern uint64_t __HYP_SIZE[];
+extern uint64_t __HYP_LIMIT[];
+#define HYP_ADDRESS ((uint64_t)__HYP_BASE)
+#define HYP_SIZE ((uint64_t)__HYP_SIZE)
+#define HYP_END ((uint64_t)__HYP_LIMIT - 1)
 
 /* Physical areas for which hyp will deny mapping requests */
 static const struct memrange noaccess[] = {

@@ -1,18 +1,28 @@
+__HYP_BASE = 0xC0000000;
+__HYP_SIZE = 0x10000000;
+__HYP_LIMIT = (__HYP_BASE + __HYP_SIZE);
+
 ENTRY(_start)
+
+MEMORY
+{
+	RAM (rwx): ORIGIN = __HYP_BASE, LENGTH = __HYP_SIZE
+}
+
 SECTIONS
 {
-	. = 0xC0000000;
-	._reset . : { ../../.objs/reset.o(.text) }
+	. = __HYP_BASE;
+	._reset . : { ../../.objs/reset.o(.text) } > RAM
 	.text : ALIGN(8) {
 		*(.text)
 		*(.vectors)
-	}
-	.data : ALIGN(8) { *(.data) }
-	.bss : ALIGN(16) { *(.bss COMMON) }
+	} > RAM
+	.data : ALIGN(8) { *(.data) } > RAM
+	.bss : ALIGN(16) { *(.bss COMMON) } > RAM
 	xlat_table (NOLOAD) : ALIGN(16) {
 		__XLAT_START__ = .;
 		*(xlat_table)
 		__XLAT_END__ = .;
-	}
+	} > RAM
 	. = ALIGN(8);
 }
