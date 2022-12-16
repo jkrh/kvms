@@ -10,6 +10,7 @@ else
 SUBDIRS := platform/$(PLATFORM) $(COREDIRS) platform/$(PLATFORM)/common
 endif
 include core/tools.mk
+-include platform/$(PLATFORM)/makevars.mk
 include core/makevars.mk
 include core/makeflags.mk
 
