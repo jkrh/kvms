@@ -8,6 +8,7 @@
 
 #include "guest.h"
 #include "host_defs.h"
+#include "hvccall-defines.h"
 
 #ifndef GUEST_MEMCHUNKS_MAX
 #define GUEST_MEMCHUNKS_MAX 	256
@@ -24,6 +25,8 @@
 #define MAX_VM			(MAX_GUESTS + 1)
 #define PGD_PER_VM		2
 #define TTBL_POOLS		(MAX_VM * PGD_PER_VM)
+
+#define TABLES_IN_CHUNK		(HYP_CHUNK_SIZE / TABLE_SIZE_4KGRANULE)
 
 #define L1_POFFT_MASK_4KGRANULE		0x000000003FFFFFFFUL
 #define L2_POFFT_MASK_4KGRANULE		0x00000000001FFFFFUL
@@ -62,6 +65,8 @@ typedef struct {
 	guest_memchunk_user_t type;
 	uint16_t next;
 	uint16_t previous;
+	uint32_t owner_vmid;
+	uint8_t used[TABLES_IN_CHUNK];
 } guest_memchunk_t;
 
 struct tablepool {
@@ -72,7 +77,6 @@ struct tablepool {
 	uint16_t currentchunk;
 	uint16_t hint;
 	uint8_t *used;
-	uint8_t props[GUEST_MAX_TABLES];
 };
 
 /**

@@ -25,13 +25,20 @@ typedef enum {
 
 extern struct tdinfo_t tdinfo;
 
-/* Static allocations for translation tables */
-struct ptable guest_tables[TTBL_POOLS][STATIC_TTBL_NUM] ALIGN(PAGE_SIZE) SECTION("xlat_table");
-kvm_guest_t *guest_table_user[TTBL_POOLS];
+/*
+ * Initial static allocations for translation tables
+ */
+struct ptable guest_tables[TTBL_POOLS][TABLES_IN_CHUNK] ALIGN(PAGE_SIZE) SECTION("xlat_table");
+/*
+ * Storage for static and dynamically allocated memory chunks
+ */
+guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX] ALIGN(16);
 
 void table_init(void)
 {
 	kvm_guest_t *host;
+	guest_memchunk_t chunk;
+	int i;
 
 	/* Clean up everything */
 	if (_zeromem16(guest_tables, sizeof(guest_tables)))
@@ -39,9 +46,25 @@ void table_init(void)
 
 	__flush_dcache_area((void *)guest_tables, sizeof(guest_tables));
 
+	_zeromem16(mempool, sizeof(mempool));
+	for (i = 0; i < GUEST_MEMCHUNKS_MAX; i++) {
+		mempool[i].type = GUEST_MEMCHUNK_UNDEFINED;
+		mempool[i].next = GUEST_MEMCHUNKS_MAX;
+		mempool[i].previous = GUEST_MEMCHUNKS_MAX;
+	}
+	__flush_dcache_area((void *)mempool, sizeof(mempool));
+
 	isb();
 
 	host = get_guest(HOST_VMID);
+
+	for (i = 0; i < TTBL_POOLS; i++) {
+		chunk.start = (uint64_t)guest_tables[i];
+		chunk.size  = HYP_CHUNK_SIZE;
+		chunk.type = GUEST_MEMCHUNK_FREE;
+		__guest_memchunk_add(host, &chunk);
+	}
+
 	/* Init host side tables */
 	if (platform_init_host_pgd(host))
 		panic("host pgd init failed\n");
@@ -86,88 +109,21 @@ void tdinfo_init(void)
 	}
 }
 
-static int alloc_static_ttbl_chunk(kvm_guest_t *guest)
-{
-	int i, c;
-	guest_memchunk_t chunk;
-
-	for (i = 0; i < TTBL_POOLS; i++) {
-		if (!guest_table_user[i])
-			break;
-	}
-
-	if (i >= TTBL_POOLS)
-		return -ENOSPC;
-
-	chunk.start = (uint64_t)guest_tables[i];
-	chunk.size  = (STATIC_TTBL_NUM * sizeof(struct ptable));
-	chunk.type = GUEST_MEMCHUNK_TTBL;
-
-	c = __guest_memchunk_add(guest, &chunk);
-	if (c >= 0)
-		guest_table_user[i] = guest;
-
-	return c;
-}
-
-static int free_static_ttbl_chunk(struct tablepool *tpool)
-{
-	guest_memchunk_t chunk;
-	int i, err;
-
-	chunk.start = tpool->guest->mempool[tpool->currentchunk].start;
-
-	for (i = 0; i < TTBL_POOLS; i++) {
-		if ((uint64_t)guest_tables[i] == chunk.start)
-			break;
-	}
-
-	if (i >= TTBL_POOLS)
-		return -ENOENT;
-
-	chunk.size = tpool->guest->mempool[tpool->currentchunk].size;
-	chunk.type = tpool->guest->mempool[tpool->currentchunk].type;
-
-	if (guest_table_user[i] != tpool->guest)
-		panic("guest mismatch!\n");
-
-	err = __guest_memchunk_remove(tpool->guest, &chunk);
-	if (err)
-		ERROR("unable to remove %lx, err %d\n",
-		      chunk.start, err);
-
-	guest_table_user[i] = 0;
-
-	return 0;
-}
-
 int get_tablepool(struct tablepool *tpool, uint64_t c)
 {
-	int i, poolsize, pool_start;
-
 	if (c >= GUEST_MEMCHUNKS_MAX)
 		return -EINVAL;
 
 	if (tpool->guest->mempool[c].type != GUEST_MEMCHUNK_TTBL)
 		return -EINVAL;
 
-	i = tpool->firstchunk;
-	pool_start = 0;
-	while (i < GUEST_MEMCHUNKS_MAX) {
-		if (i == c)
-			break;
-		poolsize = tpool->guest->mempool[i].size;
-		pool_start += poolsize / sizeof(struct ptable);
-		i = tpool->guest->mempool[i].next;
-	}
+	if (tpool->guest->mempool[c].owner_vmid != tpool->guest->vmid)
+		return -EPERM;
 
-	if (i >= GUEST_MEMCHUNKS_MAX)
-		return -ENOENT;
-
-	tpool->pool = (struct ptable *)tpool->guest->mempool[i].start;
-	tpool->num_tables = tpool->guest->mempool[i].size / sizeof(struct ptable);
-	tpool->used = &tpool->props[pool_start];
-	tpool->currentchunk = i;
+	tpool->pool = (struct ptable *)tpool->guest->mempool[c].start;
+	tpool->num_tables = tpool->guest->mempool[c].size / sizeof(struct ptable);
+	tpool->used = tpool->guest->mempool[c].used;
+	tpool->currentchunk = c;
 	tpool->hint = 0;
 
 	return 0;
@@ -175,14 +131,12 @@ int get_tablepool(struct tablepool *tpool, uint64_t c)
 
 struct ptable *alloc_tablepool(struct tablepool *tpool)
 {
-	int c, i, poolsize, pool_start;
+	int c;
 
 	tpool->pool = NULL;
 
 	c = guest_memchunk_alloc(tpool->guest, PAGE_SIZE,
-				GUEST_MEMCHUNK_TTBL);
-	if (c < 0)
-		c = alloc_static_ttbl_chunk(tpool->guest);
+				 GUEST_MEMCHUNK_TTBL);
 
 	if (c < 0) {
 		ERROR("out of memory chunks\n");
@@ -191,6 +145,8 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 
 		return NULL;
 	}
+
+	tpool->guest->mempool[c].owner_vmid = tpool->guest->vmid;
 
 	if (tpool->currentchunk < GUEST_MEMCHUNKS_MAX) {
 		tpool->guest->mempool[c].previous = tpool->currentchunk;
@@ -203,22 +159,7 @@ struct ptable *alloc_tablepool(struct tablepool *tpool)
 	tpool->currentchunk = c;
 	tpool->pool = (struct ptable *)tpool->guest->mempool[c].start;
 	tpool->num_tables = tpool->guest->mempool[c].size / sizeof(struct ptable);
-
-	/* Table accounting */
-	i = tpool->firstchunk;
-	pool_start = 0;
-	while (tpool->guest->mempool[i].next < GUEST_MEMCHUNKS_MAX) {
-		poolsize = tpool->guest->mempool[i].size;
-		pool_start += poolsize / sizeof(struct ptable);
-		i = tpool->guest->mempool[i].next;
-	}
-
-	if ((pool_start + tpool->num_tables) > GUEST_MAX_TABLES) {
-		ERROR("out of table accounting memory!\n");
-		return NULL;
-	}
-
-	tpool->used = &tpool->props[pool_start];
+	tpool->used = tpool->guest->mempool[c].used;
 	tpool->hint = 0;
 
 	if (tpool->used[tpool->hint]) {
@@ -471,8 +412,6 @@ int free_pgd(struct tablepool *tpool, struct ptable *pgd_base)
 		mempool[p].type = GUEST_MEMCHUNK_FREE;
 		mempool[p].next = GUEST_MEMCHUNKS_MAX;
 		mempool[p].previous = GUEST_MEMCHUNKS_MAX;
-		/* If it happens to be allocated from static memory */
-		free_static_ttbl_chunk(tpool);
 	}
 
 	if (tpool == &tpool->guest->el2_tablepool) {

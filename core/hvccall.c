@@ -386,7 +386,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			res = guest_memchunk_add((void *)a1, a2, a3, a4);
 		break;
 	case HYP_RELEASE_MEMCHUNK:
-		res = guest_memchunk_remove((void *)a1, a2, a3);
+		res = -ENOTSUP;
 		break;
 	case HYP_GUEST_VCPU_REG_RESET:
 		res = guest_vcpu_reg_reset((void *)a1, a2);

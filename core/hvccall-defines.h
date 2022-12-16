@@ -26,6 +26,11 @@ struct hyp_extension_ops {
 #endif
 
 /*
+ * Chunk granularity for extending runtime hypervisor memory
+ */
+#define HYP_CHUNK_SIZE	SZ_1M
+
+/*
  * Base addressing for data sharing
  */
 #define KERNEL_MAP	0xFFFFFFF000000000

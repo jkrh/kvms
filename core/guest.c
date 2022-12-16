@@ -98,10 +98,10 @@ static uint16_t guest_index[PRODUCT_VMID_MAX] ALIGN(16);
 kvm_guest_t guests[MAX_VM] ALIGN(16);
 uint16_t last_guest_index ALIGN(16);
 
+extern guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
+
 void format_guest(int i)
 {
-	int c;
-
 	guests[i].vmid = INVALID_VMID;
 	guests[i].el2_tablepool.currentchunk = GUEST_MEMCHUNKS_MAX;
 	guests[i].el2_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
@@ -109,12 +109,7 @@ void format_guest(int i)
 	guests[i].s2_tablepool.firstchunk = GUEST_MEMCHUNKS_MAX;
 	guests[i].patrack.trailpool.currentchunk = GUEST_MEMCHUNKS_MAX;
 	guests[i].patrack.trailpool.firstchunk = GUEST_MEMCHUNKS_MAX;
-	_zeromem16(guests[i].mempool, sizeof(guests[i].mempool));
-	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
-		guests[i].mempool[c].type = GUEST_MEMCHUNK_UNDEFINED;
-		guests[i].mempool[c].next = GUEST_MEMCHUNKS_MAX;
-		guests[i].mempool[c].previous = GUEST_MEMCHUNKS_MAX;
-	}
+	guests[i].mempool = mempool;
 }
 
 static bool guest_has_valid_runstate(kvm_guest_t *g)
@@ -536,24 +531,6 @@ bool s1_range_physically_contiguous(kvm_guest_t *guest, struct ptable *s1_pgd,
 	return true;
 }
 
-int __guest_memchunk_get(kvm_guest_t *guest, guest_memchunk_t *chunk)
-{
-	int c;
-
-	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
-		if ((guest->mempool[c].start == chunk->start) &&
-		    (guest->mempool[c].size == chunk->size))
-			break;
-	}
-
-	if (c >= GUEST_MEMCHUNKS_MAX)
-		c = -ENOENT;
-	else if (guest->mempool[c].type != chunk->type)
-		ERROR("wrong type!");
-
-	return c;
-}
-
 int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk)
 {
 	int c;
@@ -577,72 +554,25 @@ int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk)
 	return c;
 }
 
-int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk)
-{
-	int c;
-
-	c = __guest_memchunk_get(guest, chunk);
-	if (c < 0)
-		return c;
-
-	if ((guest->mempool[c].type != GUEST_MEMCHUNK_FREE) ||
-	    (guest->mempool[c].next != GUEST_MEMCHUNKS_MAX))
-		return -EBUSY;
-
-	if (_zeromem16((void *)guest->mempool[c].start, guest->mempool[c].size))
-		ERROR("check alignment!");
-
-	guest->mempool[c].start = 0;
-	guest->mempool[c].size = 0;
-	guest->mempool[c].type = GUEST_MEMCHUNK_UNDEFINED;
-
-	return 0;
-}
-
-void guest_mempool_free(kvm_guest_t *guest)
-{
-	uint64_t paddr;
-	size_t len;
-	int c, err;
-
-	for (c = 0; c < GUEST_MEMCHUNKS_MAX; c++) {
-		paddr = guest->mempool[c].start;
-		if (paddr) {
-			len = guest->mempool[c].size;
-			guest->mempool[c].next = GUEST_MEMCHUNKS_MAX;
-			guest->mempool[c].type = GUEST_MEMCHUNK_FREE;
-			err = guest_memchunk_remove(guest->kvm, paddr, len);
-			if (err)
-				ERROR("unable to remove %lx, err %d\n",
-				      paddr, err);
-		}
-	}
-}
-
 int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 {
-	kvm_guest_t *host, *guest;
+	kvm_guest_t *host;
 	struct ptable *s1_pgd;
 	uint64_t tpaddr;
 	guest_memchunk_t chunk;
 	int res;
 
+	host = get_guest(HOST_VMID);
+	if (!host)
+		panic("no host\n");
+
 	if ((len < PAGE_SIZE) || (len & (PAGE_SIZE - 1)) ||
 	    (paddr & (PAGE_SIZE - 1)))
 		return -EINVAL;
 
-	guest = __get_guest_by_kvm(&kvm, NULL);
-	if (guest == NULL) {
-		guest = alloc_guest(kvm);
-		if (guest == NULL) {
-			ERROR("no space to allocate a new guest\n");
-			return -ENOSPC;
-		}
-	}
+	if (kvm)
+		return -ENOTSUP;
 
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host\n");
 	/*
 	 * Walk through the provided range to verify it is contiguous
 	 * and physically mapped by the calling host context. This will also
@@ -660,7 +590,7 @@ int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 		chunk.start = paddr;
 		chunk.size = len;
 		chunk.type = GUEST_MEMCHUNK_FREE;
-		res = __guest_memchunk_add(guest, &chunk);
+		res = __guest_memchunk_add(host, &chunk);
 		if (res < 0) {
 			ERROR("failed to add memchunk\n");
 			return -ENOSPC;
@@ -672,33 +602,6 @@ int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 	}
 
 	return 0;
-}
-
-int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len)
-{
-	kvm_guest_t *host, *guest;
-	guest_memchunk_t chunk;
-	int res;
-
-	guest = __get_guest_by_kvm(&kvm, NULL);
-	if (guest == NULL)
-		return -ENOENT;
-
-	host = get_guest(HOST_VMID);
-	if (host == NULL)
-		panic("no host\n");
-
-	res = guest_validate_range(host, paddr, paddr, len);
-	if (res)
-		return res;
-
-	chunk.start = paddr;
-	chunk.size = len;
-	res = __guest_memchunk_remove(guest, &chunk);
-	if (res)
-		return res;
-
-	return restore_host_range(host, paddr, len, true);
 }
 
 int guest_memchunk_alloc(kvm_guest_t *guest,
@@ -1428,7 +1331,6 @@ int free_guest(void *kvm)
 	}
 
 	guest->state = GUEST_INVALID;
-	guest_mempool_free(guest);
 
 	gi = guest->index;
 	memset(guest, 0, sizeof(*guest));

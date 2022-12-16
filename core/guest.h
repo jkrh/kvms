@@ -143,7 +143,7 @@ struct kvm_guest {
 	uint8_t table_levels_el1s2;
 	uint16_t index;
 	sys_context_t ctxt[PLATFORM_CORE_COUNT];
-	guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
+	guest_memchunk_t *mempool;
 	mbedtls_aes_context aes_ctx[PLATFORM_CORE_COUNT];
 	struct patrack_s patrack;
 	bool s2_host_access;
@@ -408,18 +408,6 @@ sys_context_t *get_guest_context(uint32_t vmid, uint32_t cpuid);
 int guest_memchunk_add(void *kvm, uint64_t vaddr, uint64_t paddr, uint64_t len);
 
 /**
- * Remove a chunk of memory from guest memory pool
- *
- * Physical address and size must match an entry in the memory pool.
- *
- * @param kvm the kvm instance this chunk is removed from
- * @param paddr physical start address of the chunk to be removed
- * @param len size of the chunk to be removed
- * @return 0 if valid, negative error code otherwise
- */
-int guest_memchunk_remove(void *kvm, uint64_t paddr, uint64_t len);
-
-/**
  * Alloc a chunk of memory from guest memory pool
  *
  * @param guest the guest
@@ -455,17 +443,6 @@ int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk);
  */
 bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2,
 		     void *regs);
-
-/**
- * Remove a chunk of memory from guest memory pool
- *
- * Unlike guest_memchunk_remove this function is for internal use
- *
- * @param guest the guest
- * @param chunk the chunk to be removed from mempool
- * @return zero in case of success, negative error code otherwise
- */
-int __guest_memchunk_remove(kvm_guest_t *guest, guest_memchunk_t *chunk);
 
 /*
  * Crash guest qemu process on access violation
