@@ -238,5 +238,5 @@ do_spice
 do_qemu
 [ -n "$ANDROID_EMU" ] && do_android_emulator
 [ -z "$STATIC" ] && do_hybris
-[ -n "$HOSTCVD"] do_host_cvd_package
+[ -n "$HOSTCVD" ] && do_host_cvd_package
 echo "All ok!"

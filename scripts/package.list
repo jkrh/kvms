@@ -333,3 +333,15 @@ libmpc-dev
 libmpfr-dev
 libelf-dev
 libspice-server-dev
+devscripts
+config-package-dev
+debhelper-compat
+golang
+curl
+bridge-utils
+dnsmasq-base
+f2fs-tools
+iptables
+libarchive-tools
+libusb-1.0-0 net-tools
+qemu-user-static
