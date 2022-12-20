@@ -18,7 +18,9 @@ SECTIONS
 		*(.vectors)
 	} > RAM
 	.data : ALIGN(8) { *(.data) } > RAM
-	.bss : ALIGN(16) { *(.bss COMMON) } > RAM
+	.el1_hyp_img : ALIGN(4096) { *.(.el1_hyp_img) } > RAM
+	.bss : ALIGN(4096) { *(.bss COMMON) } > RAM
+
 	xlat_table (NOLOAD) : ALIGN(16) {
 		__XLAT_START__ = .;
 		*(xlat_table)

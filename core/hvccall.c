@@ -125,10 +125,11 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 				      (size_t) a3);
 		break;
 	case HYP_GUEST_INIT_IMAGE_CHECK:
-		image_check_init(guest, a1, (size_t) a2);
-		res = 0;
+		res = image_check_init(guest, a1);
 		break;
-
+	case HYP_GUEST_REMAP_LOADER:
+		res = remap_icloader(guest, a1);
+		break;
 	case HYP_GUEST_DO_IMAGE_CHECK:
 		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 		res = check_guest_image(guest, a1);

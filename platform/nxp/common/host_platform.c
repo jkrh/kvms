@@ -105,6 +105,16 @@ int machine_init(kvm_guest_t *host)
 	if (res)
 		return res;
 
+	len = PAGE_SIZE;
+	res = mmap_range(host, EL2_STAGE1, BL_ICL_PAGE, BL_ICL_PAGE,
+			 len, PAGE_KERNEL_RWX | EL2S1_SH, NORMAL_WBACK_P);
+	if (res)
+		return res;
+
+	res = unmap_range(host, STAGE2, BL_ICL_PAGE, len);
+	if (res)
+		return res;
+
 	/* Initial slots for host */
 	platform_init_slots(host);
 

@@ -77,9 +77,10 @@ Secure host swap
 Guest kernel signature verification support
 -------------------------------------------
 - Hypervisor supports guest kernel signature checks out of the box. Just use
-  two top level makefile targets ('gen_key' and 'sign_guest IMAGE=<file>') to
-  embed a signature into the kernel image. The signature is checked prior to
-  allowing the guest to be mapped as an executable.
+  two top level makefile targets ('gen_key' and 'sign_guest IMAGE=<file>
+  DTB_FILE=<dtb_file> DTB_ADDR=<dtb load address>') to embed a signature of
+  the kernel image and the device tree into the kernel image. The signature
+  is checked prior to allowing the guest to be mapped as an executable.
 - Actual work happens via embedded kernel loader that maps the kernel into
   guest memory space for the signature verification purposes prior to running.
 

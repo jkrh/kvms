@@ -9,11 +9,9 @@ MEMORY
 
 SECTIONS
 {
-	. = 0x000000000;
+	. = 0x0000;
 	.start . : { start.o(.text) } > mem
 	.text : ALIGN(8) { *(.text) } > mem
-	.padding ALIGN(8) : {} > mem
-	.signature (NOLOAD) : {} > mem
 	.data (NOLOAD) : {} > mem
 	.bss (NOLOAD) : ALIGN(16) { *(.bss COMMON) } > mem
 	.stack (NOLOAD) : ALIGN(256) {} > mem

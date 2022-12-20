@@ -101,6 +101,7 @@ SECTIONS
     } >RAM
     __BSS_SIZE__ = SIZEOF(.bss);
 
+   .el1_hyp_img : ALIGN(4096) { *.(.el1_hyp_img) } > RAM
     /*
      * The xlat_table section is for full, aligned page tables (4K).
      * Removing them from .bss avoids forcing 4K alignment on
@@ -115,6 +116,6 @@ SECTIONS
 
     __BL1_RAM_START__ = ADDR(.data);
     __BL1_RAM_END__ = .;
-
+    __BL_ICL_PAGE__ = ADDR(.el1_hyp_img);
     ASSERT(. <= HYP_LIMIT, "HYP's RW section has exceeded its limit.")
 }

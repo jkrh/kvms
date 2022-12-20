@@ -17,6 +17,7 @@
 #include "spinlock.h"
 
 #include "mbedtls/aes.h"
+#include "kic_defs.h"
 
 #ifndef NUM_VCPUS
 #define NUM_VCPUS 8
@@ -32,16 +33,6 @@
 #endif
 
 #define INVALID_VMID    PRODUCT_VMID_MAX
-
-/* The guest will panic if there are more than MAX_MAPPINGS_WO_KIC
- * guest_map_range() calls when guest is starting.
- * This will prevent extra mappings before KIC (Kernel Integrity check) start
- */
-#define MAX_MAPPINGS_WO_KIC 4
-#define KIC_NOT_STARTED	0
-#define KIC_RUNNING	1
-#define KIC_PASSED	2
-#define KIC_FAILED	3
 
 typedef int kernel_func_t(uint64_t, ...);
 
@@ -153,10 +144,7 @@ struct kvm_guest {
 	uint32_t fail_inst;
 	void *keybuf;
 	uint8_t guest_id[GUEST_ID_LEN];
-	uint16_t kic_status;
-	uint16_t kic_map_cnt;
-	uint64_t kic_start_addr;
-	size_t kic_size;
+	kic_state_t kic_status;
 #ifdef EXITLOG
 	struct guest_exitlog exitlog;
 #endif
@@ -494,30 +482,7 @@ static inline void set_blinding_default(kvm_guest_t *guest)
  */
 int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid);
 
-/***
- * Inform hypervisor that kernel integrity check has been started.
- * Hypervisor will panic if the function is called from outside of
- * integrity check loader
- *
- * @param guest the guest
- * @param ldr_addr integrity check loader start address (ipa)
- * @param ldr_addr integrity check loader size
- */
-void image_check_init(kvm_guest_t *guest,
-			   uint64_t ldr_addr, size_t ldr_len);
 
-/***
- * Do image integrity check. The check is done over integrity check loader
- * and kernel image
- *
- * @param guest the guest
- * @param signature paramters structure address (ipa)
- * @return zero in case of success
- */
-int check_guest_image(kvm_guest_t *guest,  uint64_t params);
-/*
- * Internal use only.
- */
 void set_memory_readable(kvm_guest_t *guest);
 
 /***
@@ -538,7 +503,7 @@ int kernel_integrity_ok(const kvm_guest_t *guest);
  * @return number of copied bytes in case of success, negative error code
  *         otherwise
  */
-int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len);
+int copy_from_guest(kvm_guest_t *guest, void *dst, void *src, size_t len);
 
 /***
  * Copy data from hypervisor to guest space
@@ -550,7 +515,7 @@ int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len);
  * @return number of copied bytes in case of success, negative error code
  *         otherwise
  */
- int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len);
+int copy_to_guest(kvm_guest_t *guest, void *dst, void *src, size_t len);
 
 #ifdef DEBUG
  void share_increment(kvm_guest_t *guest);

@@ -80,7 +80,7 @@
 
 #ifndef __ASSEMBLY__
 #include <stdint.h>
-#include "helpers.h"
+#include "commondefines.h"
 
 void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2, u_register_t a3,
 	      u_register_t a4, u_register_t a5);

@@ -1,31 +1,39 @@
 #
 # SPDX-License-Identifier: GPL-2.0-only
 #
+#include "hvccall-defines.h"
+#include "psci.h"
+#
 # Input
 # ------
 # MMU = off, D-cache = off, I-cache = on or off
 # CPU in EL1
-# x0 - x3 : Parameters from qemu kernel loader
+# x0 : device tree address from VMM
+# x1 : original guest start address from HYP
 
 .global _start
 _start:
 	adr x29, .stack_top
 	mov sp, x29
-	sub sp, sp, #(8 * 6)
-	str x0, [sp, #(8 * 0)]
-	str x1, [sp, #(8 * 1)]
-	str x2, [sp, #(8 * 2)]
-	str x3, [sp, #(8 * 3)]
-	subs x30, x30, #4
-	str x30, [sp, #(8 * 4)]
-	mov x0, x30
-	bl ic_loader
-	cmp x0, #0
-	beq ok
-# execute undef instruction, exit from guest
-.quad   0x000000000000
+	sub sp, sp, #(8 * 2)
+	stp	x0, x1, [sp, #(8 * 0)]
 
-ok:
+	/* remap loader to final address */
+	adr x1, _start
+	mov x0, #HYP_GUEST_REMAP_LOADER
+	hvc #0
+	cbnz x0, err_handler
+
+	/* reinit the stack pointer on final address */
+	adr x29, .stack_top
+	mov sp, x29
+	sub sp, sp, #(8 * 2)
+	ldp	x0, x1, [sp, #(8 * 0)]
+
+	/* ic_loader cal modify registers contents on the stack */
+	mov x0, sp
+	bl ic_loader
+
 	mov x4, xzr
 	mov x5, xzr
 	mov x6, xzr
@@ -52,9 +60,6 @@ ok:
 	mov x27, xzr
 	mov x28, xzr
 	mov x29, xzr
-	ldr x0, [sp, #(8 * 0)]
-	ldr x1, [sp, #(8 * 1)]
-	ldr x2, [sp, #(8 * 2)]
-	ldr x3, [sp, #(8 * 3)]
-	ldr x30, [sp, #(8 * 4)]
-	br lr
+	ldp	x0, x1, [sp, #(8 * 0)]
+
+	br x1

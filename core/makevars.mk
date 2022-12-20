@@ -72,6 +72,10 @@ ifeq ($(SPINNER),1)
 BUILDOPTS += -DSPINNER
 endif
 
+# Disable kernel integrity check
+ifeq ($(KIC_DISABLE),1)
+BUILDOPTS += -DKIC_DISABLE
+endif
 #
 # Default build will include headers from linux kernel and
 # work as KVM extension. Standalone build on the other hand

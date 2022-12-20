@@ -7,7 +7,7 @@ USER=$(whoami)
 #
 [ -z "$PORT" ] && PORT=$((2000 + RANDOM % 1000))
 [ -z "$QEMUDIR" ] && QEMUDIR="."
-[ -z "$KERNEL" ] && KERNEL="./Image"
+[ -z "$KERNEL" ] && KERNEL="./Image.sign"
 [ -z "$IMAGE" ] && IMAGE="ubuntu20.qcow2"
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICEPORT=$(($PORT+1)) && SPICESOCK="port=$SPICEPORT"
@@ -193,7 +193,7 @@ SPICEOPTS="$SPICESOCK,disable-ticketing=on,image-compression=off,seamless-migrat
 [ -z "$MEM" ] && MEM=3096
 [ -z "$SMP" ] && SMP="-smp 4"
 [ -z "$GICV" ] && GICV="gic-version=3"
-[ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice -soundhw hda"
+[ -z "$AUDIO" ] && AUDIO="-audiodev spice,id=spice"
 CPU="-enable-kvm -cpu host,pmu=off,kvm-steal-time=off"
 RNG="-device virtio-rng-pci,id=rng0,max-bytes=1024,period=2000"
 BALLOON="-device virtio-balloon-pci,id=balloon0"
@@ -215,4 +215,5 @@ else
 fi
 echo "- Host wlan ip $LOCALIP"
 
-$QEMUDIR/qemu-system-aarch64 -name $VMNAME -kernel $KERNEL $DRIVE $DTB $INPUT $PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
+    echo "Run with kernel integrity check"
+    $QEMUDIR/qemu-system-aarch64 -name $VMNAME -device loader,addr=0x40200000,cpu-num=0 -device loader,file=$KERNEL,addr=0x40200000  $DRIVE $DTB $INPUT $PARTITIONS $SCREEN  $QEMUOPTS

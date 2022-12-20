@@ -290,6 +290,7 @@ uint64_t guest_enter(void *vcpu)
 	default:
 		break;
 	}
+	handle_kic_start(guest, ctxt);
 	ctxt->gpreg_sync_from_kvm = 0;
 	ctxt->pc_sync_from_kvm = PC_SYNC_NONE;
 	write_reg(ELR_EL2, ctxt->regs.pc);
@@ -762,8 +763,7 @@ int init_guest(void *kvm)
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
 				    ((uint64_t)guest->vmid << 48));
 	memset(guest->guest_id, 0, GUEST_ID_LEN);
-	guest->kic_status = KIC_NOT_STARTED;
-	guest->kic_map_cnt = 0;
+	init_kic(guest);
 	/* Save the current VM process stage1 PGDs */
 	guest->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
 	guest->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
@@ -980,43 +980,6 @@ static int page_is_cacheable(uint64_t prot)
 	return attr == S2_NORMAL_MEMORY;
 }
 
-int guest_mapping_allowed(kvm_guest_t *guest, uint64_t prot)
-{
-#ifndef DEBUG
-	if (guest->kic_status == KIC_FAILED)
-		return -EFAULT;
-#endif
-
-	if (guest->kic_status == KIC_NOT_STARTED) {
-		/* we have to allow qemu-loader and ic-loader mappings
-		 * before integrity check can start
-		 */
-		if (++guest->kic_map_cnt > MAX_MAPPINGS_WO_KIC) {
-			if (guest->kic_status != KIC_FAILED)
-				ERROR("image check has not been started\n");
-
-			guest->kic_status = KIC_FAILED;
-#ifndef DEBUG
-			return -EFAULT;
-#endif
-		}
-	} else if (guest->kic_status != KIC_PASSED) {
-		/* When integrity check is running (image_check_init() is called
-		 * but check_guest_image() isn't) it is not allowed
-		 * to map page with execution rights
-		 */
-		if ((prot & S2_EXEC_NONE) != S2_EXEC_NONE) {
-			if (guest->kic_status != KIC_FAILED)
-				ERROR("image check has not been finalized\n");
-			guest->kic_status = KIC_FAILED;
-#ifndef DEBUG
-			return -EFAULT;
-#endif
-		}
-	}
-	return 0;
-}
-
 int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		    uint64_t len, uint64_t prot)
 {
@@ -1033,6 +996,8 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		res = -EINVAL;
 		goto out_error;
 	}
+	if (handle_kic_mapping(guest, vaddr, &paddr))
+		return -EFAULT;
 
 	if (guest->state > GUEST_RUNNING)
 		return -EFAULT;
@@ -1041,9 +1006,6 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	if (!host)
 		panic("no host\n");
 
-	res = guest_mapping_allowed(guest, prot);
-	if (res)
-		return res;
 	/*
 	 * Permission(s) are integrity verified, so always disable the
 	 * dirty state
@@ -1313,7 +1275,7 @@ int free_guest(void *kvm)
 
 	if (guest->vmid == HOST_VMID)
 		return 0;
-
+	kic_free(guest);
 	res = restore_host_mappings(guest);
 	if (res)
 		return res;
@@ -1978,53 +1940,8 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 	return true;
 }
 
-static int guest_calc_hash(kvm_guest_t *guest, mbedtls_sha256_context *ctx,
-		     uint64_t ipa, size_t len)
-{
-	uint64_t page_len;
-	uint64_t paddr;
-	int ret = 0;
 
-	while (len) {
-		page_len = (len > PAGE_SIZE) ?  PAGE_SIZE : len;
-		paddr = pt_walk(guest, STAGE2, ipa, 0);
-		if (paddr == ~0UL)
-			return -EINVAL;
-		ret = mbedtls_sha256_update_ret(ctx, (void *) paddr, page_len);
-		if (ret != MBEDTLS_EXIT_SUCCESS)
-			return ret;
-
-		ipa += page_len;
-		len -= page_len;
-	}
-	return ret;
-}
-
-void image_check_init(kvm_guest_t *guest, uint64_t image, size_t size)
-{
-	uint64_t caller_addr = read_reg(ELR_EL2);
-
-	if ((caller_addr < image) || (caller_addr >= image + size))
-		/* Integrity check init is not allowed from illegal address */
-		return;
-
-	if (guest->kic_status == KIC_NOT_STARTED)
-		guest->kic_status = KIC_RUNNING;
-	guest->kic_start_addr = image;
-	guest->kic_size = size - image;
-}
-
-
-static int out_of_checked_area(kvm_guest_t *guest, uint64_t addr, size_t len)
-{
-	if ((addr < guest->kic_start_addr) ||
-	   ((addr + len) > guest->kic_start_addr + guest->kic_size))
-		return -EINVAL;
-	else
-		return 0;
-}
-
-int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len)
+int copy_from_guest(kvm_guest_t *guest, void *dst, void *src, size_t len)
 {
 	uint64_t page_len;
 	size_t copied = 0;
@@ -2032,7 +1949,7 @@ int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len)
 
 	while (copied < len) {
 		page_len = (len > PAGE_SIZE) ?  PAGE_SIZE : len;
-		paddr = pt_walk(guest, STAGE2, src, 0);
+		paddr = pt_walk(guest, STAGE2, (uint64_t) src, 0);
 		if (paddr == ~0UL)
 			return -EINVAL;
 
@@ -2044,7 +1961,7 @@ int copy_from_guest(kvm_guest_t *guest, void *dst, uint64_t src, size_t len)
 	return copied;
 }
 
-int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len)
+int copy_to_guest(kvm_guest_t *guest, void *dst, void *src, size_t len)
 {
 	uint64_t page_len;
 	size_t copied = 0;
@@ -2052,7 +1969,7 @@ int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len)
 
 	while (copied < len) {
 		page_len = (len > PAGE_SIZE) ?  PAGE_SIZE : len;
-		paddr = pt_walk(guest, STAGE2, dst, 0);
+		paddr = pt_walk(guest, STAGE2, (uint64_t) dst, 0);
 		if (paddr == ~0UL)
 			return -EINVAL;
 
@@ -2064,94 +1981,8 @@ int copy_to_guest(kvm_guest_t *guest, uint64_t dst, void *src, size_t len)
 	return copied;
 }
 
-int check_guest_image(kvm_guest_t *guest, uint64_t gparams)
-{
-	mbedtls_sha256_context ctx;
-	uint8_t hash[32];
-	uint64_t paddr;
-	uint32_t orig_instr = UNDEFINED;
-	sign_params_t params;
-	uint64_t caller_addr = read_reg(ELR_EL2);
-	int ret;
-
-	if (out_of_checked_area(guest, caller_addr, sizeof(uint64_t)))
-		goto err;
-
-	if (out_of_checked_area(guest, gparams,
-				sizeof(sign_params_t) - SIGNATURE_MAX_LEN))
-		goto err;
-
-	ret = copy_from_guest(guest, &params, gparams, sizeof(sign_params_t));
-	if (ret < 0)
-		goto err;;
-
-	if (params.version != KIC_VERSION)
-		goto err;
-
-	if (guest->kic_status != KIC_RUNNING) {
-		/* guest_check_init() must be called first */
-		goto err;
-	}
-
-	ret = mbedtls_sha256_starts_ret(&ctx, 0);
-	if (ret != MBEDTLS_EXIT_SUCCESS)
-		panic("mbedtls_sha256_starts_ret %d", ret);
-
-	ret = guest_calc_hash(guest, &ctx, guest->kic_start_addr,
-			      guest->kic_size);
-	if (ret != MBEDTLS_EXIT_SUCCESS)
-		panic("guest_calc_hash ret %d", ret);
-
-	ret = mbedtls_sha256_finish_ret(&ctx, hash);
-	if (ret != MBEDTLS_EXIT_SUCCESS)
-		panic("mbedtls_sha256_finish_ret %d", ret);
-
-	if (do_ecdsa((void *)params.signature, hash)) {
-		guest->kic_status = KIC_FAILED;
-		ERROR("kernel integrity check failed for vmid %d\n",
-		      guest->vmid);
-	} else {
-		guest->kic_status = KIC_PASSED;
-		LOG("kernel integrity check passed for vmid %d\n", guest->vmid);
-	}
-
-	/*
-	 * In DEBUG hyp builds the kernel will boot and works normally even if
-	 * the signature verification fails. FIXME: ifdefs
-	 */
-#ifndef DEBUG
-	if (guest->kic_status == KIC_PASSED) {
-#endif
-		memcpy(guest->guest_id, &params.guest_id, GUEST_ID_LEN);
-		/* Get original instruction */
-		orig_instr = params.orig_instr;
-#ifndef DEBUG
-	}
-#endif
-	paddr = pt_walk(guest, STAGE2,  guest->kic_start_addr, 0);
-	if (paddr == ~0UL)
-		goto err;
-	/* save original instruction to begin on image */
-	*(uint32_t *) paddr = orig_instr;
-	__flush_dcache_area((void *)paddr, PAGE_SIZE);
-	return 0;
-
-err:
-	ERROR("kernel integrity verification error for vmid %d\n",
-	      guest->vmid);
-#ifdef DEBUG
-	return 0;
-#else
-	return -EINVAL;
-#endif
-}
 
 #ifdef DEBUG
-int kernel_integrity_ok(const kvm_guest_t *guest)
-{
-	return 1;
-}
-
 void share_increment(kvm_guest_t *guest)
 {
 	struct timeval ts;
@@ -2181,10 +2012,5 @@ void share_decrement(kvm_guest_t *guest, uint64_t map_addr)
 {
 	if (is_share(guest, map_addr, PAGE_SIZE) == 1)
 		guest->st.shared_pages--;
-}
-#else
-int kernel_integrity_ok(const kvm_guest_t *guest)
-{
-	return guest->kic_status == KIC_PASSED;
 }
 #endif

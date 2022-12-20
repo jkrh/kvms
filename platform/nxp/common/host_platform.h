@@ -11,12 +11,14 @@
 extern uintptr_t __BL1_RAM_START__;
 extern uintptr_t HYP_LIMIT;
 extern uintptr_t __RO_START__;
+extern uintptr_t __BL_ICL_PAGE__;
 
 #define STACK_SIZE		0x2000
 #define BL1_RAM_BASE		(unsigned long)(&__BL1_RAM_START__)
 #define BL1_RAM_LIMIT		(unsigned long)(&HYP_LIMIT)
 #define BL_CODE_BASE		(unsigned long)(&__RO_START__)
 #define BL_CODE_LIMIT		(unsigned long)(&__BL1_RAM_START__)
+#define BL_ICL_PAGE		(unsigned long)(&__BL_ICL_PAGE__)
 
 #define TABLE_LEVELS    3
 
