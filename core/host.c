@@ -12,6 +12,7 @@
 #include "hyplogs.h"
 #include "helpers.h"
 #include "guest.h"
+#include "spinlock.h"
 #include "mm.h"
 
 /*
@@ -57,7 +58,7 @@ int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 	kvm_guest_t *host;
 	kvm_page_data *pd;
 	uint64_t prot;
-	int res = 0;
+	int res;
 
 	if ((addr % PAGE_SIZE) || (paddr % PAGE_SIZE)) {
 		ERROR("unaligned swap request\n");
@@ -69,11 +70,18 @@ int host_restore_swap_page(uint64_t addr, uint64_t paddr)
 		panic("no host\n");
 
 	pd = get_range_info(host, addr);
-	if (!pd || !pd->nonce) {
+	if (!pd) {
+		ERROR("page 0x%lx is not encrypted\n", addr);
+		return 0;
+	}
+	spin_read_lock(&pd->el);
+	if (!pd->nonce) {
+		spin_read_unlock(&pd->el);
 		ERROR("page 0x%lx is not encrypted\n", addr);
 		return 0;
 	}
 	prot = pd->prot;
+	spin_read_unlock(&pd->el);
 
 	res = decrypt_guest_page(host, addr, paddr, prot);
 	if (res) {

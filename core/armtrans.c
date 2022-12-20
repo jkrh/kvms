@@ -73,7 +73,7 @@ struct entryinfo
 };
 
 static uint8_t invalidate;
-static mblockinfo_t block ALIGN(16);
+static mblockinfo_t block[PLATFORM_CORE_COUNT] ALIGN(16);
 
 static void setup_hyp_stage1(void)
 {
@@ -890,6 +890,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 {
 	uint64_t attr, nattr, *pte, pgd_levels;
 	kvm_guest_t *host;
+	int cid;
 
 	if (!guest || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR) ||
 	   (length > (SZ_1G * 4)))
@@ -901,23 +902,23 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 	_zeromem16(&block, sizeof(block));
 
+	cid = smp_processor_id();
 	switch (stage) {
 	case STAGE2:
 		if (!guest->EL1S2_pgd)
 			return -ENOENT;
 
-		block.guest = guest;
-
-		block.pgd = guest->EL1S2_pgd;
-		block.tpool = &guest->s2_tablepool;
+		block[cid].guest = guest;
+		block[cid].pgd = guest->EL1S2_pgd;
+		block[cid].tpool = &guest->s2_tablepool;
 
 		if (type == KERNEL_MATTR)
 			type = (TYPE_MASK_STAGE2 & prot);
 		prot &= PROT_MASK_STAGE2;
 
-		pgd_levels = block.guest->table_levels_el1s2;
+		pgd_levels = block[cid].guest->table_levels_el1s2;
 
-		if (block.guest != host)
+		if (block[cid].guest != host)
 			break;
 
 		/*
@@ -937,7 +938,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (length != PAGE_SIZE)
 			return -EPERM;
 
-		if (__pt_walk(block.pgd, vaddr, &pte, 0, NULL) == ~0UL)
+		if (__pt_walk(block[cid].pgd, vaddr, &pte, 0, NULL) == ~0UL)
 			return -EPERM;
 
 		attr = (*pte &
@@ -961,8 +962,8 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 			return -ENOENT;
 
 		/* Page global directory base address for EL2 is owned by host */
-		block.guest = host;
-		block.pgd = host->EL2S1_pgd;
+		block[cid].guest = host;
+		block[cid].pgd = host->EL2S1_pgd;
 
 		if (type == KERNEL_MATTR) {
 			type = (TYPE_MASK_STAGE1 & prot);
@@ -973,30 +974,29 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (is_locked(HOST_STAGE1_LOCK))
 			return -EPERM;
 
-		block.tpool = &guest->el2_tablepool;
-
-		pgd_levels = block.guest->table_levels_el2s1;
+		block[cid].tpool = &guest->el2_tablepool;
+		pgd_levels = block[cid].guest->table_levels_el2s1;
 
 		break;
 	case PATRACK_STAGE1:
 		if (!guest->patrack.EL1S1_0_pgd)
 			return -ENOENT;
 
-		block.guest = guest;
-		block.pgd = guest->patrack.EL1S1_0_pgd;
-		block.tpool = &guest->patrack.trailpool;
-		pgd_levels = block.guest->table_levels_el1s1;
+		block[cid].guest = guest;
+		block[cid].pgd = guest->patrack.EL1S1_0_pgd;
+		block[cid].tpool = &guest->patrack.trailpool;
+		pgd_levels = block[cid].guest->table_levels_el1s1;
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	if (!block.pgd || !block.guest || (length % PAGE_SIZE))
+	if (!block[cid].pgd || !block[cid].guest || (length % PAGE_SIZE))
 		return -EINVAL;
 
-	block.stage = stage;
+	block[cid].stage = stage;
 
-	return __block_remap(vaddr, length, &block, paddr, prot, type,
+	return __block_remap(vaddr, length, &block[cid], paddr, prot, type,
 			     pgd_levels);
 }
 
@@ -1005,6 +1005,7 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 {
 	kvm_guest_t *host;
 	uint64_t pgd_levels;
+	int cid;
 
 	if (!guest || (vaddr > MAX_VADDR) || (length > (SZ_1G * 4)))
 		return -EINVAL;
@@ -1013,44 +1014,45 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	if (!host)
 		panic("no host\n");
 
+	cid = smp_processor_id();
 	switch (stage) {
 	case STAGE2:
 		if (is_locked(HOST_STAGE2_LOCK))
 			return -EPERM;
 
-		block.guest = guest;
-		block.pgd = guest->EL1S2_pgd;
-		block.tpool = &block.guest->s2_tablepool;
-		pgd_levels = block.guest->table_levels_el1s2;
+		block[cid].guest = guest;
+		block[cid].pgd = guest->EL1S2_pgd;
+		block[cid].tpool = &block[cid].guest->s2_tablepool;
+		pgd_levels = block[cid].guest->table_levels_el1s2;
 		break;
 	case EL2_STAGE1:
 		if (is_locked(HOST_STAGE1_LOCK))
 			return -EPERM;
 
-		block.guest = host;
-		block.pgd = host->EL2S1_pgd;
-		block.tpool = &guest->el2_tablepool;
-		pgd_levels = block.guest->table_levels_el2s1;
+		block[cid].guest = host;
+		block[cid].pgd = host->EL2S1_pgd;
+		block[cid].tpool = &guest->el2_tablepool;
+		pgd_levels = block[cid].guest->table_levels_el2s1;
 		break;
 	case PATRACK_STAGE1:
 		if (!guest->patrack.EL1S1_0_pgd)
 			return -ENOENT;
 
-		block.guest = guest;
-		block.pgd = guest->patrack.EL1S1_0_pgd;
-		block.tpool = &guest->patrack.trailpool;
-		pgd_levels = block.guest->table_levels_el1s1;
+		block[cid].guest = guest;
+		block[cid].pgd = guest->patrack.EL1S1_0_pgd;
+		block[cid].tpool = &guest->patrack.trailpool;
+		pgd_levels = block[cid].guest->table_levels_el1s1;
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	if (!block.pgd || !block.guest || (length % PAGE_SIZE))
+	if (!block[cid].pgd || !block[cid].guest || (length % PAGE_SIZE))
 		return -EINVAL;
 
-	block.stage = stage;
+	block[cid].stage = stage;
 
-	return __block_remap(vaddr, length, &block, 0, 0, INVALID_MEMORY,
+	return __block_remap(vaddr, length, &block[cid], 0, 0, INVALID_MEMORY,
 			     pgd_levels);
 }
 

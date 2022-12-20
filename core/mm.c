@@ -169,10 +169,8 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	if (is_share(g, ipa, PAGE_SIZE) == 1)
 		return 0;
 
-	/* Note: we grab the page data lock from here already */
 	res = get_range_info(guest, ipa);
 	if (res) {
-		/* In case two VCPUs fault on the same entry */
 		spin_write_lock(&res->el);
 		goto use_old;
 	}
@@ -264,19 +262,24 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	}
 	res = get_range_info(guest, ipa);
 	/* Check if the element was freed already */
-	if (!res || res->vmid == INVALID_VMID) {
+	if (!res) {
 		ret = -ENOENT;
 		goto out;
+	}
+	spin_read_lock(&res->el);
+	if (res->vmid == INVALID_VMID) {
+		ret = -ENOENT;
+		goto out_unlock;
 	}
 	if (res->vmid != guest->vmid) {
 		ERROR("page owner fault: %u != %u\n", res->vmid, guest->vmid);
 		ret = -EFAULT;
-		goto out;
+		goto out_unlock;
 	}
 	if ((prot != res->prot) && (!has_less_s2_perms(prot, res->prot))) {
 		ERROR("page permissions: 0x%lx != 0x%lx\n", res->prot, prot);
 		ret = -EPERM;
-		goto out;
+		goto out_unlock;
 	}
 
 	ret = calc_hash(sha256, (void *)addr, len);
@@ -290,6 +293,8 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 		ret = -EPERM;
 	}
 
+out_unlock:
+	spin_read_unlock(&res->el);
 out:
 	return ret;
 }
@@ -345,10 +350,15 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 
 	/* Verify it's not a double request */
 	pd = get_range_info(guest, addr);
-	if (pd && pd->nonce) {
-		ERROR("page 0x%lx already encrypted\n", ipa);
-		res = -EEXIST;
-		goto out_error;
+	if (pd) {
+		spin_read_lock(&pd->el);
+		if (pd->nonce) {
+			ERROR("page 0x%lx already encrypted\n", ipa);
+			res = -EEXIST;
+		}
+		spin_read_unlock(&pd->el);
+		if (res)
+			goto out_error;
 	}
 
 	/*
@@ -412,8 +422,15 @@ int decrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 
 	/* Check if it was ciphertext we verified */
 	pd = get_range_info(guest, ipa);
-	if (!pd || !pd->nonce)
+	if (!pd)
+		panic("element vanished?\n");
+
+	spin_read_lock(&pd->el);
+	if (!pd->nonce) {
+		spin_read_unlock(&pd->el);
 		return 0;
+	}
+	spin_read_unlock(&pd->el);
 
 	memset(&nonce_counter, 0, 16);
 	memcpy(&nonce_counter[0], &pd->nonce, 4);
