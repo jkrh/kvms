@@ -106,9 +106,9 @@ static int pd_compfunc(const void *v1, const void *v2)
 	const kvm_page_data * const *val1 = v1;
 	const kvm_page_data * const *val2 = v2;
 
-	if ((*val1)->phys_addr < (*val2)->phys_addr)
+	if ((*val1)->addr < (*val2)->addr)
 		return -1;
-	if ((*val1)->phys_addr > (*val2)->phys_addr)
+	if ((*val1)->addr > (*val2)->addr)
 		return 1;
 	return 0;
 }
@@ -116,7 +116,7 @@ static int pd_compfunc(const void *v1, const void *v2)
 kvm_page_data *get_range_info(void *g, uint64_t addr)
 {
 	kvm_guest_t *guest = g;
-	const kvm_page_data data = { .phys_addr = addr };
+	const kvm_page_data data = { .addr = addr };
 	const kvm_page_data *key = &data;
 	kvm_page_data **res;
 
@@ -192,7 +192,7 @@ int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 
 use_old:
 	res->nonce = nonce;
-	res->phys_addr = ipa;
+	res->addr = ipa;
 	res->vmid = guest->vmid;
 	res->len = len;
 	res->prot = prot;
@@ -349,7 +349,7 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 		return res;
 
 	/* Verify it's not a double request */
-	pd = get_range_info(guest, addr);
+	pd = get_range_info(guest, ipa);
 	if (pd) {
 		spin_read_lock(&pd->el);
 		if (pd->nonce) {
