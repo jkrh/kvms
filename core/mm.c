@@ -118,7 +118,7 @@ kvm_page_data *get_range_info(void *g, uint64_t addr)
 	kvm_guest_t *guest = g;
 	const kvm_page_data data = { .addr = addr };
 	const kvm_page_data *key = &data;
-	kvm_page_data **res;
+	kvm_page_data **res, *info = NULL;
 
 	if (!guest->vmid)
 		return NULL;
@@ -126,12 +126,11 @@ kvm_page_data *get_range_info(void *g, uint64_t addr)
 	spin_read_lock(&guest->page_data_lock);
 	res = bsearch(&key, guest->hyp_page_data, guest->pd_index,
 		      sizeof(key), pd_compfunc);
+	if (res)
+		info = *res;
 	spin_read_unlock(&guest->page_data_lock);
 
-	if (!res)
-		return NULL;
-
-	return *res;
+	return info;
 }
 
 int add_range_info(void *g, uint64_t ipa, uint64_t addr, uint64_t len,

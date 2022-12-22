@@ -588,7 +588,7 @@ int print_encryption_state(uint32_t vmid)
 		if (!guest->hyp_page_data[i])
 			continue;
 
-		ipa = guest->hyp_page_data[i]->phys_addr;
+		ipa = guest->hyp_page_data[i]->addr;
 		write_reg(TTBR0_EL1, guest->hyp_page_data[i]->ttbr0_el1);
 		write_reg(TTBR1_EL1, guest->hyp_page_data[i]->ttbr1_el1);
 
