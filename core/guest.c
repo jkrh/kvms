@@ -852,6 +852,7 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 {
 	kvm_guest_t *guest = NULL;
 	int i, res = -ENOENT;
+	uint16_t c;
 
 	if (vmid < GUEST_VMID_START) {
 		ERROR("invalid vmid %u\n", vmid);
@@ -860,6 +861,13 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	guest = __get_guest_by_kvm(&kvm, &i);
 	if (guest != NULL) {
 		guest_index[guest->vmid] = INVALID_GUEST;
+		/* Update pgd owner */
+		c = guest->el2_tablepool.firstchunk;
+		if (c != GUEST_MEMCHUNKS_MAX)
+			guest->mempool[c].owner_vmid = vmid;
+		c = guest->s2_tablepool.firstchunk;
+		if (c != GUEST_MEMCHUNKS_MAX)
+			guest->mempool[c].owner_vmid = vmid;
 		guest->vmid = vmid;
 		guest_index[vmid] = i;
 		guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) | (vmid << 48));

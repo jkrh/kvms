@@ -199,7 +199,8 @@ int patrack_stop(struct kvm_guest *guest)
 		c = guest->mempool[c].next;
 	} while (c < GUEST_MEMCHUNKS_MAX);
 
-	free_pgd(&guest->patrack.trailpool, NULL);
+	if (guest->patrack.trailpool.guest)
+		free_pgd(&guest->patrack.trailpool, NULL);
 
 	return res;
 }

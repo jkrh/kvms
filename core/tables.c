@@ -51,6 +51,7 @@ void table_init(void)
 		mempool[i].type = GUEST_MEMCHUNK_UNDEFINED;
 		mempool[i].next = GUEST_MEMCHUNKS_MAX;
 		mempool[i].previous = GUEST_MEMCHUNKS_MAX;
+		mempool[i].owner_vmid = INVALID_VMID;
 	}
 	__flush_dcache_area((void *)mempool, sizeof(mempool));
 
@@ -412,6 +413,7 @@ int free_pgd(struct tablepool *tpool, struct ptable *pgd_base)
 		mempool[p].type = GUEST_MEMCHUNK_FREE;
 		mempool[p].next = GUEST_MEMCHUNKS_MAX;
 		mempool[p].previous = GUEST_MEMCHUNKS_MAX;
+		mempool[p].owner_vmid = INVALID_VMID;
 	}
 
 	if (tpool == &tpool->guest->el2_tablepool) {
