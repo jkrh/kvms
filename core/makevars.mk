@@ -8,7 +8,7 @@
 ifdef DEBUG
 BUILDOPTS := -g3 -Os -DCRASHDUMP
 else
-BUILDOPTS := -g1 -Os -DFORTIFY_SOURCE=1 -Wl,-O2
+BUILDOPTS := -g1 -Os -D_FORTIFY_SOURCE=1 -Wl,-O2
 endif
 
 #
