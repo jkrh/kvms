@@ -34,7 +34,7 @@
 #define CALL_TYPE_KVMCALL	0
 #define CALL_TYPE_HOSTCALL	1
 #define CALL_TYPE_GUESTCALL	2
-#define CALL_TYPE_SWAPCALL	4
+#define CALL_TYPE_MAPCALL	4
 
 typedef int hyp_func_t(void *, ...);
 typedef int kvm_func_t(uint64_t, ...);
@@ -44,8 +44,6 @@ extern uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 extern uint64_t hyp_text_start;
 extern uint64_t hyp_text_end;
 extern bool apiwarned;
-bool at_debugstop = false;
-extern spinlock_t core_lock;
 
 hyp_func_t *__fpsimd_guest_restore DATA;
 spinlock_t crash_lock;
@@ -54,7 +52,7 @@ int is_apicall(uint64_t cn)
 {
 	if ((cn == HYP_HOST_SWAP_PAGE) ||
 	    (cn == HYP_HOST_RESTORE_SWAP_PAGE))
-		return CALL_TYPE_SWAPCALL;
+		return CALL_TYPE_MAPCALL;
 	if (unlikely((cn >= HYP_FIRST_GUESTCALL) &&
 		     (cn <= HYP_LAST_GUESTCALL)))
 		return CALL_TYPE_GUESTCALL;
@@ -68,17 +66,22 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		      register_t a4, register_t a5, register_t a6, register_t a7,
 		      register_t a8, register_t a9)
 {
-	kvm_guest_t *guest = NULL;
 	platform_crypto_ctx_t crypto_ctx;
+	kvm_guest_t *guest, *host;
 	int64_t res = -EINVAL;
+
+	do_debugstop();
 
 	guest = get_guest(get_current_vmid());
 	if (unlikely(guest == NULL))
 		return -EINVAL;
 
-	spin_lock(&core_lock);
+	host = get_guest(HOST_VMID);
+	if (!host)
+		panic("no host\n");
 
 	load_host_s2();
+	spin_lock(&host->hvc_lock);
 
 	switch (cn) {
 	case HYP_SET_GUEST_MEMORY_BLINDED:
@@ -140,9 +143,8 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	}
 
 out:
+	spin_unlock(&host->hvc_lock);
 	load_guest_s2(guest->vmid);
-
-	spin_unlock(&core_lock);
 
 	return res;
 }
@@ -152,19 +154,15 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		register_t a8, register_t a9)
 {
 	kvm_guest_t *guest = NULL, *host = NULL;
+	platform_crypto_ctx_t crypto_ctx;
 	struct hyp_extension_ops **eop;
 	int64_t res = -EINVAL;
 	hyp_func_t *func;
 	uint32_t vmid;
-	platform_crypto_ctx_t crypto_ctx;
 	int ct;
 
-#ifdef DEBUG
-	if (unlikely(at_debugstop)) {
-		spin_lock(&core_lock);
-		spin_unlock(&core_lock);
-	}
-#endif
+	do_debugstop();
+
 	ct = is_apicall(cn);
 	if (unlikely((ct == CALL_TYPE_GUESTCALL) && (is_locked(HOST_KVM_CALL_LOCK))))
 		return -EPERM;
@@ -173,15 +171,22 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	if (unlikely(vmid != HOST_VMID))
 		return guest_hvccall(cn, a1, a2, a3, a4, a5, a6, a7, a8, a9);
 
-	if (unlikely((ct == CALL_TYPE_GUESTCALL) || (ct == CALL_TYPE_HOSTCALL)))
-		spin_lock(&core_lock);
+	host = get_guest(HOST_VMID);
+	switch (ct) {
+	case CALL_TYPE_GUESTCALL:
+	case CALL_TYPE_HOSTCALL:
+	case CALL_TYPE_MAPCALL:
+		spin_lock(&host->hvc_lock);
+		break;
+	default:
+		break;
+	}
 
 	switch (cn) {
 	/*
 	 * Stage 1 and 2 host side mappings
 	 */
 	case HYP_HOST_MAP_STAGE1:
-		host = get_guest(HOST_VMID);
 		if (!a5)
 			guest = host;
 		else
@@ -212,7 +217,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		 * EL2, so this function is obsolete. Leaving the code here
 		 * anyway should the need for it arise later on.
 
-		host = get_guest(HOST_VMID);
 		if (!a3)
 			guest = host;
 		else
@@ -241,19 +245,17 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 * HYP_HOST_MAP_STAGE2.
 	 */
 	case HYP_HOST_PREPARE_STAGE2:
-		guest = get_guest(HOST_VMID);
-		res = guest_validate_range(guest, a1, a2, a3);
+		res = guest_validate_range(host, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest, STAGE2, a1, a2, a3, a4,
+			res = mmap_range(host, STAGE2, a1, a2, a3, a4,
 				 KEEP_MATTR);
 		break;
 	case HYP_HOST_MAP_STAGE2:
-		guest = get_guest(HOST_VMID);
-		res = guest_validate_range(guest, a1, a2, a3);
+		res = guest_validate_range(host, a1, a2, a3);
 		if (!res) {
 			if (a5)
 				platform_add_denyrange(a2, a3);
-			res = mmap_range(guest, STAGE2, a1, a2, a3, a4,
+			res = mmap_range(host, STAGE2, a1, a2, a3, a4,
 				 KERNEL_MATTR);
 		}
 		break;
@@ -380,8 +382,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = -ENOTSUP;
 		break;
 	case HYP_SET_MEMCHUNK:
-		guest = get_guest(HOST_VMID);
-		res = guest_validate_range(guest, a3, a3, a4);
+		res = guest_validate_range(host, a3, a3, a4);
 		if (!res)
 			res = guest_memchunk_add((void *)a1, a2, a3, a4);
 		break;
@@ -471,9 +472,17 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			panic("illegal kvm jump to 0x%lx\n", cn);
 		break;
 	}
+
 out:
-	if (unlikely((ct == CALL_TYPE_GUESTCALL) || (ct == CALL_TYPE_HOSTCALL)))
-		spin_unlock(&core_lock);
+	switch (ct) {
+	case CALL_TYPE_GUESTCALL:
+	case CALL_TYPE_HOSTCALL:
+	case CALL_TYPE_MAPCALL:
+		spin_unlock(&host->hvc_lock);
+		break;
+	default:
+		break;
+	}
 
 	return res;
 }
@@ -606,12 +615,7 @@ void memctrl_exec(uint64_t *sp)
 	cid = smp_processor_id();
 	vmid = get_current_vmid();
 
-#ifdef DEBUG
-	if (unlikely(at_debugstop)) {
-		spin_lock(&core_lock);
-		spin_unlock(&core_lock);
-	}
-#endif
+	do_debugstop();
 
 #ifdef SYSREG_PRINT
 	spin_lock(&crash_lock);

@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <stdarg.h>
 
+#include "spinlock.h"
 #include "hvccall-defines.h"
 
 void hyp_abort(const char *func, const char *file, int line,

@@ -33,6 +33,7 @@
 #define TOOL_BANNER TOOL_BANNER_STR __VERSION__ "\n"
 #define HYP_VERSION "HYP version " XSTR(GHEAD) "\n"
 
+spinlock_t *host_lock;
 struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
 uint8_t crypto_buf[PAGE_SIZE*4];
@@ -239,6 +240,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 		if (crypto_init() != 0)
 			panic("crypto init failed\n");
 
+		host_lock = get_guest_lock(HOST_VMID);
 		init_kvm_vector();
 	} else {
 		host = get_guest(HOST_VMID);

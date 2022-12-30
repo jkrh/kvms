@@ -33,7 +33,6 @@
 #include "mbedtls/sha256.h"
 
 extern struct mbedtls_entropy_context mbedtls_entropy_ctx;
-extern spinlock_t core_lock;
 
 #define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
 #define ARMV8_PMU_USERENR_MASK 0xf
@@ -99,6 +98,15 @@ kvm_guest_t guests[MAX_VM] ALIGN(16);
 uint16_t last_guest_index ALIGN(16);
 
 extern guest_memchunk_t mempool[GUEST_MEMCHUNKS_MAX];
+
+spinlock_t *get_guest_lock(uint32_t vmid)
+{
+	kvm_guest_t *guest = get_guest(vmid);
+
+	if (!guest)
+		return NULL;
+	return &guest->hvc_lock;
+}
 
 void format_guest(int i)
 {
@@ -1734,14 +1742,15 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr,
 
 bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *regs)
 {
-	kvm_guest_t *guest;
+	kvm_guest_t *guest, *host;
 	uint64_t spsr_el2, elr_el2, paddr;
 	bool res = false;
 
 	if (vmid != HOST_VMID)
 		panic("host_data_abort for non-host");
 
-	spin_lock(&core_lock);
+	host = get_guest(vmid);
+	spin_lock(&host->hvc_lock);
 
 	paddr = (uint64_t)virt_to_ipa((void *)far_el2);
 	/* Shared page should never abort at host context. */
@@ -1803,7 +1812,7 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		break;
 	}
 out:
-	spin_unlock(&core_lock);
+	spin_unlock(&host->hvc_lock);
 
 	return res;
 }

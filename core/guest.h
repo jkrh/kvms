@@ -121,6 +121,7 @@ struct share_tracker {
 };
 
 struct kvm_guest {
+	spinlock_t hvc_lock;
 	uint32_t vmid;
 	guest_state_t state;
 	kernel_func_t *cpu_map[NUM_VCPUS];
@@ -168,6 +169,15 @@ typedef enum {
 	inst_flush = 1,
 	data_inval = 2,
 } cache_op_t;
+
+/**
+ * Get given guest struct lock. Grab the lock to change anything
+ * concerning the guest.
+ *
+ * @param vmid, vmid to start modifying
+ * @return lock or NULL if no such guest exists.
+ */
+spinlock_t *get_guest_lock(uint32_t vmid);
 
 /**
  * Build an array of existing guest mappings

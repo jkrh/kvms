@@ -1,4 +1,12 @@
+// SPDX-License-Identifier: GPL-2.0-only
+#ifndef __VALIDATE_H__
+#define __VALIDATE_H__
+
 #include <stdint.h>
+#include <stdbool.h>
+
+#ifdef TESTS
+void do_debugstop(void);
 
 /**
  * Stop the execution for analysis
@@ -16,6 +24,11 @@ int debugstop(void);
  * @return 0
  */
 int debugstart(void);
+#else
+static inline void do_debugstop(void) { };
+static inline int debugstop(void) { return -ENOTSUP; };
+static inline int debugstart(void) { return -ENOTSUP; };
+#endif
 
 /**
  * Dump the vm page encryption state
@@ -136,3 +149,5 @@ void print_table(struct ptable *addr);
  * @return void
  */
 void print_tables(uint64_t vmid);
+
+#endif // __VALIDATE_H__

@@ -29,7 +29,6 @@
 uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 uint64_t hyp_text_start = 0;
 uint64_t hyp_text_end = 0;
-extern uint64_t core_lock;
 
 void *kern_hyp_va(void *a)
 {

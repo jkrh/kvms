@@ -15,19 +15,27 @@
 #include "host.h"
 #include "mtree.h"
 
-extern bool at_debugstop;
-extern spinlock_t core_lock;
+static bool at_debugstop;
+extern spinlock_t *host_lock;
+
+void do_debugstop(void)
+{
+	if (unlikely(at_debugstop)) {
+		spin_lock(host_lock);
+		spin_unlock(host_lock);
+	}
+}
 
 int debugstop(void)
 {
-	spin_lock(&core_lock);
+	spin_lock(host_lock);
 	at_debugstop = true;
 	return 0;
 }
 
 int debugstart(void)
 {
-	spin_unlock(&core_lock);
+	spin_unlock(host_lock);
 	at_debugstop = false;
 	return 0;
 }

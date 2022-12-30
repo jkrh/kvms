@@ -174,7 +174,8 @@ handle_abort:
 	 * a core which is accessing the portion of memory
 	 * for which the mapping is being currently altered.
 	 */
-	adr	x2, core_lock
+	adr	x2, host_lock
+	ldr	x2, [x2]
 	ldr	x3, [x2]
 	cbnz	x3, wait_core_ready
 	ldp	x2, x3, [sp, #(8 * 2)]
@@ -370,9 +371,3 @@ dumpcall:
 	mov	x0, #5
 	mov	x1, sp
 	b	dump_state
-
-.data
-.global core_lock
-.align	8
-core_lock:
-	.quad	0x000000000000
