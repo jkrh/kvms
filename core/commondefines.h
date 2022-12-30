@@ -38,6 +38,8 @@ typedef uint64_t u_register_t;
 #define SZ_4G 0x100000000UL
 #define SZ_1T SZ_1G*1024UL
 
+#define is_aligned(value, alignment) !(value & (alignment - 1))
+
 #ifndef ROUND_UP
 #define ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))
 #endif
