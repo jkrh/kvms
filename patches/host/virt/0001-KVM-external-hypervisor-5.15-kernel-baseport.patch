@@ -1,4 +1,4 @@
-From bf2bcd54297478c82732e3ab37a207f58697f78e Mon Sep 17 00:00:00 2001
+From 7d7b89caa24cb8d9c1b168fe90ffe072e897cdb7 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 18 Oct 2022 10:20:59 +0300
 Subject: [PATCH] KVM: external hypervisor 5.15 kernel baseport
@@ -20,8 +20,8 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kernel/head.S                      |  15 +
  arch/arm64/kvm/Makefile                       |   2 +-
  arch/arm64/kvm/arm.c                          | 465 +-------
- arch/arm64/kvm/ext-guest.c                    | 408 +++++++
- arch/arm64/kvm/ext-guest.h                    |  42 +
+ arch/arm64/kvm/ext-guest.c                    | 399 +++++++
+ arch/arm64/kvm/ext-guest.h                    |  41 +
  arch/arm64/kvm/fpsimd.c                       |   6 +-
  arch/arm64/kvm/hvccall-defines.h              | 117 ++
  arch/arm64/kvm/hyp/Makefile                   |   2 +-
@@ -32,6 +32,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/hyp/kvms-hvci.S                |  11 +
  arch/arm64/kvm/hyp/nvhe/Makefile              |   6 +-
  arch/arm64/kvm/hyp/nvhe/debug-sr.c            |   4 +
+ arch/arm64/kvm/hyp/nvhe/mem_protect.c         |   4 +-
  arch/arm64/kvm/hyp/nvhe/switch.c              |  49 +-
  arch/arm64/kvm/hyp/nvhe/timer-sr.c            |   2 +
  arch/arm64/kvm/hyp/nvhe/tlb.c                 |  33 +-
@@ -43,7 +44,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/reset.c                        |   1 +
  arch/arm64/kvm/va_layout.c                    |   1 +
  arch/arm64/kvm/vgic/vgic-v2.c                 |   6 +-
- 36 files changed, 1001 insertions(+), 1868 deletions(-)
+ 37 files changed, 992 insertions(+), 1871 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -1259,10 +1260,10 @@ index 4cb265e15361..25838f03a5d0 100644
  
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..ca8de12d5ca9
+index 000000000000..714fdccef40f
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,408 @@
+@@ -0,0 +1,399 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -1418,29 +1419,20 @@ index 000000000000..ca8de12d5ca9
 +			  u64 measure)
 +{
 +	u32 vmid = mmu->vmid.vmid;
-+	int err;
 +
-+	err = __kvms_hvc_cmd(HYP_GUEST_UNMAP_STAGE2, vmid, start,
++	__kvms_hvc_cmd(HYP_GUEST_UNMAP_STAGE2, vmid, start,
 +			     size, measure);
-+	if (err)
-+		pr_err("kvm: %s failed: %d\n", __func__, err);
-+}
-+
-+void unmap_stage2_range_sec(struct kvm_s2_mmu *mmu,
-+			    phys_addr_t start, u64 size)
-+{
-+	__unmap_stage2_range(mmu, start, size, 1);
 +}
 +
 +void unmap_stage2_range(struct kvm_s2_mmu *mmu,
 +			phys_addr_t start, u64 size)
 +{
-+	__unmap_stage2_range(mmu, start, size, 0);
++	__unmap_stage2_range(mmu, start, size, 1);
 +}
 +
 +int kvm_pgtable_stage2_unmap(u32 vmid, u64 addr, u64 size)
 +{
-+	return __kvms_hvc_cmd(HYP_GUEST_UNMAP_STAGE2, vmid, addr, size, 0);
++	return __kvms_hvc_cmd(HYP_GUEST_UNMAP_STAGE2, vmid, addr, size, 1);
 +}
 +
 +int ___create_hyp_mappings(unsigned long start, unsigned long size,
@@ -1673,10 +1665,10 @@ index 000000000000..ca8de12d5ca9
 +}
 diff --git a/arch/arm64/kvm/ext-guest.h b/arch/arm64/kvm/ext-guest.h
 new file mode 100644
-index 000000000000..2b554f89a7c8
+index 000000000000..5e0ee7f88714
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.h
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,41 @@
 +#ifndef __EXTG_H__
 +#define __EXTG_H__
 +
@@ -1715,7 +1707,6 @@ index 000000000000..2b554f89a7c8
 +			const struct kvm_userspace_memory_region *mem);
 +void __unmap_stage2_range(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size, u64);
 +void unmap_stage2_range(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size);
-+void unmap_stage2_range_sec(struct kvm_s2_mmu *mmu, phys_addr_t start, u64 size);
 +unsigned long hyp_get_free_vmid(struct kvm *kvm, u64 vmid);
 +
 +#endif // __EXTG_H__
@@ -2036,6 +2027,21 @@ index df361d839902..54f522442ac6 100644
  }
 +KVMS_SYMBOL(__kvm_get_mdcr_el2);
 +
+diff --git a/arch/arm64/kvm/hyp/nvhe/mem_protect.c b/arch/arm64/kvm/hyp/nvhe/mem_protect.c
+index 34eeb524b686..d5228ce3ecd5 100644
+--- a/arch/arm64/kvm/hyp/nvhe/mem_protect.c
++++ b/arch/arm64/kvm/hyp/nvhe/mem_protect.c
+@@ -166,9 +166,7 @@ static int host_stage2_unmap_dev_all(void)
+ 	/* Unmap all non-memory regions to recycle the pages */
+ 	for (i = 0; i < hyp_memblock_nr; i++, addr = reg->base + reg->size) {
+ 		reg = &hyp_memory[i];
+-		ret = kvm_pgtable_stage2_unmap(pgt, addr, reg->base - addr);
+-		if (ret)
+-			return ret;
++		kvm_pgtable_stage2_unmap(pgt, addr, reg->base - addr);
+ 	}
+ 	return kvm_pgtable_stage2_unmap(pgt, addr, BIT(pgt->ia_bits) - addr);
+ }
 diff --git a/arch/arm64/kvm/hyp/nvhe/switch.c b/arch/arm64/kvm/hyp/nvhe/switch.c
 index 4db5409f40c4..bc9c11243efb 100644
 --- a/arch/arm64/kvm/hyp/nvhe/switch.c
@@ -3558,7 +3564,7 @@ index 24cef9b87f9e..31e141e300eb 100644
  
  void __kvm_flush_vm_context(void)
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 69bd1732a299..dd03e078b8a2 100644
+index 69bd1732a299..6a8b12930f59 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
 @@ -21,9 +21,7 @@
@@ -3627,7 +3633,7 @@ index 69bd1732a299..dd03e078b8a2 100644
 +		break;
 +	case HYP_GUEST_UNMAP_STAGE2:
 +		/* Unmap */
-+		unmap_stage2_range_sec(&kvm->arch.mmu, addr, end - addr);
++		unmap_stage2_range(&kvm->arch.mmu, addr, end - addr);
 +		res = 0;
 +		break;
 +	default:

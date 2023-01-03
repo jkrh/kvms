@@ -51,7 +51,8 @@ spinlock_t crash_lock;
 int is_apicall(uint64_t cn)
 {
 	if ((cn == HYP_HOST_SWAP_PAGE) ||
-	    (cn == HYP_HOST_RESTORE_SWAP_PAGE))
+	    (cn == HYP_HOST_RESTORE_SWAP_PAGE) ||
+	    (cn == HYP_GUEST_UNMAP_STAGE2))
 		return CALL_TYPE_MAPCALL;
 	if (unlikely((cn >= HYP_FIRST_GUESTCALL) &&
 		     (cn <= HYP_LAST_GUESTCALL)))
@@ -175,7 +176,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	switch (ct) {
 	case CALL_TYPE_GUESTCALL:
 	case CALL_TYPE_HOSTCALL:
-	case CALL_TYPE_MAPCALL:
 		spin_lock(&host->hvc_lock);
 		break;
 	default:
@@ -477,7 +477,6 @@ out:
 	switch (ct) {
 	case CALL_TYPE_GUESTCALL:
 	case CALL_TYPE_HOSTCALL:
-	case CALL_TYPE_MAPCALL:
 		spin_unlock(&host->hvc_lock);
 		break;
 	default:
