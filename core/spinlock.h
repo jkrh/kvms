@@ -24,6 +24,12 @@ void spin_lock(spinlock_t *lock);
 void spin_unlock(spinlock_t *lock);
 
 /*
+ * Attempt to acquire a spinlock. Returns one if we hold the lock,
+ * zero otherwise.
+ */
+int spin_try_lock(spinlock_t *lock);
+
+/*
  * Very simple reader-writer lock
  *
  * Multiple readers ok, single writer. Lock supports recursion for read,
