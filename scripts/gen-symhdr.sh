@@ -20,7 +20,8 @@ cat << EOF > $SYMHDR
 static uint64_t kvm_jump_vector[] = {
 EOF
 
-ALLSYMS=`${CROSS_COMPILE}readelf -Ws $VMLINUX |grep $SYMPFX |grep FUNC`
+ALLSYMS=`${CROSS_COMPILE}readelf -Ws $VMLINUX |grep $SYMPFX |grep FUNC || true`
+if [ -n "${ALLSYMS}" ]; then
 while IFS= read -r LINE ; do
 	SYMVALS=`echo $LINE | awk '{ print "0x"$2 }'`
 	SYMNAME=`echo $LINE | awk '{ print $8 }'`
@@ -30,6 +31,7 @@ while IFS= read -r LINE ; do
 		echo "	$SYMVALS, // $SYMNAME" >> $SYMHDR
 	fi
 done <<< "$ALLSYMS"
+fi
 
 cat << EOF >> $SYMHDR
 };
