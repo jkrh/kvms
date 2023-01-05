@@ -65,6 +65,8 @@ echo "VIRGL disabled"
 VIRGL="--disable-virglrenderer"
 fi
 
+MESA_VER="${MESA_VER:-"mesa-20.2.6"}"
+
 #
 # Note: cross-compilation is also possible, these can be passed through.
 #
@@ -91,21 +93,42 @@ REPO=`which repo`
 
 set -e
 
-cleanup()
+do_unmount()
 {
-	sudo umount $BASE_DIR/oss/ubuntu/build/qemu || true
-	sudo umount $CHROOTDIR/proc || true
-	sudo umount $CHROOTDIR/dev || true
+	if [[ $(findmnt -M "$1") ]]; then
+		sudo umount $1
+		if [ $? -ne 0 ]; then
+			echo "ERROR: failed to umount $1"
+			exit 1
+		fi
+	fi
 }
-trap cleanup SIGHUP SIGINT SIGTERM EXIT
+
+do_unmount_all()
+{
+	echo -n "Unmount all binding dirs...: "
+	do_unmount $BASE_DIR/oss/ubuntu/build/qemu
+	do_unmount $CHROOTDIR/proc
+	do_unmount $CHROOTDIR/dev
+	echo "DONE!"
+}
 
 do_clean()
 {
-	cleanup
-	sudo rm -rf $BASE_DIR/oss/ubuntu
+	do_unmount_all
 	cd $BASE_DIR/oss/qemu; sudo git clean -xfd || true
 	sudo rm -rf $BASE_DIR/oss/emu
 	sudo rm -rf $BASE_DIR/oss/ubuntu/build/$SPICE_VER
+	sudo rm -rf $BASE_DIR/oss/ubuntu/build/$MESA_VER
+	sudo rm -rf $BASE_DIR/oss/ubuntu/build/libhybris
+}
+
+do_distclean()
+{
+	do_unmount_all
+	cd $BASE_DIR/oss/qemu; sudo git clean -xfd || true
+	sudo rm -rf $BASE_DIR/oss/emu
+	sudo rm -rf $BASE_DIR/oss/ubuntu
 }
 
 do_patch()
@@ -151,10 +174,9 @@ do_spice()
 do_mesa()
 {
 	cd $BASE_DIR/oss/ubuntu/build
-	wget -c https://archive.mesa3d.org//mesa-20.2.6.tar.xz
-	tar xf mesa-20.2.6.tar.xz
-	cd mesa-20.2.6
-	sudo -E chroot $CHROOTDIR sh -c "cd /build/mesa-20.2.6; meson build --prefix /usr/local $MESAGL -Dopengl=true -Dosmesa=gallium -Dgallium-drivers=swrast,freedreno $SHARED_GLAPI ; cd build; meson install"
+	wget -c https://archive.mesa3d.org/$MESA_VER.tar.xz
+	tar xf $MESA_VER.tar.xz
+	sudo -E chroot $CHROOTDIR sh -c "cd /build/$MESA_VER; meson build --prefix /usr/local $MESAGL -Dopengl=true -Dosmesa=gallium -Dgallium-drivers=swrast,freedreno $SHARED_GLAPI ; cd build; meson install"
 }
 
 do_qemu()
@@ -231,7 +253,17 @@ do_host_cvd_package()
 
 }
 
-[ -n "$CLEAN" ] && do_clean
+if [[ "$#" -eq 1 ]] && [[ "$1" == "clean" ]]; then
+	do_clean
+        exit 0
+fi
+if [[ "$#" -eq 1 ]] && [[ "$1" == "distclean" ]]; then
+	do_distclean
+        exit 0
+fi
+
+trap do_unmount_all SIGHUP SIGINT SIGTERM EXIT
+
 do_sysroot
 do_spice
 [ -z "$STATIC" ] && do_mesa
