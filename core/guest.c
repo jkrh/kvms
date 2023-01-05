@@ -478,14 +478,6 @@ kvm_guest_t *alloc_guest(void *kvm)
 			return NULL;
 		}
 
-		/*
-		 * Allocate the tablepool for creating guest specific EL2 mappings.
-		 */
-		alloc_pgd(guest, &guest->el2_tablepool);
-		if (!guest->el2_tablepool.pool) {
-			free_guest(kvm);
-			return NULL;
-		}
 		guest->kvm = kern_hyp_va(kvm);
 		set_blinding_default(guest);
 	}
@@ -870,9 +862,6 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	if (guest != NULL) {
 		guest_index[guest->vmid] = INVALID_GUEST;
 		/* Update pgd owner */
-		c = guest->el2_tablepool.firstchunk;
-		if (c != GUEST_MEMCHUNKS_MAX)
-			guest->mempool[c].owner_vmid = vmid;
 		c = guest->s2_tablepool.firstchunk;
 		if (c != GUEST_MEMCHUNKS_MAX)
 			guest->mempool[c].owner_vmid = vmid;
@@ -1327,7 +1316,6 @@ int free_guest(void *kvm)
 				free(guest->hyp_page_data[i]);
 
 	free_pgd(&guest->s2_tablepool, NULL);
-	free_pgd(&guest->el2_tablepool, host->EL2S1_pgd);
 
 	/*
 	 * Handle VMID zero as a special case since it is used

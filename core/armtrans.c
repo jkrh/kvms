@@ -954,13 +954,6 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 		break;
 	case EL2_STAGE1:
-		/*
-		 * This can be  either hosts own pool or a guest
-		 * specific EL2 table pool.
-		 */
-		if (!guest->el2_tablepool.pool)
-			return -ENOENT;
-
 		/* Page global directory base address for EL2 is owned by host */
 		block[cid].guest = host;
 		block[cid].pgd = host->EL2S1_pgd;
@@ -974,7 +967,7 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		if (is_locked(HOST_STAGE1_LOCK))
 			return -EPERM;
 
-		block[cid].tpool = &guest->el2_tablepool;
+		block[cid].tpool = &host->el2_tablepool;
 		pgd_levels = block[cid].guest->table_levels_el2s1;
 
 		break;
@@ -1031,7 +1024,7 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 
 		block[cid].guest = host;
 		block[cid].pgd = host->EL2S1_pgd;
-		block[cid].tpool = &guest->el2_tablepool;
+		block[cid].tpool = &host->el2_tablepool;
 		pgd_levels = block[cid].guest->table_levels_el2s1;
 		break;
 	case PATRACK_STAGE1:
