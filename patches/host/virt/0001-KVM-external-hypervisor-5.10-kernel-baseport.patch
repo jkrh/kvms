@@ -1,4 +1,4 @@
-From c5cfa52090dbf93287e62fa1b670e80670b809cd Mon Sep 17 00:00:00 2001
+From 23aabb6bd886a47b71fe1871b308392397c946b9 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Fri, 15 Jul 2022 11:06:11 +0300
 Subject: [PATCH] KVM: external hypervisor 5.10 kernel baseport
@@ -18,10 +18,10 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kernel/head.S             |  16 +-
  arch/arm64/kvm/Makefile              |   2 +-
  arch/arm64/kvm/arm.c                 |  56 ++--
- arch/arm64/kvm/ext-guest.c           | 433 +++++++++++++++++++++++++++
+ arch/arm64/kvm/ext-guest.c           | 439 +++++++++++++++++++++++++++
  arch/arm64/kvm/ext-guest.h           |  33 ++
  arch/arm64/kvm/fpsimd.c              |   4 +-
- arch/arm64/kvm/hvccall-defines.h     | 117 ++++++++
+ arch/arm64/kvm/hvccall-defines.h     | 117 +++++++
  arch/arm64/kvm/hyp/Makefile          |   2 +-
  arch/arm64/kvm/hyp/kvms-hvci.S       |  11 +
  arch/arm64/kvm/hyp/nvhe/debug-sr.c   |   3 +
@@ -31,9 +31,9 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/hyp/nvhe/tlb.c        |  23 +-
  arch/arm64/kvm/hyp/pgtable.c         |  24 +-
  arch/arm64/kvm/hyp/vgic-v3-sr.c      |  16 +-
- arch/arm64/kvm/mmu.c                 | 185 +++++++-----
+ arch/arm64/kvm/mmu.c                 | 185 ++++++-----
  arch/arm64/kvm/reset.c               |   8 +-
- 26 files changed, 976 insertions(+), 177 deletions(-)
+ 26 files changed, 982 insertions(+), 177 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -467,7 +467,7 @@ index 7d32fc959b1a..97fce1203599 100644
  #ifdef CONFIG_CPU_PM
    DEFINE(CPU_CTX_SP,		offsetof(struct cpu_suspend_ctx, sp));
 diff --git a/arch/arm64/kernel/head.S b/arch/arm64/kernel/head.S
-index f9119eea735e..9cf1881009ca 100644
+index e1c25fa3b8e6..335f54aaccfb 100644
 --- a/arch/arm64/kernel/head.S
 +++ b/arch/arm64/kernel/head.S
 @@ -490,7 +490,21 @@ EXPORT_SYMBOL(kimage_vaddr)
@@ -703,10 +703,10 @@ index 4d63fcd7574b..d733a5bb42e7 100644
  	}
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..29cf33cbf65d
+index 000000000000..856c5a314161
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
-@@ -0,0 +1,433 @@
+@@ -0,0 +1,439 @@
 +#include <linux/mm.h>
 +#include <linux/mman.h>
 +#include <linux/kvm_host.h>
@@ -814,12 +814,18 @@ index 000000000000..29cf33cbf65d
 +int kvm_set_spte_handler(struct kvm *kvm, gpa_t gpa, u64 size, void *data)
 +{
 +	kvm_pfn_t *pfn = (kvm_pfn_t *)data;
++	int ret;
++	struct stage2_map_data map_data;
 +
 +	WARN_ON(size != PAGE_SIZE);
 +
++	ret = stage2_map_set_prot_attr(KVM_PGTABLE_PROT_R, &map_data);
++	if (ret)
++		return ret;
++
 +	return create_guest_mapping(kvm->arch.mmu.vmid.vmid, gpa,
 +				    __pfn_to_phys(*pfn), PAGE_SIZE,
-+				    KVM_PGTABLE_PROT_R);
++				    map_data.attr);
 +}
 +
 +int update_hyp_memslots(struct kvm *kvm, struct kvm_memory_slot *slot,
@@ -1727,7 +1733,7 @@ index 452f4cacd674..35d9b340b293 100644
  static int __vgic_v3_bpr_min(void)
  {
 diff --git a/arch/arm64/kvm/mmu.c b/arch/arm64/kvm/mmu.c
-index 26068456ec0f..eec55353406b 100644
+index 26068456ec0f..b9bf6ede2be2 100644
 --- a/arch/arm64/kvm/mmu.c
 +++ b/arch/arm64/kvm/mmu.c
 @@ -31,6 +31,10 @@ static phys_addr_t hyp_idmap_vector;
@@ -1911,8 +1917,8 @@ index 26068456ec0f..eec55353406b 100644
 -		ret = kvm_pgtable_stage2_map(pgt, addr, PAGE_SIZE, pa, prot,
 -					     &cache);
 -		spin_unlock(&kvm->mmu_lock);
-+		ret = create_guest_mapping(_vmid, guest_ipa, pa, 0x1000,
-+					  (map_data.attr & 0x600000000003FC));
++		ret = create_guest_mapping(_vmid, addr, pa, PAGE_SIZE,
++					   map_data.attr);
  		if (ret)
  			break;
  
@@ -2157,7 +2163,7 @@ index 26068456ec0f..eec55353406b 100644
  
  void kvm_arch_flush_shadow_memslot(struct kvm *kvm,
 diff --git a/arch/arm64/kvm/reset.c b/arch/arm64/kvm/reset.c
-index 204c62debf06..b548b33bbf15 100644
+index 6f85c1821c3f..03691aa2a96c 100644
 --- a/arch/arm64/kvm/reset.c
 +++ b/arch/arm64/kvm/reset.c
 @@ -323,6 +323,7 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu)
@@ -2168,7 +2174,7 @@ index 204c62debf06..b548b33bbf15 100644
  
  	/* Reset system registers */
  	kvm_reset_sys_regs(vcpu);
-@@ -457,12 +458,9 @@ int kvm_arm_setup_stage2(struct kvm *kvm, unsigned long type)
+@@ -459,12 +460,9 @@ int kvm_arm_setup_stage2(struct kvm *kvm, unsigned long type)
  
  	vtcr |= VTCR_EL2_T0SZ(phys_shift);
  	/*

@@ -1,4 +1,4 @@
-From 7d7b89caa24cb8d9c1b168fe90ffe072e897cdb7 Mon Sep 17 00:00:00 2001
+From 03bf38f79e289092c75d6d0d1f272c0306510bb7 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 18 Oct 2022 10:20:59 +0300
 Subject: [PATCH] KVM: external hypervisor 5.15 kernel baseport
@@ -1260,7 +1260,7 @@ index 4cb265e15361..25838f03a5d0 100644
  
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..714fdccef40f
+index 000000000000..ac00d71f3102
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
 @@ -0,0 +1,399 @@
@@ -1365,9 +1365,9 @@ index 000000000000..714fdccef40f
 +
 +	WARN_ON(size != PAGE_SIZE);
 +
-+	return create_guest_mapping(kvm->arch.mmu.vmid.vmid, gpa,
-+				    __pfn_to_phys(*pfn), PAGE_SIZE,
-+				    KVM_PGTABLE_PROT_R);
++	return kvm_pgtable_stage2_map(kvm->arch.mmu.vmid.vmid, gpa,
++				      __pfn_to_phys(*pfn), PAGE_SIZE,
++				      KVM_PGTABLE_PROT_R, NULL);
 +}
 +
 +int update_hyp_memslots(struct kvm *kvm, struct kvm_memory_slot *slot,
