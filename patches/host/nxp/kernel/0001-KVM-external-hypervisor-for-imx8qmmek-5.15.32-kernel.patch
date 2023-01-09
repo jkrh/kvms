@@ -1,4 +1,4 @@
-From 62540a4bf90ece7fff51ecea14b2a1ffc9c8ecd5 Mon Sep 17 00:00:00 2001
+From c46260aa81f3a9df21b65ee6bdfddcd345e30af3 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Wed, 16 Mar 2022 14:56:47 +0200
 Subject: [PATCH] KVM: external hypervisor for imx8qmmek-5.15.32 kernel
@@ -1263,7 +1263,7 @@ index 0b2f684cd8ca..7b1ded14e493 100644
  
 diff --git a/arch/arm64/kvm/ext-guest.c b/arch/arm64/kvm/ext-guest.c
 new file mode 100644
-index 000000000000..6cd2b797bae5
+index 000000000000..f2df135a8f66
 --- /dev/null
 +++ b/arch/arm64/kvm/ext-guest.c
 @@ -0,0 +1,412 @@
@@ -1372,9 +1372,9 @@ index 000000000000..6cd2b797bae5
 +
 +	WARN_ON(size != PAGE_SIZE);
 +
-+	return create_guest_mapping(kvm->arch.mmu.vmid.vmid, gpa,
-+				    __pfn_to_phys(*pfn), PAGE_SIZE,
-+				    KVM_PGTABLE_PROT_R);
++	return kvm_pgtable_stage2_map(kvm->arch.mmu.vmid.vmid, gpa,
++				      __pfn_to_phys(*pfn), PAGE_SIZE,
++				      KVM_PGTABLE_PROT_R, NULL);
 +}
 +
 +int update_hyp_memslots(struct kvm *kvm, struct kvm_memory_slot *slot,
@@ -4364,5 +4364,5 @@ index 95a18cec14a3..b740cb0cc3f1 100644
  		kvm_err("Cannot map VCTRL into hyp\n");
  		goto out;
 -- 
-2.34.1
+2.25.1
 
