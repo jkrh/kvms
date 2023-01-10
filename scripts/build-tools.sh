@@ -25,7 +25,10 @@ unset DEFINES
 
 export PATH=$TOOLDIR/bin:$TOOLDIR/usr/bin:/bin:/usr/bin
 export PKG_CONFIG_PATH=$TOOLDIR/usr/local/lib/x86_64-linux-gnu/pkgconfig
+export LD_LIBRARY_PATH=$TOOLDIR/lib:$TOOLDIR/usr/lib
+export LD_RUN_PATH=$TOOLDIR/lib:$TOOLDIR/usr/lib
 
+MESA_VER=mesa-22.3.2
 KERNEL_PATCHFILE="$BASE_DIR/patches/host/virt/0001-KVM-external-hypervisor-5.15-kernel-baseport.patch"
 TTRIPLET="aarch64-linux-gnu"
 HTRIPLET="x86_64-unknown-linux-gnu"
@@ -38,7 +41,7 @@ clean()
 	cd $BASE_DIR/oss/glibc; git clean -xfd || true
 	cd $BASE_DIR/oss/qemu; git clean -xfd || true
 	cd $BASE_DIR/oss/linux; git clean -xfd || true
-	cd $BASE_DIR/oss; rm -rf mesa-20.2.6* || true
+	cd $BASE_DIR/oss; rm -rf $MESA_VER* || true
 }
 
 binutils-gdb()
@@ -98,10 +101,10 @@ gcc()
 mesa()
 {
 	cd $BASE_DIR/oss
-	wget -c https://archive.mesa3d.org//mesa-20.2.6.tar.xz
-	tar xf mesa-20.2.6.tar.xz
-	cd mesa-20.2.6
-	meson build --prefix $TOOLDIR/usr/local -Dopengl=true -Dosmesa=gallium -Dgallium-drivers=swrast -Dshared-glapi=enabled
+	wget -c https://archive.mesa3d.org//$MESA_VER.tar.xz
+	tar xf $MESA_VER.tar.xz
+	cd $MESA_VER
+	meson build --prefix $TOOLDIR/usr/local -Dopengl=true -Dosmesa=true -Dgallium-drivers=auto,swrast -Dshared-glapi=enabled
 	cd build
 	meson install
 }
