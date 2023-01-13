@@ -21,6 +21,7 @@
 #include "ecdsa.h"
 #include "heap.h"
 #include "kic.h"
+#include "nospec.h"
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -230,6 +231,8 @@ sys_context_t *get_guest_context(uint32_t vmid, uint32_t cpuid)
 {
 	if (vmid >= PRODUCT_VMID_MAX || cpuid >= PLATFORM_CORE_COUNT)
 		return NULL;
+	vmid = array_index_nospec(vmid, PRODUCT_VMID_MAX);
+	cpuid = array_index_nospec(cpuid, PLATFORM_CORE_COUNT);
 
 	if (guest_index[vmid] == INVALID_GUEST)
 		return NULL;
@@ -245,6 +248,7 @@ void *hyp_vcpu_regs(uint64_t vmid, uint64_t vcpuid)
 	if (!guest || vcpuid >= NUM_VCPUS)
 		return NULL;
 
+	vcpuid = array_index_nospec(vcpuid, NUM_VCPUS);
 	ctxt = &guest->vcpu_ctxt[vcpuid];
 	return &ctxt->regs;
 }
@@ -302,6 +306,7 @@ void sysreg_restore_guest(uint64_t vmid, uint64_t vcpuid)
 	    vcpuid >= NUM_VCPUS))
 		return;
 
+	vcpuid = array_index_nospec(vcpuid, NUM_VCPUS);
 	ctxt = &guest->vcpu_ctxt[vcpuid];
 	write_reg(VMPIDR_EL2, ctxt->state.mpidr_el1);
 	write_reg(CSSELR_EL1, ctxt->state.csselr_el1);
@@ -334,6 +339,7 @@ void sysreg_save_guest(uint64_t vmid, uint64_t vcpuid)
 	    vcpuid >= NUM_VCPUS))
 		return;
 
+	vcpuid = array_index_nospec(vcpuid, NUM_VCPUS);
 	ctxt = &guest->vcpu_ctxt[vcpuid];
 	ctxt->state.csselr_el1 = read_reg(CSSELR_EL1);
 	ctxt->state.tcr_el1 = read_reg(TCR_EL1);
@@ -364,6 +370,10 @@ kvm_guest_t *get_free_guest(uint64_t vmid)
 	kvm_guest_t *entry = NULL;
 	int i;
 
+	if (vmid >= PRODUCT_VMID_MAX)
+		return NULL;
+
+	vmid = array_index_nospec(vmid, PRODUCT_VMID_MAX);
 	if ((guest_index[vmid] != INVALID_GUEST) &&
 	    (vmid != 0))
 		return NULL;
@@ -396,6 +406,7 @@ kvm_guest_t *get_guest(uint64_t vmid)
 	if (vmid >= PRODUCT_VMID_MAX)
 		goto out;
 
+	vmid = array_index_nospec(vmid, PRODUCT_VMID_MAX);
 	i = guest_index[vmid];
 	if (i != INVALID_GUEST) {
 		guest = &guests[i];
@@ -858,6 +869,7 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 		ERROR("invalid vmid %u\n", vmid);
 		return res;
 	}
+	vmid = array_index_nospec(vmid, PRODUCT_VMID_MAX);
 	guest = __get_guest_by_kvm(&kvm, &i);
 	if (guest != NULL) {
 		guest_index[guest->vmid] = INVALID_GUEST;
@@ -1352,6 +1364,12 @@ int delete_memslot(kvm_guest_t *guest, kvm_memslots *slots, short id)
 	int i, ret = -ENOENT;
 	uint64_t gpa, len, ramend;
 
+	if (id >= KVM_MEM_SLOTS_NUM) {
+		ERROR("invalid slot id=%d\n", id);
+		return -EINVAL;
+	}
+	id = array_index_nospec(id, KVM_MEM_SLOTS_NUM);
+
 	if (!slots[id].slot.npages) {
 		ERROR("invalid slot\n");
 		return ret;
@@ -1595,6 +1613,7 @@ int guest_vcpu_reg_reset(void *kvm, uint64_t vcpuid)
 	}
 	if (vcpuid >= NUM_VCPUS)
 		return -EINVAL;
+	vcpuid = array_index_nospec(vcpuid, NUM_VCPUS);
 	guest->vcpu_ctxt[vcpuid].gpreg_sync_from_kvm = ~0;
 	guest->vcpu_ctxt[vcpuid].pc_sync_from_kvm = PC_SYNC_COPY;
 	mpidr = (vcpuid & 0x0f) << MPIDR_LEVEL_SHIFT(0);
@@ -1666,6 +1685,7 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr,
 		      vmid, vcpuid);
 		return;
 	}
+	vcpuid = array_index_nospec(vcpuid, NUM_VCPUS);
 	ctxt = &guest->vcpu_ctxt[vcpuid];
 
 	memcpy(&ctxt->regs.regs, &regs->regs, sizeof(ctxt->regs.regs));
