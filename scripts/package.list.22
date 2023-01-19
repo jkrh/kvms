@@ -328,3 +328,11 @@ iptables
 libarchive-tools
 libusb-1.0-0 net-tools
 qemu-user-static
+systemd
+systemd-sysv
+sudo
+nano
+ifupdown
+rsyslog
+openssh-server
+inetutils-ping
