@@ -72,6 +72,7 @@ int do_generate_key(int fd, char *arg)
 	memset(&key, 0, sizeof(key));
 	strcpy(key.name, "hyp:");
 	strncat(key.name, arg, 12);
+	key.keysize = 16;
 	ret = ioctl(fd, HYPDRV_GENERATE_KEY, &key);
 	if (ret)
 		return ret;
@@ -96,6 +97,7 @@ int do_read_key(int fd, char *arg)
 	memset(&key, 0, sizeof(key));
 	strcpy(key.name, "hyp:");
 	strncat(key.name, arg, 12);
+	key.keysize = 16;
 	ret = ioctl(fd, HYPDRV_READ_KEY, &key);
 	if (ret)
 		return ret;
@@ -108,7 +110,7 @@ int do_read_key(int fd, char *arg)
 	return 0;
 }
 
-int do_save_keys(int fd, char *arg)
+int do_save_keys(int fd, u64 vmid, char *filename)
 {
 	struct encrypted_keys keys;
 	FILE *fp;
@@ -118,12 +120,12 @@ int do_save_keys(int fd, char *arg)
 	printf("save keys %s\n", arg);
 #endif
 	memset(&keys, 0, sizeof(keys));
-	keys.vmid = HOST_VMID;
+	keys.vmid = vmid;
 	ret = ioctl(fd, HYPDRV_SAVE_KEYS, &keys);
 	if (ret)
 		return ret;
 
-	fp = fopen(arg, "w");
+	fp = fopen(filename, "w");
 	if (!fp)
 		return -EIO;
 
@@ -132,7 +134,7 @@ int do_save_keys(int fd, char *arg)
 	return 0;
 }
 
-int do_load_keys(int fd, char *arg)
+int do_load_keys(int fd, u64 vmid, char *filename)
 {
 	struct encrypted_keys keys;
 	FILE *fp;
@@ -141,15 +143,15 @@ int do_load_keys(int fd, char *arg)
 	char tst[32];
 
 #ifdef DEBUG
-	printf("load keys %s\n", arg);
+	printf("load keys %s\n", filename);
 #endif
-	fp = fopen(arg, "r");
+	fp = fopen(filename, "r");
 	if (!fp)
 		return -EIO;
 
 	keys.len = fread(keys.buf, 1, sizeof(keys.buf), fp);
 	fclose(fp);
-	keys.vmid = HOST_VMID;
+	keys.vmid = vmid;
 	ret = ioctl(fd, HYPDRV_LOAD_KEYS, &keys);
 	return ret;
 }
@@ -157,7 +159,7 @@ int do_load_keys(int fd, char *arg)
 int do_ioctl(int fd, int call, int argc, char *argv[])
 {
 	int ret = -1;
-	u64 start, end, prot;
+	u64 start, end, prot, vmid;
 	struct hypdrv_mem_region hmr;
 	unsigned int maj = 235;
 
@@ -227,12 +229,18 @@ int do_ioctl(int fd, int call, int argc, char *argv[])
 		break;
 
 	case SAVE_KEYS:
-		if (argc >= 1)
-			ret = do_save_keys(fd, argv[0]);
+		if (argc >= 1) {
+			ret  = get_arg(argv[0], &vmid);
+			if (!ret)
+				ret = do_save_keys(fd, vmid, argv[1]);
+		}
 		break;
 	case LOAD_KEYS:
-		if (argc >= 1)
-			ret = do_load_keys(fd, argv[0]);
+		if (argc >= 1) {
+			ret  = get_arg(argv[0], &vmid);
+			if (!ret)
+				ret = do_load_keys(fd, vmid, argv[1]);
+		}
 		break;
 	case READ_LOG:
 		printf("ioctl(fd, HYPDRV_READ_LOG) not implemented.\n");

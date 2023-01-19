@@ -274,35 +274,29 @@ do_savekeys(void __user *argp)
 	uint64_t ret = -ENODATA;
 	struct encrypted_keys *p;
 	u64 len = 1024;
-	uint8_t guest_id[32] = "dummy name";
 
 	p = kmalloc(sizeof(struct encrypted_keys), GFP_KERNEL);
 	if (!p)
 		return -ENOMEM;
 	ret = copy_from_user(p, argp, sizeof(struct encrypted_keys));
-	if (ret)
-		return -EIO;
-	/* FIXME:
-	 * Current implementation requires that kernel gives an unique value
-	 * for each VM. Unique value should be generated secure way.
-	 */
-	ret = call_hyp(HYP_DEFINE_GUEST_ID, p->vmid,
-		      (u64) &guest_id, (u64) sizeof(guest_id), 0);
-	if (ret)
-		return ret;
-
-
+	if (ret) {
+		ret = -EIO;
+		goto err;
+	}
 
 	p->len = sizeof(p->buf);
 	ret = call_hyp(HYP_SAVE_KEYS, p->vmid,
 		      (u64) p->buf, (u64) &len, 0);
+	if (ret)
+		goto err;
+
 	p->len = (u32) len;
 	ret = copy_to_user(argp, p, sizeof(struct encrypted_keys));
-	if (ret)
-		return ret;
-	kfree(p);
-	return 0;
 
+err:
+	if (p)
+		kfree(p);
+	return 0;
 }
 
 static ssize_t
@@ -310,7 +304,6 @@ do_loadkeys(void __user *argp)
 {
 	uint64_t ret = -ENODATA;
 	struct encrypted_keys *p;
-	uint8_t guest_id[] = "dummy name";
 
 	p = kmalloc(sizeof(struct encrypted_keys), GFP_KERNEL);
 	if (!p)
@@ -318,15 +311,6 @@ do_loadkeys(void __user *argp)
 	ret = copy_from_user(p, argp, sizeof(struct encrypted_keys));
 	if (ret)
 		return -EIO;
-
-	/* FIXME:
-	 * Current implementation requires that kernel gives an unique value
-	 * for each VM. Unique value should be generated secure way.
-	 */
-	ret = call_hyp(HYP_DEFINE_GUEST_ID, p->vmid,
-		      (u64) &guest_id, (u64) sizeof(guest_id), 0);
-	if (ret)
-		return ret;
 
 	ret = call_hyp(HYP_LOAD_KEYS, p->vmid, (u64) &p->buf, (u64) p->len, 0);
 	if (ret)
@@ -339,49 +323,64 @@ do_loadkeys(void __user *argp)
 static ssize_t
 do_keygen(void __user *argp)
 {
-	struct guest_key gkeys;
+	struct guest_key *key;
 	uint64_t ret;
-	u32 bsize = 32;
 
-	ret = copy_from_user(&gkeys, argp, sizeof(struct guest_key));
-	if (ret)
-		return -EIO;
+	key = kmalloc(sizeof(struct guest_key), GFP_KERNEL);
+	if (!key) {
+		ret = -ENOMEM;
+		goto err;
+	}
 
+	ret = copy_from_user(key, argp, sizeof(struct guest_key));
+	if (ret) {
+		ret = -EIO;
+		goto err;
+	}
 	ret = call_hyp(HYP_GENERATE_KEY,
-		      (u64) &gkeys.key, (u64) &bsize, 1,
-		      (u64)&gkeys.name);
+		      (u64)key->key, (u64)key->keysize, (u64)key->name, 0);
 	if (ret)
-		return ret;
+		goto err;
 
-	ret = copy_to_user(argp, &gkeys, sizeof(struct guest_key));
+	ret = copy_to_user(argp, key, sizeof(struct guest_key));
 	if (ret)
-		return ret;
-
-	return 0;
+		ret = -EIO;
+err:
+	if (key)
+		kfree(key);
+	return ret;
 
 }
 
 static ssize_t
 do_getkey(void __user *argp)
 {
-	struct guest_key gkeys;
+	struct guest_key *key;
 	uint64_t ret;
-	u32 bsize = 32;
 
-	ret = copy_from_user(&gkeys, argp, sizeof(struct guest_key));
+	key = kmalloc(sizeof(struct guest_key), GFP_KERNEL);
+	if (!key) {
+		ret = -ENOMEM;
+		goto err;
+	}
+	ret = copy_from_user(key, argp, sizeof(struct guest_key));
+	if (ret) {
+		ret =  -EIO;
+		goto err;
+	}
+	ret = call_hyp(HYP_GET_KEY, (u64) key->key, (u64) &key->keysize,
+		      (u64) key->name, 0);
+	if (ret) {
+		ret = ret;
+		goto err;
+	}
+	ret = copy_to_user(argp, key, sizeof(struct guest_key));
 	if (ret)
-		return -EIO;
-
-	ret = call_hyp(HYP_GET_KEY, (u64) &gkeys.key, (u64) &bsize, 1,
-		      (u64) &gkeys.name);
-	if (ret)
-		return ret;
-
-	ret = copy_to_user(argp, &gkeys, sizeof(struct guest_key));
-	if (ret)
-		return -EIO;
-
-	return 0;
+		ret = -EIO;
+err:
+	if (key)
+		kfree(key);
+	return ret;
 }
 
 static ssize_t

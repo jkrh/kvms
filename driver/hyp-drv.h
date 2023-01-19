@@ -23,8 +23,8 @@ struct log_frag {
 };
 
 struct guest_key {
-	u32 type;
 	char name[16];
+	size_t keysize;
 	unsigned char key[32];
 };
 struct encrypted_keys {

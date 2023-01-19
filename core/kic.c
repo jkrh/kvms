@@ -116,7 +116,7 @@ int image_check_init(void *g, uint64_t start_page)
 		return KIC_ERROR;
 	}
 
-	copy_from_guest(guest, sign_params, (void *) start_page,
+	copy_from_guest(guest, STAGE2, sign_params, (void *) start_page,
 			sizeof(sign_params_t));
 
 	if (sign_params->macig != 0x4e474953) {
@@ -183,7 +183,7 @@ int check_guest_image(void *g, uint64_t image)
 		guest->kic_status = KIC_VERIFIED_FAIL;
 		ret = KIC_ERROR;
 	} else {
-		memcpy(guest->guest_id, &sign_params->guest_id, GUEST_ID_LEN);
+		set_guest_id(guest, &sign_params->guest_id, GUEST_ID_LEN);
 		LOG("kernel integrity check passed for vmid %d\n", guest->vmid);
 		guest->kic_status = KIC_VERIFIED_OK;
 		ret = 0;

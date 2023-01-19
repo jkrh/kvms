@@ -105,24 +105,15 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 					  (size_t)a3, (uint64_t)a4);
 		break;
 	case HYP_GENERATE_KEY:
-		res = generate_key(guest, virt_to_phys((void *) a1),
-				   virt_to_phys((void *) a2),
-				   a3,
-				   virt_to_phys((void *) a4));
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
+		res = generate_key(guest, (void *)a1, a2, (void *)a3);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	case HYP_GET_KEY:
-		res = get_key(guest, virt_to_phys((void *) a1),
-			     virt_to_phys((void *) a2),
-			     a3,
-			     virt_to_phys((void *) a4));
+		res = get_key(guest, (void *)a1, (void *)a2, (void *)a3);
 		break;
 	case HYP_DELETE_KEY:
-		res = delete_key(guest, a1, virt_to_phys((void *) a2));
-		break;
-	case HYP_DEFINE_GUEST_ID:
-		guest = get_guest(a1);
-		res = set_guest_id(guest, virt_to_phys((void *) a2),
-				      (size_t) a3);
+		res = delete_key(guest, virt_to_phys((void *) a1));
 		break;
 	case HYP_GUEST_INIT_IMAGE_CHECK:
 		res = image_check_init(guest, a1);
@@ -443,18 +434,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 
-	case HYP_GENERATE_KEY:
-		res = generate_host_key(virt_to_phys((void *) a1),
-				   virt_to_phys((void *) a2),
-				   a3,
-				   virt_to_phys((void *) a4));
-		break;
-	case HYP_GET_KEY:
-		res = get_host_key(virt_to_phys((void *) a1),
-				virt_to_phys((void *) a2),
-				a3,
-				virt_to_phys((void *) a4));
-		break;
 	/*
 	 * KVM callbacks
 	 */

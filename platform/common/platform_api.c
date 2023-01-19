@@ -10,8 +10,12 @@
 #include "hyplogs.h"
 #include "platform_api.h"
 #include "product_mmap.h"
+#include "mbedtls/md.h"
 
 #define NUM_DENYRANGE	16
+#define PLATFORM_SALT "example salt"
+#define PLATFORM_SALT_SIZE (sizeof(PLATFORM_SALT))
+#define PLATFORM_SECRET_KEY "This must be a secret value!"
 
 static struct memrange denyrange[NUM_DENYRANGE];
 
@@ -87,6 +91,25 @@ void platform_mmu_prepare(void)
 static inline uint8_t reverse(uint8_t b)
 {
 	return (uint8_t)((b * 0x0202020202UL & 0x010884422010UL) % 1023UL);
+}
+
+/* platform_get_static_key() is example code only. It must be replaced with
+ * secret one on real platforms.
+ */
+WEAK_SYM
+int platform_get_static_key(uint8_t *key, size_t key_size,
+			      void *salt, size_t salt_size)
+{
+	mbedtls_md_handle_t md;
+
+	md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+	if (md == NULL)
+		return -1;
+
+	return mbedtls_hkdf(md, PLATFORM_SALT, PLATFORM_SALT_SIZE,
+			   PLATFORM_SECRET_KEY, sizeof(PLATFORM_SECRET_KEY),
+			   salt, salt_size,
+			   key, key_size);
 }
 
 WEAK_SYM

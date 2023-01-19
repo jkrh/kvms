@@ -179,4 +179,15 @@ int platform_allow_guest_smc(register_t cn, register_t a1, register_t a2,
 			     register_t a3, register_t a4, register_t a5,
 			     register_t a6, register_t a7);
 
+/**
+ * platform_get_static_key -derivate a key from platform secrets
+ *
+ * @param key the address where derivated key will be stored
+ * @param key_size key size in bytes
+ * @param salt a pointer to salt for derivating
+ * @param salt-size salt size in bytes
+ * @return 0 on success, nonzero otherwise
+ */
+int platform_get_static_key(uint8_t *key, size_t key_size,
+			      void *salt, size_t salt_size);
 #endif /* __PLATFORM_API_H__ */

@@ -651,35 +651,3 @@ cont:
 	return z;
 }
 
-void validate_keys(uint64_t vmid)
-{
-	kvm_guest_t *guest;
-	const uint8_t guest_id[] = "test12test";
-	uint8_t key[32];
-	uint8_t buf[128];
-	size_t size = sizeof(buf);
-	size_t len = sizeof(key);
-	int res;
-
-	guest = get_guest(vmid);
-	if (!guest) {
-		ERROR("No such guest %u?\n", vmid);
-		return;
-	}
-	res = set_guest_id(guest, guest_id, sizeof(guest_id));
-	res = generate_key(guest, key, &len, 1, "test1");
-	uint64_t *p = (uint64_t *)&key[0];
-	printf("res %x len %d\n", res, len);
-	printf("%llx %llx %llx %llx\n", p[0], p[1], p[2], p[3]);
-
-	res = save_vm_key(guest, buf, &size);
-	printf("res %x size %d\n", res, size);
-	res = generate_key(guest, key, &len, 1, "test1");
-	printf("%llx %llx %llx %llx\n", p[0], p[1], p[2], p[3]);
-
-	res = load_vm_key(guest, buf, size);
-	printf("res %x size %d\n", res, size);
-	res = get_key(guest, key, &len, 1, "test1");
-	printf("res %x len %d\n", res, len);
-	printf("%llx %llx %llx %llx\n", p[0], p[1], p[2], p[3]);
-}

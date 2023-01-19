@@ -497,25 +497,27 @@ int kernel_integrity_ok(const kvm_guest_t *guest);
  * Copy data from guest space to hypervisor.
  *
  * @param guest the guest
+ * @param stage address translation level (STAGEA, STAGE2)
  * @param dst destination address in hypervisor
- * @param source source address in guest (IPA)
- * @param len Number of byres to copy
+ * @param source source address in guest
+ * @param len Number of bytes to copy
  * @return number of copied bytes in case of success, negative error code
  *         otherwise
  */
-int copy_from_guest(kvm_guest_t *guest, void *dst, void *src, size_t len);
+int copy_from_guest(kvm_guest_t *guest, uint64_t stage, void *dst, const void *src, size_t len);
 
 /***
  * Copy data from hypervisor to guest space
  *
  * @param guest the guest
- * @param dst destination address in guest (IPA)
+ * @param stage address translation level (STAGEA, STAGE2)
+ * @param dst destination address in guest
  * @param source source address in hypervisor
- * @param len Number of byres to copy
+ * @param len Number of bytes to copy
  * @return number of copied bytes in case of success, negative error code
  *         otherwise
  */
-int copy_to_guest(kvm_guest_t *guest, void *dst, void *src, size_t len);
+int copy_to_guest(kvm_guest_t *guest, uint64_t stage, void *dst, void *src, size_t len);
 
 #ifdef DEBUG
  void share_increment(kvm_guest_t *guest);

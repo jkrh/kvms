@@ -1941,7 +1941,8 @@ bool do_process_core(kvm_guest_t *guest, void *regs)
 }
 
 
-int copy_from_guest(kvm_guest_t *guest, void *dst, void *src, size_t len)
+int copy_from_guest(kvm_guest_t *guest, uint64_t stage,
+		    void *dst, const void *src, size_t len)
 {
 	uint64_t page_len;
 	size_t copied = 0;
@@ -1949,7 +1950,7 @@ int copy_from_guest(kvm_guest_t *guest, void *dst, void *src, size_t len)
 
 	while (copied < len) {
 		page_len = (len > PAGE_SIZE) ?  PAGE_SIZE : len;
-		paddr = pt_walk(guest, STAGE2, (uint64_t) src, 0);
+		paddr = pt_walk(guest, stage, (uint64_t) src, 0);
 		if (paddr == ~0UL)
 			return -EINVAL;
 
@@ -1961,7 +1962,8 @@ int copy_from_guest(kvm_guest_t *guest, void *dst, void *src, size_t len)
 	return copied;
 }
 
-int copy_to_guest(kvm_guest_t *guest, void *dst, void *src, size_t len)
+int copy_to_guest(kvm_guest_t *guest, uint64_t stage,
+		   void *dst, void *src, size_t len)
 {
 	uint64_t page_len;
 	size_t copied = 0;
@@ -1969,7 +1971,7 @@ int copy_to_guest(kvm_guest_t *guest, void *dst, void *src, size_t len)
 
 	while (copied < len) {
 		page_len = (len > PAGE_SIZE) ?  PAGE_SIZE : len;
-		paddr = pt_walk(guest, STAGE2, (uint64_t) dst, 0);
+		paddr = pt_walk(guest, stage, (uint64_t) dst, 0);
 		if (paddr == ~0UL)
 			return -EINVAL;
 
