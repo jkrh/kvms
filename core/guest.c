@@ -1138,9 +1138,10 @@ cont:
 	/*
 	 * If it's a normal region that is mapped on the host, remove it.
 	 * If it's a share, let it be but make sure the share area does
-	 * not have execute permissions.
+	 * not have execute permissions. Share pages when guest is in init
+	 * phase.
 	 */
-	if (is_share(guest, vaddr, len) == 1) {
+	if ((is_share(guest, vaddr, len) == 1) || (guest->state == GUEST_INIT)) {
 		res = mmap_range(host, STAGE2, paddr, paddr, len,
 				 (EL1S2_SH | PAGE_HYP_RW),
 				 S2_NORMAL_MEMORY);
