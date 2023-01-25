@@ -276,8 +276,6 @@ int verify_range(void *g, uint64_t ipa, uint64_t addr, uint64_t len,
 	}
 	if ((prot != res->prot) && (!has_less_s2_perms(prot, res->prot))) {
 		ERROR("page permissions: 0x%lx != 0x%lx\n", res->prot, prot);
-		ret = -EPERM;
-		goto out_unlock;
 	}
 
 	ret = calc_hash(sha256, (void *)addr, len);
