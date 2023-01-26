@@ -55,12 +55,12 @@ $(FETCH_SOURCES):
 
 $(TOOLS_QEMU): | $(FETCH_SOURCES)
 	@mkdir -p $(TOOLDIR)
-	./scripts/build-tools.sh
+	@./scripts/build-tools.sh
 
 tools: $(TOOLS_QEMU)
 
 tools-clean:
-	./scripts/build-tools.sh clean
+	@./scripts/build-tools.sh clean
 	@rm -rf $(TOOLDIR)
 
 docs:
@@ -84,14 +84,13 @@ module-test:
 	python scripts/module-test.py $(MODULE)
 
 target-qemu:
-	./scripts/build-target-qemu.sh
+	@./scripts/build-target-qemu.sh
 
 target-qemu-clean:
-	./scripts/build-target-qemu.sh clean
+	@./scripts/build-target-qemu.sh clean
 
 target-qemu-distclean:
-	./scripts/build-target-qemu.sh distclean
-
+	@./scripts/build-target-qemu.sh distclean
 
 sign_guest: gen_key
 	@[ "${IMAGE}" ] && echo -n "" || ( echo "IMAGE is not set"; exit 1 )
