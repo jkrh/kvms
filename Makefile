@@ -92,6 +92,9 @@ target-qemu-clean:
 target-qemu-distclean:
 	@./scripts/build-target-qemu.sh distclean
 
+guestimage:
+	@./scripts/create_bootimg.sh
+
 sign_guest: gen_key
 	@[ "${IMAGE}" ] && echo -n "" || ( echo "IMAGE is not set"; exit 1 )
 	$(BASE_DIR)/scripts/sign_guest_kernel.sh -p $(KEYS_PATH)/guest_image_priv.pem \
