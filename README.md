@@ -29,7 +29,9 @@ Building and running on QEMU:
 - Run 'make tools'. This will build all the tools required with right versions
   and install them into the 'buildtools' directory. This will also build the
   patched kernel under oss/linux.
-- Download or assemble QEMU compatible arm64 linux image you wish to boot up
+- Run 'make hostimage' to generate a virtualization system host image
+- Run 'make guestimage' to generate a sample virtualized guest for testing
+- Run 'make target-qemu' to generate a qemu binary for the host invocation
 - Set environment variable BOOTIMG to point to the image. Set PLATFORM=virt
   as well to tell the build system which target you are going for.
 - Run 'make DEBUG=1' to build the hypervisor against the kernel under oss/linux

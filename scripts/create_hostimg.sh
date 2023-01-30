@@ -11,10 +11,10 @@ CPUS=`nproc`
 
 CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
-PKGLIST=`cat package.list.22 |grep -v "\-dev"`
-OUTFILE=ubuntu.qcow2
-OUTDIR=$CURDIR/outdir
-SIZE=10G
+PKGLIST=`cat package.list.22`
+OUTFILE=ubuntuhost.qcow2
+OUTDIR=$CURDIR
+SIZE=20G
 
 do_unmount()
 {
@@ -82,20 +82,7 @@ echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
 DEBIAN_FRONTEND=noninteractive sudo -E chroot tmp apt-get update
 DEBIAN_FRONTEND=noninteractive sudo -E chroot tmp apt-get -y install $PKGLIST
 
-echo "Cloning guest kernel.."
-rm -rf linux
-git clone --single-branch --branch linux-5.15.y git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-cd linux
-patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
+echo "Installing modules.."
+make -C$CURDIR/../oss/linux CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$CURDIR/scripts/tmp -j$CPUS modules_install
 
-echo "Building guest kernel.."
-make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=../tmp -j$CPUS defconfig Image modules modules_install
-rm -rf $OUTDIR
-mkdir $OUTDIR
-cp ./arch/arm64/boot/Image $OUTDIR
-cd ..
-
-echo "Cleaning up.."
-mv $OUTFILE $OUTDIR
-
-echo "Output saved at $OUTDIR"
+echo "Output saved at $OUTDIR/$OUTFILE"
