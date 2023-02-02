@@ -1,6 +1,6 @@
-From 03bf38f79e289092c75d6d0d1f272c0306510bb7 Mon Sep 17 00:00:00 2001
+From e1da6ec55cb9fb27d07fb6621752cd9fa170a668 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
-Date: Tue, 18 Oct 2022 10:20:59 +0300
+Date: Wed, 1 Feb 2023 14:35:52 +0400
 Subject: [PATCH] KVM: external hypervisor 5.15 kernel baseport
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
@@ -19,7 +19,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kernel/asm-offsets.c               |  11 +
  arch/arm64/kernel/head.S                      |  15 +
  arch/arm64/kvm/Makefile                       |   2 +-
- arch/arm64/kvm/arm.c                          | 465 +-------
+ arch/arm64/kvm/arm.c                          | 476 +--------
  arch/arm64/kvm/ext-guest.c                    | 399 +++++++
  arch/arm64/kvm/ext-guest.h                    |  41 +
  arch/arm64/kvm/fpsimd.c                       |   6 +-
@@ -44,7 +44,7 @@ Signed-off-by: Pekka Honkanen <pekka.honkanen@digital14.com>
  arch/arm64/kvm/reset.c                        |   1 +
  arch/arm64/kvm/va_layout.c                    |   1 +
  arch/arm64/kvm/vgic/vgic-v2.c                 |   6 +-
- 37 files changed, 992 insertions(+), 1871 deletions(-)
+ 37 files changed, 992 insertions(+), 1882 deletions(-)
  create mode 100644 arch/arm64/kvm/ext-guest.c
  create mode 100644 arch/arm64/kvm/ext-guest.h
  create mode 100644 arch/arm64/kvm/hvccall-defines.h
@@ -207,7 +207,7 @@ index e86045ac43ba..510fa9a23559 100644
  	"	.pushsection	__kvm_ex_table, \"a\"\n"		\
  	"	.align		3\n"					\
 diff --git a/arch/arm64/include/asm/kvm_emulate.h b/arch/arm64/include/asm/kvm_emulate.h
-index fd418955e31e..f74d1845b80b 100644
+index 64f8a90d3327..63f9cfe39ee9 100644
 --- a/arch/arm64/include/asm/kvm_emulate.h
 +++ b/arch/arm64/include/asm/kvm_emulate.h
 @@ -17,6 +17,7 @@
@@ -638,7 +638,7 @@ index 989bb5dad2c8..1c240c0821b7 100644
  	 vgic/vgic-irqfd.o vgic/vgic-v2.o \
  	 vgic/vgic-v3.o vgic/vgic-v4.o \
 diff --git a/arch/arm64/kvm/arm.c b/arch/arm64/kvm/arm.c
-index 4cb265e15361..25838f03a5d0 100644
+index 3fe816c244ce..25838f03a5d0 100644
 --- a/arch/arm64/kvm/arm.c
 +++ b/arch/arm64/kvm/arm.c
 @@ -39,17 +39,18 @@
@@ -949,7 +949,7 @@ index 4cb265e15361..25838f03a5d0 100644
  static int init_subsystems(void)
  {
  	int err = 0;
-@@ -1783,241 +1628,6 @@ static int init_subsystems(void)
+@@ -1783,252 +1628,6 @@ static int init_subsystems(void)
  	return err;
  }
  
@@ -1170,6 +1170,17 @@ index 4cb265e15361..25838f03a5d0 100644
 -	 * once the host stage 2 is installed.
 -	 */
 -	static_branch_enable(&kvm_protected_mode_initialized);
+-
+-	/*
+-	 * Fixup the boot mode so that we don't take spurious round
+-	 * trips via EL2 on cpu_resume. Flush to the PoC for a good
+-	 * measure, so that it can be observed by a CPU coming out of
+-	 * suspend with the MMU off.
+-	 */
+-	__boot_cpu_mode[0] = __boot_cpu_mode[1] = BOOT_CPU_MODE_EL1;
+-	dcache_clean_poc((unsigned long)__boot_cpu_mode,
+-			 (unsigned long)(__boot_cpu_mode + 2));
+-
 -	on_each_cpu(_kvm_host_prot_finalize, &ret, 1);
 -	return ret;
 -}
@@ -1191,7 +1202,7 @@ index 4cb265e15361..25838f03a5d0 100644
  struct kvm_vcpu *kvm_mpidr_to_vcpu(struct kvm *kvm, unsigned long mpidr)
  {
  	struct kvm_vcpu *vcpu;
-@@ -2077,15 +1687,12 @@ void kvm_arch_irq_bypass_start(struct irq_bypass_consumer *cons)
+@@ -2088,15 +1687,12 @@ void kvm_arch_irq_bypass_start(struct irq_bypass_consumer *cons)
  int kvm_arch_init(void *opaque)
  {
  	int err;
@@ -1207,7 +1218,7 @@ index 4cb265e15361..25838f03a5d0 100644
  	if (cpus_have_final_cap(ARM64_WORKAROUND_DEVICE_LOAD_ACQUIRE) ||
  	    cpus_have_final_cap(ARM64_WORKAROUND_1508412))
  		kvm_info("Guests without required CPU erratum workarounds can deadlock system!\n" \
-@@ -2099,45 +1706,23 @@ int kvm_arch_init(void *opaque)
+@@ -2110,45 +1706,23 @@ int kvm_arch_init(void *opaque)
  	if (err)
  		return err;
  
@@ -1871,19 +1882,19 @@ index b726332eec49..53a9edb6e18a 100644
 -obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o reserved_mem.o
 +obj-$(CONFIG_KVM) += vhe/ nvhe/ pgtable.o kvms-hvci.o
 diff --git a/arch/arm64/kvm/hyp/exception.c b/arch/arm64/kvm/hyp/exception.c
-index c5d009715402..42edf4aedf6c 100644
+index aa06e28f2991..b6ded17fd2c4 100644
 --- a/arch/arm64/kvm/hyp/exception.c
 +++ b/arch/arm64/kvm/hyp/exception.c
-@@ -14,6 +14,8 @@
- #include <linux/kvm_host.h>
+@@ -15,6 +15,8 @@
  #include <asm/kvm_emulate.h>
+ #include <asm/kvm_mmu.h>
  
 +#include "../arch/arm64/kvm/ext-guest.h"
 +
  #if !defined (__KVM_NVHE_HYPERVISOR__) && !defined (__KVM_VHE_HYPERVISOR__)
  #error Hypervisor code only!
  #endif
-@@ -340,6 +342,8 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
+@@ -341,6 +343,8 @@ static void kvm_inject_exception(struct kvm_vcpu *vcpu)
   */
  void __kvm_adjust_pc(struct kvm_vcpu *vcpu)
  {
@@ -1892,7 +1903,7 @@ index c5d009715402..42edf4aedf6c 100644
  	if (vcpu->arch.flags & KVM_ARM64_PENDING_EXCEPTION) {
  		kvm_inject_exception(vcpu);
  		vcpu->arch.flags &= ~(KVM_ARM64_PENDING_EXCEPTION |
-@@ -349,3 +353,5 @@ void __kvm_adjust_pc(struct kvm_vcpu *vcpu)
+@@ -350,3 +354,5 @@ void __kvm_adjust_pc(struct kvm_vcpu *vcpu)
  		vcpu->arch.flags &= ~KVM_ARM64_INCREMENT_PC;
  	}
  }
@@ -1992,7 +2003,7 @@ index 000000000000..4339c8f6fcb6
 +	hvc	#0
 +	ret
 diff --git a/arch/arm64/kvm/hyp/nvhe/Makefile b/arch/arm64/kvm/hyp/nvhe/Makefile
-index 8d741f71377f..dd5979769094 100644
+index 964c2134ea1e..e951564659a3 100644
 --- a/arch/arm64/kvm/hyp/nvhe/Makefile
 +++ b/arch/arm64/kvm/hyp/nvhe/Makefile
 @@ -12,9 +12,9 @@ HOST_EXTRACFLAGS += -I$(objtree)/include
