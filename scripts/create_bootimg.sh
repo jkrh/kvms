@@ -34,6 +34,7 @@ do_cleanup()
 	do_unmount tmp/dev || true
 	do_unmount tmp || true
 	qemu-nbd --disconnect /dev/nbd0 || true
+	sync || true
 	rmmod nbd
 	rm -rf tmp linux `basename $UBUNTU_BASE`
 }
