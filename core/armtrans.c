@@ -900,9 +900,10 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	if (!host)
 		panic("no host\n");
 
-	_zeromem16(&block, sizeof(block));
-
 	cid = smp_processor_id();
+
+	_zeromem16(&block[cid], sizeof(mblockinfo_t));
+
 	switch (stage) {
 	case STAGE2:
 		if (!guest->EL1S2_pgd)
