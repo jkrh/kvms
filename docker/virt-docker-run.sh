@@ -13,6 +13,8 @@ export PLATFORM=virt
 docker run -it --rm \
 		-v ${HOST_KERNEL_DIR}:/kernel_dir \
 		-v ${HYP_BUILD_ROOT}:/hyp \
+		-v/dev:/dev \
+		-v/lib/modules:/lib/modules:ro \
 		--env PLATFORM=${PLATFORM} \
 		--env KERNEL_DIR=/kernel_dir \
 		--env BOOTIMG=/hyp/images/host/ubuntu20.qcow2 \
