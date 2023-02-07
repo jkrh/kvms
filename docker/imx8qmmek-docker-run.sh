@@ -20,4 +20,4 @@ docker run -it --rm \
 		--env PRODUCT=${PRODUCT} \
 		--env KERNEL_DIR=/kernel_dir \
 		--cap-add=SYS_ADMIN --privileged=true \
-		kvms
+		kvms_imx

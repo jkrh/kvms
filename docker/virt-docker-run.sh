@@ -17,4 +17,4 @@ docker run -it --rm \
 		--env KERNEL_DIR=/kernel_dir \
 		--env BOOTIMG=/hyp/images/host/ubuntu20.qcow2 \
 		--cap-add=SYS_ADMIN --privileged=true \
-		kvms
+		kvms_virt
