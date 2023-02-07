@@ -93,10 +93,10 @@ target-qemu-distclean:
 	@./scripts/build-target-qemu.sh distclean
 
 guestimage:
-	@sudo ./scripts/create_bootimg.sh
+	@sudo ./scripts/create_bootimg.sh $(USER)
 
 hostimage: $(TOOLS_QEMU)
-	@sudo -E ./scripts/create_hostimg.sh
+	@sudo -E ./scripts/create_hostimg.sh $(USER)
 
 sign_guest: gen_key
 	@[ "${IMAGE}" ] && echo -n "" || ( echo "IMAGE is not set"; exit 1 )

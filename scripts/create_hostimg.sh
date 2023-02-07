@@ -9,6 +9,7 @@ UBUNTU_UNSTABLE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base
 QEMU_USER=`which qemu-aarch64-static`
 CPUS=`nproc`
 
+USERNAME=$1
 CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22`
@@ -35,6 +36,9 @@ do_cleanup()
 	do_unmount tmp || true
 	qemu-nbd --disconnect /dev/nbd0 || true
 	sync || true
+	if [ -f $OUTFILE ]; then
+		chown $USERNAME.$USERNAME $OUTFILE
+	fi
 	rmmod nbd
 	rm -rf tmp linux `basename $UBUNTU_BASE`
 }
