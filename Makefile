@@ -93,7 +93,7 @@ target-qemu-distclean:
 	@./scripts/build-target-qemu.sh distclean
 
 guestimage:
-	@sudo ./scripts/create_bootimg.sh $(USER)
+	@sudo ./scripts/create_guestimg.sh $(USER)
 
 hostimage: $(TOOLS_QEMU)
 	@sudo -E ./scripts/create_hostimg.sh $(USER)
