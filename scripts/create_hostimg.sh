@@ -14,7 +14,7 @@ CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22`
 OUTFILE=ubuntuhost.qcow2
-OUTDIR=$CURDIR
+OUTDIR=$BASE_DIR/images/host
 SIZE=20G
 
 do_unmount()
@@ -36,11 +36,11 @@ do_cleanup()
 	do_unmount tmp || true
 	qemu-nbd --disconnect /dev/nbd0 || true
 	sync || true
-	if [ -f $OUTFILE ]; then
-		chown $USERNAME.$USERNAME $OUTFILE
+	if [ -f $OUTDIR/$OUTFILE ]; then
+		chown $USERNAME.$USERNAME $OUTDIR/$OUTFILE
 	fi
 	rmmod nbd
-	rm -rf tmp linux `basename $UBUNTU_BASE`
+	rm -rf tmp `basename $UBUNTU_BASE`
 }
 
 usage() {
@@ -107,5 +107,11 @@ sed -i 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' tmp/etc/ssh/sshd_c
 echo "Installing modules.."
 make -C$CURDIR/../oss/linux CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$CURDIR/scripts/tmp -j$CPUS modules_install
 
+if [ ! -d $OUTDIR ]; then
+	echo "Creating output dir.."
+	mkdir -p $OUTDIR
+fi
+
+mv $OUTFILE $OUTDIR
 echo "Output saved at $OUTDIR/$OUTFILE"
 sync

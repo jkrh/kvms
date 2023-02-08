@@ -13,8 +13,8 @@ USERNAME=$1
 CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22 |grep -v "\-dev"`
-OUTFILE=ubuntu.qcow2
-OUTDIR=$CURDIR/outdir
+OUTFILE=ubuntuguest.qcow2
+OUTDIR=$BASE_DIR/images/guest
 SIZE=10G
 
 do_unmount()
@@ -36,8 +36,8 @@ do_cleanup()
 	do_unmount tmp || true
 	qemu-nbd --disconnect /dev/nbd0 || true
 	sync || true
-	if [ -f $OUTFILE ]; then
-		chown $USERNAME.$USERNAME $OUTFILE
+	if [ -f $OUTDIR/$OUTFILE ]; then
+		chown $USERNAME.$USERNAME $OUTDIR/$OUTFILE
 	fi
 
 	rmmod nbd
@@ -104,13 +104,15 @@ patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.p
 
 echo "Building guest kernel.."
 make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=../tmp -j$CPUS defconfig Image modules modules_install
-rm -rf $OUTDIR
-mkdir $OUTDIR
-cp ./arch/arm64/boot/Image $OUTDIR
 cd ..
 
-echo "Cleaning up.."
-mv $OUTFILE $OUTDIR
+if [ ! -d $OUTDIR ]; then
+	echo "Creating output dir.."
+	mkdir -p $OUTDIR
+fi
 
+cp -f ./linux/arch/arm64/boot/Image $OUTDIR
+chown $USERNAME.$USERNAME $OUTDIR/Image
+mv $OUTFILE $OUTDIR
 echo "Output saved at $OUTDIR"
 sync
