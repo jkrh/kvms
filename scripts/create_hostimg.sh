@@ -105,7 +105,7 @@ EOF
 sed -i 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' tmp/etc/ssh/sshd_config
 
 echo "Installing modules.."
-make -C$CURDIR/../oss/linux CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$CURDIR/scripts/tmp -j$CPUS modules_install
+make -C$CURDIR/../oss/linux CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=$CURDIR/tmp -j$CPUS modules_install
 
 if [ ! -d $OUTDIR ]; then
 	echo "Creating output dir.."
