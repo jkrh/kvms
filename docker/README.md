@@ -28,10 +28,15 @@ Your .gitconfig file should contain at least
      email = yourname@email.invalid
 ```
 
-Build the docker image
+Build the docker image for virt
 ```
-docker build --build-arg userid=$(id -u) --build-arg groupid=$(id -g) --build-arg username=$(id -un) -t kvms .
+./virt-docker-build.sh
 ```
+Build the docker image for imx8qmmek
+```
+./imx8qmmek-docker-build.sh
+```
+
 Building kvms for virt machine use virt-docker-run.sh:
 ```
 ./virt-docker-run.sh /home/me/kvms /home/me/kvms/oss/linux
