@@ -1,0 +1,9 @@
+systemd
+systemd-sysv
+sudo
+nano
+ifupdown
+rsyslog
+openssh-server
+inetutils-ping
+gdm3

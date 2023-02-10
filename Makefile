@@ -32,7 +32,7 @@ check:
 	@[ "${PLATFORM}" ] && echo -n "" || ( echo "PLATFORM is not set"; exit 1 )
 	@[ "${PLATFORM}" = "virt" ] || [ "${CHIPSET}" ] && echo -n "" || ( echo "CHIPSET is not set"; exit 1 )
 
-dirs: $(SUBDIRS) | $(OBJDIR)
+dirs: gen_key $(SUBDIRS) | $(OBJDIR)
 	@./scripts/gen-symhdr.sh
 	$(MAKE) -Ccore/crypto patch_mbedtls
 	$(MAKE) $(MBEDFLAGS) -Cmbedtls/library static
@@ -93,7 +93,7 @@ target-qemu-distclean:
 	@./scripts/build-target-qemu.sh distclean
 
 guestimage:
-	@sudo ./scripts/create_guestimg.sh $(USER)
+	@sudo -E ./scripts/create_guestimg.sh $(USER)
 
 hostimage: $(TOOLS_QEMU)
 	@sudo -E ./scripts/create_hostimg.sh $(USER)

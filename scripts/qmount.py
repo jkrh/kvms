@@ -3,6 +3,7 @@ import subprocess
 import sys
 import os
 from sys import exit
+import glob
 
 def find_free_dev():
     tmp = subprocess.run(["mount","-t","ext4"], stdout=subprocess.PIPE)
@@ -27,10 +28,18 @@ if (len(sys.argv) != 3):
     exit()
 
 dev = find_free_dev()
+if not dev in glob.glob("/dev/nbd[0-8]"):
+    cmd ="modprobe nbd max_part=8"
+    print(cmd)
+    if os.system(cmd):
+        exit()
+
 if (len(dev) > 0):
     cmd = "qemu-nbd --connect={} {}".format(dev, sys.argv[1])
+    print(cmd)
     if os.system(cmd):
-        exit
+        exit()
+
     cmd = "mount {}p1 {}".format(dev,sys.argv[2])
     print(cmd)
     if os.system(cmd):

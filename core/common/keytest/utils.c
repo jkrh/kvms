@@ -37,8 +37,8 @@ int mbed_entropy(void *data, unsigned char *entropy, size_t len,
 void __ubsan_handle_type_mismatch_v1(void) {}
 void __ubsan_handle_out_of_bounds(void) {}
 void __ubsan_handle_add_overflow(void){}
-void __ubsan_handle_sub_overflow(void) {};
-void __ubsan_handle_mul_overflow(void) {};
+void __ubsan_handle_sub_overflow(void) {}
+void __ubsan_handle_mul_overflow(void) {}
 void spin_lock(spinlock_t *lock) {}
 void spin_unlock(spinlock_t *lock) {}
 

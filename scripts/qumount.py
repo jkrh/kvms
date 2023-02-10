@@ -7,6 +7,7 @@ from sys import exit
 def find_dev(file):
     if file.startswith("/dev/nbd"):
         return file
+    file = file.rstrip("/")
     tmp = subprocess.run(["mount","-t","ext4"], stdout=subprocess.PIPE)
     mounts  = tmp.stdout.decode().splitlines()
     s = []

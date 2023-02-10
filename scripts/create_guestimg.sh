@@ -13,6 +13,7 @@ USERNAME=$1
 CURDIR=$PWD
 UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22 |grep -v "\-dev"`
+EXTRA_PKGLIST=`cat extra_package.list`
 OUTFILE=ubuntuguest.qcow2
 OUTDIR=$BASE_DIR/images/guest
 SIZE=10G
@@ -88,13 +89,24 @@ echo "nameserver 8.8.8.8" > tmp/etc/resolv.conf
 export DEBIAN_FRONTEND=noninteractive
 sudo -E chroot tmp apt-get update
 sudo -E chroot tmp apt-get -y install $PKGLIST
-sudo -E chroot tmp systemctl enable console-getty.service getty@ttyAMA0.service
-sudo -E chroot tmp systemctl disable console-getty.service getty@tty1.service
-sudo -E chroot tmp systemctl disable console-getty.service getty@console.service
+sudo -E chroot tmp apt-get -y install $EXTRA_PKGLIST
 sudo -E chroot tmp update-alternatives --set iptables /usr/sbin/iptables-legacy
 sudo -E chroot tmp adduser --disabled-password --gecos "" ubuntu
 sudo -E chroot tmp passwd -d ubuntu
 sudo -E chroot tmp usermod -aG sudo ubuntu
+
+cat >>  tmp/etc/network/interfaces << EOF
+auto lo
+iface lo inet loopback
+
+auto enp0s6
+iface enp0s6 inet static
+address 192.168.8.3
+gateway 192.168.8.1
+EOF
+
+sed 's/#DNS=/DNS=8.8.8.8/' -i tmp/etc/systemd/resolved.conf
+sed 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' -i tmp/etc/ssh/sshd_config
 
 echo "Cloning guest kernel.."
 rm -rf linux
