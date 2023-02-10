@@ -6,7 +6,8 @@ modprobe nbd max_part=8
 
 UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-arm64.tar.gz
 UBUNTU_UNSTABLE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.10/release/ubuntu-base-22.10-base-arm64.tar.gz
-QEMU_USER=`which qemu-aarch64-static`
+QEMU_USER=$BASE_DIR/oss/ubuntu/usr/bin/qemu-aarch64-static
+QEMU_HOST=$BASE_DIR/oss/ubuntu/usr/bin/qemu-system-aarch64
 CPUS=`nproc`
 
 USERNAME=$1
@@ -79,7 +80,19 @@ echo "Extracting ubuntu.."
 mkdir -p tmp
 mount /dev/nbd0p1 tmp
 tar xf `basename $UBUNTU_BASE` -C tmp
+if [ ! -f $QEMU_USER ]; then
+	echo "ERROR: can't find out $QEMU_USER"
+	echo "ERROR: please run 'make target-qemu'"
+	exit 1
+fi
 cp $QEMU_USER tmp/usr/bin
+
+if [ ! -f $QEMU_HOST ]; then
+	echo "ERROR: can't find out $QEMU_HOST"
+	echo "ERROR: please run 'make target-qemu'"
+	exit 1
+fi
+cp $QEMU_HOST tmp/usr/bin
 
 echo "Installing packages.."
 mount --bind /dev tmp/dev

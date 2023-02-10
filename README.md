@@ -29,11 +29,13 @@ Building and running on QEMU:
 - Run 'make tools'. This will build all the tools required with right versions
   and install them into the 'buildtools' directory. This will also build the
   patched kernel under oss/linux.
+- Run 'make target-qemu' to generate a qemu binary for the host invocation
 - Run 'make hostimage' to generate a virtualization system host image
 - Run 'make guestimage' to generate a sample virtualized guest for testing
-- Run 'make target-qemu' to generate a qemu binary for the host invocation
-- Set environment variable BOOTIMG to point to the image. Set PLATFORM=virt
+- Confirm whether PLATFORM and BOOTIMG env variables set correct value.
+  or set environment variable BOOTIMG to point to the image. Set PLATFORM
   as well to tell the build system which target you are going for.
+  These variables are set in run scripts under docker directory.
 - Run 'make DEBUG=1' to build the hypervisor against the kernel under oss/linux
 - 'make run' will run the host emulation
 - 'make gdb' will run a target debugger session. You can hit breakpoints
