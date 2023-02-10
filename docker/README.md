@@ -90,3 +90,11 @@ Sometimes when running on arm64 hardware it is convenient to use static qemu-sys
 ```
 STATIC=1 make target-qemu
 ```
+
+Ubuntu 22 environment is using OpenSSL version 3.0+ which can break some of the tooling that depends
+on the older versions. In that case you can specify an additional argument to the docker build script,
+e.g. for using `openssl-1.1.1t`
+
+```
+--build-arg OPENSSL=openssl-1.1.1t
+```
