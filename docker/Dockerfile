@@ -15,6 +15,15 @@ RUN apt-get install -y kmod qemu-utils parted
 
 RUN pip install absl-py && pip install urlfetch
 
+# Allow choosing a specific openssl version
+ARG OPENSSL
+RUN if [ -n "$OPENSSL" ] ; then cd /tmp \
+&& wget https://www.openssl.org/source/${OPENSSL}.tar.gz \
+&& tar -xvf ${OPENSSL}.tar.gz \
+&& cd /tmp/${OPENSSL} && ./config shared -Wl,-rpath=/usr/local/ssl/lib --prefix=/usr/local/ssl \
+&& make -j 4 && make install \
+&& mv /usr/bin/openssl /usr/bin/openssl.old && ln -s /usr/local/ssl/bin/openssl /usr/bin/openssl; fi
+
 RUN groupadd -g $groupid $username \
  && useradd -m -u $userid -g $groupid $username \
  && echo $username >/root/username
