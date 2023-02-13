@@ -6,9 +6,9 @@ USER=$(whoami)
 # Arguments and defaults
 #
 [ -z "$PORT" ] && PORT=$((2000 + RANDOM % 1000))
-[ -z "$QEMUDIR" ] && QEMUDIR="."
+[ -z "$QEMUDIR" ] && QEMUDIR="/usr/bin"
 [ -z "$KERNEL" ] && KERNEL="./Image.sign"
-[ -z "$IMAGE" ] && IMAGE="ubuntu20.qcow2"
+[ -z "$IMAGE" ] && IMAGE="ubuntuguest.qcow2"
 [ -z "$SPICEMNT" ] && SPICEMNT="/mnt/spice"
 [ -z "$SPICESOCK" ] && SPICEPORT=$(($PORT+1)) && SPICESOCK="port=$SPICEPORT"
 [ -z "$CORE" ] && CORE="off"

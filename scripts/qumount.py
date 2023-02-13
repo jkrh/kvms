@@ -26,7 +26,7 @@ def usage():
 
 if (len(sys.argv) != 2):
     usage()
-    exit()
+    exit(1)
 
 dev = find_dev(sys.argv[1])
 if (len(dev) > 0):

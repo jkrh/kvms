@@ -25,20 +25,20 @@ def usage():
 
 if (len(sys.argv) != 3):
     usage()
-    exit()
+    exit(1)
 
 dev = find_free_dev()
 if not dev in glob.glob("/dev/nbd[0-8]"):
     cmd ="modprobe nbd max_part=8"
     print(cmd)
     if os.system(cmd):
-        exit()
+        exit(1)
 
 if (len(dev) > 0):
     cmd = "qemu-nbd --connect={} {}".format(dev, sys.argv[1])
     print(cmd)
     if os.system(cmd):
-        exit()
+        exit(1)
 
     cmd = "mount {}p1 {}".format(dev,sys.argv[2])
     print(cmd)

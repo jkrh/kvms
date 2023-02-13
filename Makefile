@@ -19,8 +19,9 @@ include core/makeflags.mk
 
 KEYS_PATH := $(BASE_DIR)/guest/keys
 GUEST_ID := ""
-DTB_ADDR := ""
-DTB_FILE := ""
+IMAGE ?= images/guest/Image
+DTB_ADDR ?= 0x48000000
+DTB_FILE ?= $(BASE_DIR)/.objs/ubuntu22.dtb
 
 $(info KERNEL_DIR:	$(KERNEL_DIR))
 $(info PLATFORM:	$(PLATFORM))
@@ -99,13 +100,17 @@ hostimage: $(TOOLS_QEMU)
 	@sudo -E ./scripts/create_hostimg.sh $(USER)
 
 sign_guest: gen_key
-	@[ "${IMAGE}" ] && echo -n "" || ( echo "IMAGE is not set"; exit 1 )
+	dtc -I dts -O dtb -o $(BASE_DIR)/.objs/ubuntu22.dtb platform/virt/ubuntu22.dts
 	$(BASE_DIR)/scripts/sign_guest_kernel.sh -p $(KEYS_PATH)/guest_image_priv.pem \
-	-k $(IMAGE) -d ${DTB_ADDR} -o $(IMAGE).sign \
-	-D ${DTB_FILE} -i $(GUEST_ID)
+	-k $(IMAGE) -d "${DTB_ADDR}" -o .objs/$(notdir ${IMAGE}).sign \
+	-D "${DTB_FILE}" -i "$(GUEST_ID)"
 
 gen_key:
 	$(MAKE) -C $(KEYS_PATH)
+
+create_vm:
+	@sudo -E ./scripts/create_vm.sh -H $(BASE_DIR)/images/host/ubuntuhost.qcow2 \
+	-p home/ubuntu/vm/ubuntu22 -g  $(BASE_DIR)/images/guest/ubuntuguest.qcow2
 
 comp-image: dirs
 	$(MAKE) -C core/imager
@@ -121,4 +126,4 @@ coverity:
 	./scripts/run-coverity.sh
 
 .PHONY: all check submodule-update tools tools-clean clean gdb qemu package run docs docs-clean coverity \
- 		gen_key sign_guest ic_loader $(SUBDIRS)
+		gen_key sign_guest ic_loader $(SUBDIRS)
