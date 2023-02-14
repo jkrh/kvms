@@ -1772,9 +1772,22 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		break;
 	case 0x4:
 	case 0x5:
-		ERROR("kernel violation: requesting host kernel crash dump\n");
-
-		res = do_kernel_crash();
+		/*
+		 * Host writes to guest memory are not allowed. Reads may be
+		 * caused by host memory management wanting to copy a guest
+		 * page. This is fine, but the page needs to be measured and/
+		 * or encrypted first.
+		 */
+		if (ISS_DABT_WNR(read_reg(ESR_EL2))) {
+			ERROR("kernel violation: requesting host kernel crash "
+			      "dump\n");
+			res = do_kernel_crash();
+		} else {
+			guest = owner_of(paddr);
+			uint64_t ipa = patrack_hpa2gpa(guest, paddr);
+			guest_unmap_range(guest, ipa, PAGE_SIZE, 1);
+			res = true;
+		}
 		break;
 	case 0x8:
 	case 0x9:
