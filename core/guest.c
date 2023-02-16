@@ -1708,7 +1708,7 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 {
 	kvm_guest_t *guest, *host;
 	uint64_t spsr_el2, elr_el2, paddr;
-	bool res = false;
+	bool res = false, move_to_host = false;
 
 	if (vmid != HOST_VMID)
 		panic("host_data_abort for non-host");
@@ -1772,15 +1772,24 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		 * page. This is fine, but the page needs to be measured and/
 		 * or encrypted first.
 		 */
-		if (ISS_DABT_WNR(read_reg(ESR_EL2))) {
+		if (!ISS_DABT_WNR(read_reg(ESR_EL2))) {
+			guest = owner_of(paddr);
+			move_to_host = guest != host;
+		}
+		if (move_to_host) {
+			uint64_t ipa = patrack_hpa2gpa(guest, paddr);
+			if (ipa != ~0UL) {
+				guest_unmap_range(guest, ipa, PAGE_SIZE, 1);
+				res = true;
+			} else {
+				ERROR("page %lx owned by guest %u but has "
+					"no mapping\n", paddr, guest->vmid);
+			}
+		}
+		if (!res) {
 			ERROR("kernel violation: requesting host kernel crash "
 			      "dump\n");
 			res = do_kernel_crash();
-		} else {
-			guest = owner_of(paddr);
-			uint64_t ipa = patrack_hpa2gpa(guest, paddr);
-			guest_unmap_range(guest, ipa, PAGE_SIZE, 1);
-			res = true;
 		}
 		break;
 	case 0x8:
