@@ -17,3 +17,4 @@ export TOOLS_QEMU := $(TOOLDIR)/usr/bin/qemu-system-aarch64
 export FETCH_SOURCES := oss/gcc/configure
 export SED := sed
 export DOXYGEN := doxygen
+export BUILD_TOOLS := $(TOOLDIR)/usr/bin/aarch64-linux-gnu-gcc

@@ -17,6 +17,7 @@ include core/tools.mk
 include core/makevars.mk
 include core/makeflags.mk
 
+BUILD_TOOLS := $(if $(filter virt,$(PLATFORM)),$(TOOLS_QEMU),$(BUILD_TOOLS))
 KEYS_PATH := $(BASE_DIR)/guest/keys
 GUEST_ID := ""
 IMAGE ?= images/guest/Image
@@ -54,11 +55,15 @@ $(FETCH_SOURCES):
 	@echo "Fetching sources.."
 	@git submodule update --init
 
-$(TOOLS_QEMU): | $(FETCH_SOURCES)
+$(BUILD_TOOLS): | $(FETCH_SOURCES)
 	@mkdir -p $(TOOLDIR)
 	@./scripts/build-tools.sh
 
-tools: $(TOOLS_QEMU)
+tools: $(BUILD_TOOLS)
+
+tools-all: | $(BUILD_TOOLS)
+	@mkdir -p $(TOOLDIR)
+	@VIRTOOLS=1 ./scripts/build-tools.sh
 
 tools-clean:
 	@./scripts/build-tools.sh clean
@@ -70,7 +75,7 @@ docs:
 docs-clean:
 	$(MAKE) -C $(TOPDIR)/docs clean
 
-$(OBJDIR): | $(TOOLS_QEMU)
+$(OBJDIR): | $(BUILD_TOOLS)
 	@mkdir -p $(OBJDIR)/$(PLATFORM)
 
 gdb:
@@ -96,7 +101,7 @@ target-qemu-distclean:
 guestimage:
 	@sudo -E ./scripts/create_guestimg.sh $(USER)
 
-hostimage: $(TOOLS_QEMU)
+hostimage: $(BUILD_TOOLS)
 	@sudo -E ./scripts/create_hostimg.sh $(USER)
 
 sign_guest: gen_key
