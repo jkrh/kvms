@@ -34,6 +34,8 @@ TTRIPLET="aarch64-linux-gnu"
 HTRIPLET="x86_64-unknown-linux-gnu"
 NJOBS=`nproc`
 
+[ $PLATFORM == "virt" ] && VIRTOOLS=1
+
 clean()
 {
 	cd $BASE_DIR/oss/binutils-gdb; git clean -xfd || true
@@ -131,6 +133,8 @@ binutils-gdb
 kernel_headers
 glibc
 gcc
+if [ -n "$VIRTOOLS" ]; then
 mesa
 qemu
 kernel
+fi
