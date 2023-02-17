@@ -17,7 +17,8 @@ SECTIONS
 		*(.text)
 		*(.vectors)
 	} > RAM
-	.data : ALIGN(8) { *(.data) } > RAM
+	.rodata : ALIGN(4096) { *(.rodata) } > RAM
+	.data : ALIGN(4096) { *(.data) } > RAM
 	.el1_hyp_img : ALIGN(4096) { *.(.el1_hyp_img) } > RAM
 	.bss : ALIGN(4096) { *(.bss COMMON) } > RAM
 
