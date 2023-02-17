@@ -234,7 +234,13 @@ instruction_abort:
 	b	guest_instruction_abort
 
 host_instruction_abort:
-	b	host_fastforward
+	save_all_regs
+	mrs	x1, TTBR0_EL1
+	mrs	x2, FAR_EL2
+	mov	x3, sp
+	bl	host_inst_abort
+	load_all_regs
+	b	forward_aarch64sync
 
 guest_instruction_abort:
 	save_all_regs
