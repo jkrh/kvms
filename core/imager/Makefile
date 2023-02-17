@@ -4,6 +4,15 @@ OUTDIR := $(OBJDIR)/$(PLATFORM)
 else
 OUTDIR := $(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)
 endif
+
+ifneq (,$(wildcard $(BASE_DIR)/platform/$(PLATFORM)/common))
+COMMON_DIR := /common
+endif
+PROG := $(shell cat '$(BASE_DIR)/platform/$(PLATFORM)$(COMMON_DIR)/Makefile' \
+        | sed -ne 's/^PROG := //p' | sed 's/.*\///')
+
+$(info Creating compressed image for : $(PROG).bin )
+
 export OUTDIR := $(OUTDIR)
 PHONY := all clean
 
@@ -28,7 +37,7 @@ $(OUTDIR)/comptool: $(OUTDIR)/lz4
 	@$(CC) -o $@ comptool.c $(LZ4DIR)/lib/lz4.c $(LZ4DIR)/lib/lz4hc.c $(CTOOL_CFLAGS)
 
 $(OUTDIR)/hyp-binary.o: $(OUTDIR)/comptool
-	@$< $(OUTDIR)/$(PROG)*.bin $@.lz4
+	@$< $(OUTDIR)/$(PROG).bin $@.lz4
 	@$(CROSS_COMPILE)ld -r -b binary -o $@ $@.lz4
 
 $(OUTDIR)/lreset.o:
