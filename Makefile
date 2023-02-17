@@ -28,11 +28,14 @@ $(info KERNEL_DIR:	$(KERNEL_DIR))
 $(info PLATFORM:	$(PLATFORM))
 $(info CHIPSET:		$(CHIPSET))
 
-all: check dirs comp-image
+all: check prepare dirs comp-image
 check:
 	@[ "${KERNEL_DIR}" ] && echo -n "" || ( echo "KERNEL_DIR is not set"; exit 1 )
 	@[ "${PLATFORM}" ] && echo -n "" || ( echo "PLATFORM is not set"; exit 1 )
 	@[ "${PLATFORM}" = "virt" ] || [ "${CHIPSET}" ] && echo -n "" || ( echo "CHIPSET is not set"; exit 1 )
+
+prepare:
+	@$(HOST_CC) scripts/kallsyms.c -o scripts/kallsyms
 
 dirs: gen_key $(SUBDIRS) | $(OBJDIR)
 	@./scripts/gen-symhdr.sh
@@ -49,6 +52,7 @@ clean:
 	done
 	@rm -rf $(OBJDIR)
 	@rm -rf core/generated
+	@rm -f scripts/kallsyms
 	$(MAKE) -Ccore/crypto revert_patch_mbedtls
 
 $(FETCH_SOURCES):
@@ -130,5 +134,6 @@ package:
 coverity:
 	./scripts/run-coverity.sh
 
-.PHONY: all check submodule-update tools tools-clean clean gdb qemu package run docs docs-clean coverity \
-		gen_key sign_guest ic_loader $(SUBDIRS)
+.PHONY: all check submodule-update tools tools-clean clean gdb qemu package \
+	run docs docs-clean coverity prepare \
+	gen_key sign_guest ic_loader $(SUBDIRS)

@@ -71,4 +71,5 @@ $(OBJDIR)/$(LIBNAME): $(OBJS)
 clean:
 	@rm -rf $(OBJDIR) $(PROG) *.elf *.o *.bin
 
+PHONY += FORCE
 FORCE:
