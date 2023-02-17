@@ -443,6 +443,18 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2,
 		     void *regs);
 
 /*
+ * Process host instruction abort
+ *
+ * @param vmid, the host vmid
+ * @param uint64_t ttbr0_el1
+ * @param uint64_t far_el2
+ * @param regs array of the given exception registers
+ * @return true if the abort was correctly handled
+ */
+void host_inst_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2,
+		     void *regs);
+
+/*
  * Crash guest qemu process on access violation
  *
  * @param guest the guest

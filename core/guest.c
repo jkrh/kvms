@@ -1800,6 +1800,63 @@ out:
 	return res;
 }
 
+void host_inst_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *regs)
+{
+	kvm_guest_t *host = NULL;
+	uint64_t spsr_el2, elr_el2, paddr, sctlr_el1, esr_el2;
+
+	sctlr_el1 = read_reg(SCTLR_EL1);
+	spsr_el2 = read_reg(SPSR_EL2);
+	elr_el2 = read_reg(ELR_EL2);
+	esr_el2 = read_reg(ESR_EL2);
+
+	/* make sure MMU is enabled for EL1&0 stage 1 address translation */
+	if (sctlr_el1 && 0x1) {
+		ERROR("MMU disabled for EL1&0 stage 1");
+		goto out;
+	}
+
+	if (vmid != HOST_VMID) {
+		ERROR("host instruction abort for non-host");
+		goto out;
+	}
+
+	host = get_guest(vmid);
+	if (unlikely(!host)) {
+		ERROR("no running host with vmid %d\n", vmid);
+		goto out;
+	}
+
+	spin_lock(&host->hvc_lock);
+
+	paddr = (uint64_t)virt_to_ipa((void *)far_el2);
+
+	ERROR("host prefetch violation for %p (%p), syndrome %p, pstate %p\n",
+	      far_el2, paddr, esr_el2, spsr_el2);
+	ERROR("exception was at host virtual address %p (%p)\n",
+	      elr_el2, virt_to_phys((void *)elr_el2));
+	print_regs(regs);
+	spin_unlock(&host->hvc_lock);
+
+	switch (spsr_el2 & 0xC) {
+	case 0x0:
+		ERROR("appears to be a el0 abort\n");
+		break;
+	case 0x4:
+		ERROR("kernel violation\n");
+		break;
+	/* should never happen as el2_sync is already trapped and
+	*  handled by the exception vector
+	*/
+	case 0x8:
+		ERROR("trapped el2 crash -- aborting\n");
+		break;
+	}
+out:
+
+	return;
+}
+
  int guest_cache_op(kvm_guest_t *guest, uint64_t addr, size_t len,
 		    cache_op_t type)
  {
