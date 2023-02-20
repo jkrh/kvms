@@ -143,6 +143,8 @@ struct kvm_guest {
 	uint32_t fail_inst;
 	void *keybuf;
 	uint8_t guest_id[GUEST_ID_LEN];
+	uint32_t pubkey_size;
+	uint8_t pubkey[80];
 	kic_state_t kic_status;
 #ifdef EXITLOG
 	struct guest_exitlog exitlog;

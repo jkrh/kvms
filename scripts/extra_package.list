@@ -7,3 +7,5 @@ rsyslog
 openssh-server
 inetutils-ping
 gdm3
+libudev-dev
+ libc6-dev

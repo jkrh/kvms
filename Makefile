@@ -2,10 +2,11 @@ export BASE_DIR := $(PWD)
 export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
 export MBEDDIR := $(BASE_DIR)/mbedtls/library
+
 ifeq ($(KIC_DISABLE),1)
 COREDIRS := stdlib core core/crypto core/common platform/common
 else
-COREDIRS := stdlib guest/ic_loader core core/crypto core/common platform/common
+COREDIRS := stdlib ic_loader core core/crypto core/common platform/common
 endif
 
 ifeq ($(PLATFORM),virt)
@@ -19,11 +20,7 @@ include core/makevars.mk
 include core/makeflags.mk
 
 BUILD_TOOLS := $(if $(filter virt,$(PLATFORM)),$(TOOLS_QEMU),$(BUILD_TOOLS))
-KEYS_PATH := $(BASE_DIR)/guest/keys
-GUEST_ID := ""
-IMAGE ?= images/guest/Image
-DTB_ADDR ?= 0x48000000
-DTB_FILE ?= $(BASE_DIR)/.objs/ubuntu22.dtb
+KEYS_PATH := $(CORE_DIR)/keys
 
 $(info KERNEL_DIR:	$(KERNEL_DIR))
 $(info PLATFORM:	$(PLATFORM))
@@ -117,18 +114,18 @@ guestimage:
 hostimage: $(BUILD_TOOLS)
 	@sudo -E ./scripts/create_hostimg.sh $(USER)
 
-sign_guest: gen_key
-	dtc -I dts -O dtb -o $(BASE_DIR)/.objs/ubuntu22.dtb platform/virt/ubuntu22.dts
-	$(BASE_DIR)/scripts/sign_guest_kernel.sh -p $(KEYS_PATH)/guest_image_priv.pem \
-	-k $(IMAGE) -d "${DTB_ADDR}" -o .objs/$(notdir ${IMAGE}).sign \
-	-D "${DTB_FILE}" -i "$(GUEST_ID)"
+sign_guest: | gen_key
+	$(MAKE)  -C guest sign_guest
 
 gen_key:
 	$(MAKE) -C $(KEYS_PATH)
 
-create_vm:
+guest_images: | gen_key
+	make -C guest images
+
+create_vm: | guest_images sign_guest
 	@sudo -E ./scripts/create_vm.sh -H $(BASE_DIR)/images/host/ubuntuhost.qcow2 \
-	-p home/ubuntu/vm/ubuntu22 -g  $(BASE_DIR)/images/guest/ubuntuguest.qcow2
+	-p home/ubuntu/vm/ubuntu22
 
 comp-image: dirs
 	$(MAKE) -C core/imager

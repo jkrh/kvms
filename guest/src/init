@@ -1,0 +1,29 @@
+#!/bin/sh
+
+[ -d /dev ] || mkdir -m 0755 /dev
+[ -d /root ] || mkdir -m 0700 /root
+[ -d /sys ] || mkdir /sys
+[ -d /proc ] || mkdir /proc
+[ -d /run ] || mkdir /run
+
+mkdir -p /var/lock
+mount -t sysfs -o nodev,noexec,nosuid sysfs /sys
+mount -t proc -o nodev,noexec,nosuid proc /proc
+mount -t tmpfs -o nodev,noexec,nosuid proc /run
+
+mount -t devtmpfs -o nosuid,mode=0755 udev /dev
+mkdir /dev/pts
+mount -t devpts -o noexec,nosuid,gid=5,mode=0620 devpts /dev/pts || true
+
+mknod /dev//kvms-if c 510 0
+mknod /dev/mapper/rootfs b 253 0
+key=$(derivekey rootfs)
+dmsetup create rootfs --table "0 20967424 crypt aes-xts-plain64 $key 0 /dev/vda1 0 1 allow_discards"
+echo "mount encrypted rootfs"
+
+mount /dev/mapper/rootfs /root
+mount --move /proc /root/proc
+mount --move /sys /root/sys
+mount --move /dev /root/dev
+
+exec switch_root /root /sbin/init

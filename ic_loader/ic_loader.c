@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "../../core/kic_defs.h"
+#include "kic_defs.h"
 #include "hvccall-defines.h"
 #include "psci.h"
 #include "commondefines.h"
@@ -45,7 +45,7 @@ void ic_loader(uint64_t sp[], uint64_t start)
 {
 	volatile uint64_t dummy;
 	uint8_t *p;
-	sign_params_t *sign_params = (sign_params_t *) start;
+	gad_t *sign_params = (gad_t *) start;
 	uint64_t image_size = sign_params->image_size;
 	uint64_t dtb = sign_params->dtb;
 	uint64_t dtb_size = sign_params->dtb_size;;

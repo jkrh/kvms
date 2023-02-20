@@ -4,8 +4,8 @@
 #include <errno.h>
 #include <stdlib.h>
 #include "guest.h"
-#include "kic.h"
 #include "helpers.h"
+#include "kic.h"
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
 
@@ -17,7 +17,9 @@ uint32_t el1_hyp_img[512] = {
 };
 
 spinlock_t kic_lock;
-static sign_params_t *sign_params = NULL;
+
+/* Guest Authenticated Data */
+static gad_t *gad;
 
 void init_kic(kvm_guest_t *guest)
 {
@@ -110,27 +112,27 @@ int image_check_init(void *g, uint64_t start_page)
 		return KIC_FATAL;
 	}
 
-	sign_params = malloc(sizeof(sign_params_t));
-	if (!sign_params) {
+	gad = malloc(sizeof(gad_t));
+	if (!gad) {
 		ERROR("No memory\n");
 		return KIC_ERROR;
 	}
 
-	copy_from_guest(guest, STAGE2, sign_params, (void *) start_page,
-			sizeof(sign_params_t));
+	copy_from_guest(guest, STAGE2, gad, (void *) start_page,
+			sizeof(gad_t));
 
-	if (sign_params->macig != 0x4e474953) {
+	if (gad->macig != 0x4e474953) {
 		ERROR("No signature magic\n");
-		free (sign_params);
-		sign_params = NULL;
+		free (gad);
+		gad = NULL;
 		guest->kic_status = KIC_VERIFIED_FAIL;
 		return KIC_ERROR;
 	}
-	if (sign_params->image_size > KIC_MAX_IMAGE_SIZE ||
-	    sign_params->dtb_size > KIC_MAX_DTB_SIZE) {
+	if (gad->image_size > KIC_MAX_IMAGE_SIZE ||
+	    gad->dtb_size > KIC_MAX_DTB_SIZE) {
 		ERROR("Too big image to check\n");
-		free (sign_params);
-		sign_params = NULL;
+		free (gad);
+		gad = NULL;
 		guest->kic_status = KIC_VERIFIED_FAIL;
 		return KIC_ERROR;
 	}
@@ -146,9 +148,9 @@ int check_guest_image(void *g, uint64_t image)
 
 	if (guest->kic_status != KIC_RUNNING) {
 		ERROR("Illegal icheck_guest_image() call\n");
-		if (sign_params)
-			free (sign_params);
-		sign_params = NULL;
+		if (gad)
+			free (gad);
+		gad = NULL;
 		guest->kic_status = KIC_VERIFIED_FAIL;
 		return -KIC_FATAL;
 	}
@@ -157,18 +159,18 @@ int check_guest_image(void *g, uint64_t image)
 	if (ret != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_sha256_starts_ret %d", ret);
 
-	ret = mbedtls_sha256_update_ret(&ctx, (void *)sign_params,
-			offsetof(sign_params_t, signature));
+	ret = mbedtls_sha256_update_ret(&ctx, (void *)gad,
+			offsetof(gad_t, signature));
 	if (ret != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_sha256_starts_ret %d", ret);
 
-	ret = guest_calc_hash(guest, &ctx, image, sign_params->image_size);
+	ret = guest_calc_hash(guest, &ctx, image, gad->image_size);
 	if (ret != MBEDTLS_EXIT_SUCCESS)
 		panic("guest_calc_hash ret %d", ret);
 
-	if (sign_params->dtb) {
-		ret = guest_calc_hash(guest, &ctx, sign_params->dtb,
-				      sign_params->dtb_size);
+	if (gad->dtb) {
+		ret = guest_calc_hash(guest, &ctx, gad->dtb,
+				      gad->dtb_size);
 		if (ret != MBEDTLS_EXIT_SUCCESS)
 			panic("guest_calc_hash ret %d", ret);
 	}
@@ -177,19 +179,26 @@ int check_guest_image(void *g, uint64_t image)
 	if (ret != MBEDTLS_EXIT_SUCCESS)
 		panic("mbedtls_sha256_finish_ret %d", ret);
 
-	if (do_ecdsa((void *) (void *)sign_params->signature, hash)) {
+	if (do_ecdsa((void *) (void *)gad->signature, hash)) {
 		ERROR("kernel integrity check failed for vmid %d\n",
 		      guest->vmid);
 		guest->kic_status = KIC_VERIFIED_FAIL;
 		ret = KIC_ERROR;
 	} else {
-		set_guest_id(guest, &sign_params->guest_id, GUEST_ID_LEN);
 		LOG("kernel integrity check passed for vmid %d\n", guest->vmid);
+		if (gad->version >= 0x201) {
+			if (gad->pubkey_size <= sizeof(gad->guest_pubkey)) {
+				guest->pubkey_size = gad->pubkey_size;
+		  		memcpy(guest->pubkey, gad->guest_pubkey,
+				       guest->pubkey_size);
+			}
+		}
+		set_guest_id(guest, &gad->guest_id, GUEST_ID_LEN);
 		guest->kic_status = KIC_VERIFIED_OK;
 		ret = 0;
 	}
-	free (sign_params);
-	sign_params = 0;
+	free (gad);
+	gad = 0;
 	return ret;
 }
 

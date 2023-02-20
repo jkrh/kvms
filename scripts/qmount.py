@@ -1,10 +1,10 @@
 #! /usr/bin/python3
 import subprocess
 import sys
-import os
 from sys import exit
 import glob
 import time
+import os
 
 def wait_for_dev(dev: str, secs: int = 5):
     print("Waiting for {}...".format(dev))
@@ -19,17 +19,18 @@ def wait_for_dev(dev: str, secs: int = 5):
             time.sleep(1)
     return True
 
+
 def find_free_dev():
-    tmp = subprocess.run(["mount","-t","ext4"], stdout=subprocess.PIPE)
+    tmp = subprocess.run(["ls -1 /dev/nb*"],  shell=True, stdout=subprocess.PIPE)
     mounts  = tmp.stdout.decode().splitlines()
     s = []
     for mnt in mounts:
-        if mnt.startswith("/dev/nbd"):
+        if mnt.endswith("p1"):
             x = mnt.partition("/dev/nbd")
             s.append(x[2][0])
 
     for i in range(0, 8):
-         if  not str(i) in s:
+        if not str(i) in s:
              return "/dev/nbd{}".format(i)
     else:
         return ""
@@ -43,15 +44,17 @@ if (len(sys.argv) != 3):
 
 dev = find_free_dev()
 if not dev in glob.glob("/dev/nbd[0-8]"):
-    cmd ="modprobe nbd max_part=8"
-    print(cmd)
-    if os.system(cmd):
+    cmd =["modprobe", "nbd", "max_part=8"]
+    print(" ".join(cmd))
+    p = subprocess.run(cmd)
+    if p.returncode:
         exit(1)
 
 if (len(dev) > 0):
-    cmd = "qemu-nbd --connect={} {}".format(dev, sys.argv[1])
-    print(cmd)
-    if os.system(cmd):
+    cmd = ["qemu-nbd","--connect={}".format(dev), sys.argv[1]]
+    print(" ".join(cmd))
+    p = subprocess.run(cmd)
+    if p.returncode:
         exit(1)
 
     pdev = "{}p1".format(dev)

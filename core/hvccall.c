@@ -25,6 +25,7 @@
 #include "oplocks.h"
 #include "crypto/platform_crypto.h"
 #include "keystore.h"
+#include "shared_secret.h"
 #include "host.h"
 #include "stacktrace.h"
 
@@ -168,6 +169,12 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	case HYP_GUEST_DO_IMAGE_CHECK:
 		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 		res = check_guest_image(guest, a1);
+		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
+		break;
+	case HYP_GUEST_GET_DERIVED_KEY :
+		printf("get derived\n");
+		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
+		res = get_derived_key(guest, (void *)a1, a2, (void *)a3, a4);
 		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 #ifdef DEBUG

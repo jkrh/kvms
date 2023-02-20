@@ -1,7 +1,7 @@
-From 8b3a8f09a2a5370b80279ec85e7453ec2347a7ca Mon Sep 17 00:00:00 2001
+From 8d04d2841e0be12903b551d31a34972c87ca4877 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Tue, 13 Dec 2022 10:18:03 +0200
-Subject: [PATCH] kvm: 'encrypted memory' draft for arm64 - 5.15
+Subject: [PATCH 1/2] kvm: 'encrypted memory' draft for arm64 - 5.15
 
 Signed-off-by: Jani Hyvonen <jani.hyvonen@digital14.com>
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
@@ -777,5 +777,5 @@ index c86abf6bc7ba..3988080d8eb6 100644
 +
  #endif
 -- 
-2.25.1
+2.34.1
 

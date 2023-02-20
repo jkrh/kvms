@@ -15,7 +15,7 @@ UBUNTU_BASE=$UBUNTU_STABLE
 PKGLIST=`cat package.list.22 |grep -v "\-dev"`
 EXTRA_PKGLIST=`cat extra_package.list`
 OUTFILE=ubuntuguest.qcow2
-OUTDIR=$BASE_DIR/images/guest
+OUTDIR=$BASE_DIR/guest/images
 SIZE=10G
 
 do_unmount()
@@ -112,15 +112,19 @@ echo "Cloning guest kernel.."
 rm -rf linux
 git clone --single-branch --branch linux-5.15.y git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 cd linux
+#patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
 patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
+patch -p1 < ../../patches/guest/0002-kvm-integrate-kvms-interface-driver-for-5.15-kernel.patch
 
 echo "Building guest kernel.."
 make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=../tmp -j$CPUS defconfig Image modules modules_install
 cd ..
+echo Done
 
 if [ ! -d $OUTDIR ]; then
 	echo "Creating output dir.."
 	mkdir -p $OUTDIR
+	chown $USERNAME.$USERNAME $OUTDIR
 fi
 
 cp -f ./linux/arch/arm64/boot/Image $OUTDIR
