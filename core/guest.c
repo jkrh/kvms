@@ -1811,10 +1811,8 @@ void host_inst_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	esr_el2 = read_reg(ESR_EL2);
 
 	/* make sure MMU is enabled for EL1&0 stage 1 address translation */
-	if (sctlr_el1 && 0x1) {
-		ERROR("MMU disabled for EL1&0 stage 1");
+	if (sctlr_el1 & 0x1)
 		goto out;
-	}
 
 	if (vmid != HOST_VMID) {
 		ERROR("host instruction abort for non-host");
@@ -1845,9 +1843,10 @@ void host_inst_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	case 0x4:
 		ERROR("kernel violation\n");
 		break;
-	/* should never happen as el2_sync is already trapped and
-	*  handled by the exception vector
-	*/
+	/*
+	 * should never happen as el2_sync is already trapped and
+	 * handled by the exception vector
+	 */
 	case 0x8:
 		ERROR("trapped el2 crash -- aborting\n");
 		break;
