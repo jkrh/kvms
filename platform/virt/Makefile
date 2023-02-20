@@ -53,6 +53,20 @@ ifeq ($(GRAPHICS),1)
 QEMUCMD := $(QEMUCMD) -device virtio-gpu-gl-pci,id=gpu0 -display egl-headless -spice $(SPICEOPTS) $(VDAGENT)
 endif
 
+$(PROG).bin: $(PROG)
+	$(vecho) [OBJCOPY] $@
+	$(Q)$(OBJCOPY) -O binary $(PROG) $(PROG).bin
+
+$(PROG).hex: $(PROG)
+	$(vecho) [OBJCOPY] $@
+	mkdir -p  $(CORE_DIR)/generated/
+	$(Q)$(OBJCOPY) -O binary $(PROG) $(PROG).bin
+	cat $(PROG).bin | hexdump -ve '"0x%08X,"' > $(CORE_DIR)/generated/$(PROG).hex
+
+$(PROG): $(OBJS) $(OBJDIR)/$(LIBNAME) FORCE
+	$(vecho) [LD] $@
+	$(Q)$(LD) $(LDFLAGS) -o $(PROG) $(LDLIBS) -static
+
 include $(BASE_DIR)/core/common.mk
 
 all: $(PROG).bin
