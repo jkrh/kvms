@@ -1,6 +1,7 @@
 export BASE_DIR := $(PWD)
 export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
+export MBEDDIR := $(BASE_DIR)/mbedtls/library
 ifeq ($(KIC_DISABLE),1)
 COREDIRS := stdlib core core/crypto core/common platform/common
 else

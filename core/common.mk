@@ -5,11 +5,21 @@ OBJS := $(C_OBJ) $(AS_OBJ)
 
 COMMONLIBS := -lcore -lcommon -lplatform-common -lmbedcrypto -lmbedx509 \
 		-lmbedtls -larmv8crypto -lstdlib  -u print_gicdreg
+COMMON_ARLIBS := $(OBJDIR)/libcore.a \
+		 $(OBJDIR)/libcommon.a \
+		 $(OBJDIR)/libplatform-common.a \
+		 $(MBEDDIR)/libmbedcrypto.a \
+		 $(MBEDDIR)/libmbedx509.a \
+		 $(MBEDDIR)/libmbedtls.a \
+		 $(OBJDIR)/libarmv8crypto.a \
+		 $(OBJDIR)/libstdlib.a
 
 ifeq ($(PLATFORM),virt)
 LDLIBS ?= -l$(PLATFORM) $(COMMONLIBS)
+ARLIBS ?= $(OBJDIR)/lib$(PLATFORM).a $(COMMON_ARLIBS)
 else
 LDLIBS ?= -l$(PLATFORM) -l$(PRODUCT) $(COMMONLIBS)
+ARLIBS ?= $(OBJDIR)/lib$(PLATFORM).a $(OBJDIR)/lib$(PRODUCT).a $(COMMON_ARLIBS)
 endif
 
 .PHONY: clean run gdb
@@ -50,9 +60,7 @@ endif
 
 $(OBJDIR)/$(LIBNAME): $(OBJS)
 	$(vecho) [AR] $@
-	$(Q)$(AR) cru $(OBJDIR)/$(LIBNAME) $(OBJS)
-	$(vecho) [RANLIB] $@
-	$(Q)$(RANLIB) $(OBJDIR)/$(LIBNAME)
+	$(Q)$(AR) rcsTP $(OBJDIR)/$(LIBNAME) $(OBJS)
 
 clean:
 	@rm -rf $(OBJDIR) $(PROG) *.elf *.o *.bin

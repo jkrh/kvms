@@ -13,7 +13,11 @@ export DEFINES := -D$(PVAR) -D_GNU_SOURCE -D__OPTIMIZE__ -DBUILDHOST=$(HOSTNAME)
 		-DMBEDTLS_USER_CONFIG_FILE=\"$(BASE_DIR)/core/mbedconfig.h\" -include "config.h"
 export WARNINGS := -Wall -Werror -Wno-pointer-arith -Wno-variadic-macros \
 		-Wstack-protector -Wstack-usage=8192 -Wno-implicit-function-declaration
-export INCLUDES := -I. -I$(KERNEL_DIR) -I$(CORE_DIR) -I$(CORE_DIR)/common -I$(BASE_DIR)/stdlib \
+export INCLUDES := -I. \
+		-I$(KERNEL_DIR) \
+		-I$(CORE_DIR) \
+		-I$(CORE_DIR)/common \
+		-I$(BASE_DIR)/stdlib \
 		-I$(BASE_DIR)/mbedtls/include \
 		-I$(BASE_DIR)/platform/common \
 		-I$(BASE_DIR)/platform/$(PLATFORM)/common \
@@ -48,6 +52,8 @@ endif
 
 export CFLAGS += -march=armv8-a+nosimd -mgeneral-regs-only
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
+export AFLAGS := -D__ASSEMBLY__ \
+		-I$(KERNEL_DIR)/usr/include
 export LDFLAGS := -nostdlib -O1 --gc-sections --build-id=none \
 		-L$(BASE_DIR)/mbedtls/library \
 		-L$(BASE_DIR)/.objs

@@ -1,4 +1,5 @@
-PROG := $(OBJDIR)/$(PLATFORM)/hyp
+PROGNAME := hyp
+PROG := $(OBJDIR)/$(PLATFORM)/$(PROGNAME)
 LIBNAME := lib$(PLATFORM).a
 QEMU := qemu-system-aarch64
 
@@ -63,9 +64,12 @@ $(PROG).hex: $(PROG)
 	$(Q)$(OBJCOPY) -O binary $(PROG) $(PROG).bin
 	cat $(PROG).bin | hexdump -ve '"0x%08X,"' > $(CORE_DIR)/generated/$(PROG).hex
 
-$(PROG): $(OBJS) $(OBJDIR)/$(LIBNAME) FORCE
-	$(vecho) [LD] $@
-	$(Q)$(LD) $(LDFLAGS) -o $(PROG) $(LDLIBS) -static
+$(PROG): build_libs
+	$(vecho) [KALLSYMS] $@
+	$(Q)env LDLIBS="$(LDLIBS)" $(BASE_DIR)/scripts/link-hyp.sh $@ $(PROGNAME)
+
+build_libs: $(COMMON_ARLIBS) $(OBJDIR)/$(LIBNAME) FORCE
+	$(vecho) [TARGET] $@
 
 include $(BASE_DIR)/core/common.mk
 
