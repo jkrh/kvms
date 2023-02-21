@@ -64,12 +64,18 @@ $(PROG).hex: $(PROG)
 	$(Q)$(OBJCOPY) -O binary $(PROG) $(PROG).bin
 	cat $(PROG).bin | hexdump -ve '"0x%08X,"' > $(CORE_DIR)/generated/$(PROG).hex
 
+ifdef DEBUG
 $(PROG): build_libs
 	$(vecho) [KALLSYMS] $@
 	$(Q)env LDLIBS="$(LDLIBS)" $(BASE_DIR)/scripts/link-hyp.sh $@ $(PROGNAME)
 
 build_libs: $(COMMON_ARLIBS) $(OBJDIR)/$(LIBNAME) FORCE
 	$(vecho) [TARGET] $@
+else
+$(PROG): $(OBJS) $(OBJDIR)/$(LIBNAME) FORCE
+	$(vecho) [LD] $@
+	$(Q)$(LD) $(LDFLAGS) -o $(PROG) $(LDLIBS) -static
+endif
 
 include $(BASE_DIR)/core/common.mk
 

@@ -7,6 +7,9 @@
 #
 ifdef DEBUG
 BUILDOPTS := -g3 -Os -DCRASHDUMP
+# Let's enable kallsyms in debug mode only.
+# TODO: add KALLSYMS_BASE_RELATIVE and KALLSYMS_ABSOLUTE_PERCPU
+BUILDOPTS += -DKALLSYMS -DKALLSYMS_ALL
 else
 BUILDOPTS := -g1 -Os -D_FORTIFY_SOURCE=1 -Wl,-O2
 endif

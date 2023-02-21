@@ -29,6 +29,7 @@ static inline int is_ksym_addr(unsigned long addr)
 #endif
 }
 
+#ifdef KALLSYMS
 unsigned long kallsyms_lookup_name(const char *name);
 int kallsyms_on_each_symbol(int (*fn)(void *, const char *, unsigned long),
 			    void *data);
@@ -44,5 +45,22 @@ int lookup_symbol_attrs(unsigned long addr, unsigned long *size,
 int sprint_symbol(char *buffer, unsigned long address);
 int sprint_symbol_no_offset(char *buffer, unsigned long address);
 int sprint_backtrace(char *buffer, unsigned long address);
+#else
+unsigned long kallsyms_lookup_name(const char *name) { return 0; }
+int kallsyms_on_each_symbol(int (*fn)(void *, const char *, unsigned long),
+			    void *data) { return 0; }
+int kallsyms_lookup_size_offset(unsigned long addr, unsigned long *symbolsize,
+				unsigned long *offset) { return 0; }
+const char *kallsyms_lookup(unsigned long addr,
+			    unsigned long *symbolsize,
+			    unsigned long *offset,
+			    char *namebuf) { return NULL; }
+int lookup_symbol_name(unsigned long addr, char *symname) { return 0; }
+int lookup_symbol_attrs(unsigned long addr, unsigned long *size,
+			unsigned long *offset, char *name) { return 0; }
+int sprint_symbol(char *buffer, unsigned long address) { return 0; }
+int sprint_symbol_no_offset(char *buffer, unsigned long address) { return 0; }
+int sprint_backtrace(char *buffer, unsigned long address) { return 0; }
+#endif
 
 #endif // __KALLSYMS_H__
