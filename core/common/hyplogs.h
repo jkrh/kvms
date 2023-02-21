@@ -23,6 +23,16 @@ void hyp_abort(const char *func, const char *file, int line,
 #define panic(fmt, ...) \
 	hyp_abort (__func__, __FILE__, __LINE__, fmt, ## __VA_ARGS__)
 
+#ifndef assert
+#define assert(expr) \
+	if (!(expr)) { \
+		ERROR("Assertion failed! %s,%s,%s,line=%d\n", \
+		#expr, __FILE__, __func__, __LINE__); \
+	}
+#else
+#define assert(expr)
+#endif
+
 #ifdef SPINNER
 void spinner(void);
 #else

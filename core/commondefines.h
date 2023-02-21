@@ -52,4 +52,6 @@ typedef uint64_t u_register_t;
 #define STR(x) #x
 #define XSTR(s) STR(s)
 
+#define ARRAY_SIZE(a) (sizeof (a) / sizeof ((a)[0]))
+
 #endif

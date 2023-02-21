@@ -5,6 +5,7 @@ C_SOURCES := armtrans.c main.c hvccall.c \
 	smccall.c guest.c psci.c mm.c \
 	mtree.c kjump.c host.c \
 	tables.c gic.c patrack.c \
+	kallsyms.c \
 	oplocks.c rwlock.c kic.c
 
 ifdef TESTS
