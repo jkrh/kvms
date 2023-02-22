@@ -336,14 +336,8 @@ static void write_src(void)
 	unsigned int *markers;
 	char buf[KSYM_NAME_LEN];
 
-	printf("#include <asm/bitsperlong.h>\n");
-	printf("#if BITS_PER_LONG == 64\n");
 	printf("#define PTR .quad\n");
 	printf("#define ALGN .align 8\n");
-	printf("#else\n");
-	printf("#define PTR .long\n");
-	printf("#define ALGN .align 4\n");
-	printf("#endif\n");
 
 	printf("\t.section .rodata, \"a\"\n");
 

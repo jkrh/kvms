@@ -87,3 +87,26 @@ void __log(int level, const char *func, const char *fmt, ...)
 	if (level)
 		printf("\033[0m");
 }
+
+void logf(int level, const char *fmt, ...)
+{
+	char buf[BUFSIZE];
+	struct timeval tv2;
+	va_list args;
+
+	gettimeofday(&tv2, NULL);
+
+	if (level)
+		printf("\033[0;31m");
+
+	printf("[%*.*lu] ", 12, 12, us_to_ms(tv2.tv_usec));
+	va_start(args, fmt);
+	vsnprintf(buf, sizeof(buf) - 1, fmt, args);
+	va_end(args);
+
+	__printbuf(buf);
+	putchar('\r');
+
+	if (level)
+		printf("\033[0m");
+}

@@ -8,7 +8,7 @@ C_SOURCES := armtrans.c main.c hvccall.c \
 	oplocks.c rwlock.c kic.c
 
 ifdef DEBUG
-C_SOURCES += kallsyms.c
+C_SOURCES += kallsyms.c stacktrace.c
 endif
 
 ifdef TESTS

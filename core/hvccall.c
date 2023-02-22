@@ -26,6 +26,7 @@
 #include "crypto/platform_crypto.h"
 #include "keystore.h"
 #include "host.h"
+#include "stacktrace.h"
 
 #define ISS_MASK		0x1FFFFFFUL
 #define ISS_RT_MASK		0x3E0UL
@@ -505,6 +506,8 @@ void hyp_abort(const char *func, const char *file, int line,
 	va_end(args);
 	ERROR(buf);
 	ERROR("===========================================================\n");
+
+	dump_stack();
 
 #if defined(CRASHDUMP) && defined(DEBUG)
 	print_mappings(get_current_vmid(), STAGE2);

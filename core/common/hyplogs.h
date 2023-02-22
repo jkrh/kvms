@@ -45,5 +45,6 @@ static inline void spinner(void)
 void log_init(void);
 uint64_t read_log(void);
 void __log(int level, const char *func, const char *fmt, ...);
+void logf(int level, const char *fmt, ...);
 
 #endif // __HYPLOGS__

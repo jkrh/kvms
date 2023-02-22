@@ -4,7 +4,10 @@
 
 #include "sections.h"
 
+#define BITS_PER_LONG 64
 #define KSYM_NAME_LEN 192
+#define KSYM_SYMBOL_LEN (sizeof("%s+%#lx/%#lx [%s]") + (KSYM_NAME_LEN - 1) + \
+			 2*(BITS_PER_LONG*3/10) + 1)
 
 static inline int is_kernel_text(unsigned long addr)
 {
