@@ -10,6 +10,20 @@
 #include "helpers.h"
 #include "kallsyms.h"
 #include "stacktrace.h"
+#include "platform_api.h"
+
+static inline bool on_accessible_stack(unsigned long sp)
+{
+	unsigned long low;
+	unsigned long high;
+
+	high = (unsigned long)platfrom_get_stack_ptr(smp_processor_id());
+	low = high - STACK_SIZE;
+	if (sp < low || sp >= high) {
+		return false;
+	}
+	return true;
+}
 
 /*
  * AArch64 PCS assigns the frame pointer to x29.
@@ -30,6 +44,10 @@ int unwind_frame(struct stackframe *frame)
 
 	if (fp & 0xf)
 		return -EINVAL;
+
+	if (!on_accessible_stack(fp)) {
+		return -EINVAL;
+	}
 
 	frame->fp = *(unsigned long *)(fp);
 	frame->pc = *(unsigned long *)(fp + 8);
@@ -74,6 +92,8 @@ void dump_backtrace(int log_lvl, struct stackframe *sf)
 
 	logf(log_lvl, "Call trace:\n");
 	do {
+		if (!is_ksym_addr(frame.pc))
+			break;
 		dump_backtrace_entry(log_lvl, frame.pc);
 	} while (!unwind_frame(&frame));
 }

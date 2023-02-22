@@ -9,14 +9,14 @@
 #define KSYM_SYMBOL_LEN (sizeof("%s+%#lx/%#lx [%s]") + (KSYM_NAME_LEN - 1) + \
 			 2*(BITS_PER_LONG*3/10) + 1)
 
-static inline int is_kernel_text(unsigned long addr)
+static inline int is_hyp_text(unsigned long addr)
 {
 	if ((addr >= (unsigned long)_stext && addr <= (unsigned long)_etext))
 		return 1;
 	return 0;
 }
 
-static inline int is_kernel(unsigned long addr)
+static inline int is_hyp(unsigned long addr)
 {
 	if (addr >= (unsigned long)_stext && addr <= (unsigned long)_end)
 		return 1;
@@ -26,9 +26,9 @@ static inline int is_kernel(unsigned long addr)
 static inline int is_ksym_addr(unsigned long addr)
 {
 #ifdef KALLSYMS_ALL
-	return is_kernel(addr);
+	return is_hyp(addr);
 #else
-	return is_kernel_text(addr);
+	return is_hyp_text(addr);
 #endif
 }
 
