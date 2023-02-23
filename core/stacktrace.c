@@ -103,3 +103,112 @@ void __dump_stack(int log_lvl)
 	dump_stack_print_info(log_lvl);
 	dump_backtrace(log_lvl, NULL);
 }
+
+struct stack_trace_data {
+	struct stack_trace *trace;
+	unsigned int skip;
+};
+
+static int save_trace(struct stackframe *frame, void *d)
+{
+	struct stack_trace_data *data = d;
+	struct stack_trace *trace = data->trace;
+	unsigned long addr = frame->pc;
+
+	if (data->skip) {
+		data->skip--;
+		return 0;
+	}
+
+	trace->entries[trace->nr_entries++] = addr;
+
+	return trace->nr_entries >= trace->max_entries;
+}
+
+void walk_stackframe(struct stackframe *frame,
+		     int (*fn)(struct stackframe *, void *), void *data)
+{
+	while (1) {
+		int ret;
+
+		if (fn(frame, data))
+			break;
+		ret = unwind_frame(frame);
+		if (ret < 0)
+			break;
+	}
+}
+
+void save_stack_trace(struct stack_trace *trace)
+{
+	struct stack_trace_data data;
+	struct stackframe frame;
+
+	data.trace = trace;
+	data.skip = trace->skip;
+
+	/* We don't want this function nor the caller */
+	data.skip += 2;
+	frame.fp = (unsigned long)__builtin_frame_address(0);
+	frame.pc = (unsigned long)save_stack_trace;
+
+	walk_stackframe(&frame, save_trace, &data);
+	if (trace->nr_entries < trace->max_entries)
+		trace->entries[trace->nr_entries++] = ULONG_MAX;
+}
+
+void print_stack_trace(struct stack_trace *trace, int spaces)
+{
+	int i;
+
+	if (!trace->entries) {
+		ERROR("trace->entries is NULL\n");
+		return;
+	}
+
+	for (i = 0; i < trace->nr_entries; i++) {
+		char sym[KSYM_SYMBOL_LEN];
+
+		if (trace->entries[i] == ULONG_MAX)
+			break;
+
+		sprint_symbol(sym, trace->entries[i]);
+		logf(LOG_ERROR, "%*c%s\n", 1 + spaces, ' ', sym);
+	}
+}
+
+int snprint_stack_trace(char *buf, size_t size,
+			struct stack_trace *trace, int spaces)
+{
+	int i;
+	int generated;
+	int total = 0;
+
+	if (!trace->entries) {
+		ERROR("trace->entries is NULL\n");
+		return 0;
+	}
+
+	for (i = 0; i < trace->nr_entries; i++) {
+		char sym[KSYM_SYMBOL_LEN];
+
+		if (trace->entries[i] == ULONG_MAX)
+			break;
+
+		sprint_symbol(sym, trace->entries[i]);
+		generated = snprintf(buf, size, "%*c%s\n", 1 + spaces, ' ', sym);
+
+		total += generated;
+
+		/* Assume that generated isn't a negative number */
+		if (generated >= size) {
+			buf += size;
+			size = 0;
+		} else {
+			buf += generated;
+			size -= generated;
+		}
+	}
+
+	return total;
+}
