@@ -66,7 +66,7 @@ tools-all: | $(BUILD_TOOLS)
 	@VIRTOOLS=1 ./scripts/build-tools.sh
 
 tools-clean:
-	@./scripts/build-tools.sh clean
+	@sudo -E ./scripts/build-tools.sh clean
 	@rm -rf $(TOOLDIR)
 
 docs:
