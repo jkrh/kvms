@@ -1,4 +1,5 @@
-PROG := $(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)/bl1
+PROGNAME := bl1
+PROG := $(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT)/$(PROGNAME)
 LIBNAME := lib$(PLATFORM).a
 
 LINK := -T hyp.ld.S -e hyp_entrypoint
