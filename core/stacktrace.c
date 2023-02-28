@@ -64,21 +64,21 @@ int unwind_frame(struct stackframe *frame)
 	return 0;
 }
 
-static void dump_stack_print_info(int log_lvl)
+static void dump_stack_print_info(int log_lvl, int spaces)
 {
-	logf(log_lvl, "CPU: %d VMID: %d\n", smp_processor_id(),
-	      get_current_vmid());
+	logf(log_lvl, "%*sCPU: %d VMID: %d\n", 1 + spaces, " ",
+	     smp_processor_id(), get_current_vmid());
 }
 
-static void dump_backtrace_entry(int log_lvl, unsigned long where)
+static void dump_backtrace_entry(int log_lvl, unsigned long where, int spaces)
 {
 	char sym[KSYM_SYMBOL_LEN];
 
 	sprint_symbol(sym, where);
-	logf(log_lvl, " %s\n", sym);
+	logf(log_lvl, " %*s%s\n", 1 + spaces, " ", sym);
 }
 
-void dump_backtrace(int log_lvl, struct stackframe *sf)
+void dump_backtrace(int log_lvl, struct stackframe *sf, int spaces)
 {
 	struct stackframe frame;
 
@@ -90,18 +90,18 @@ void dump_backtrace(int log_lvl, struct stackframe *sf)
 		frame.pc = sf->pc;
 	}
 
-	logf(log_lvl, "Call trace:\n");
+	logf(log_lvl, "%*sCall trace:\n", 1 + spaces, " ");
 	do {
 		if (!is_ksym_addr(frame.pc))
 			break;
-		dump_backtrace_entry(log_lvl, frame.pc);
+		dump_backtrace_entry(log_lvl, frame.pc, spaces);
 	} while (!unwind_frame(&frame));
 }
 
 void __dump_stack(int log_lvl)
 {
-	dump_stack_print_info(log_lvl);
-	dump_backtrace(log_lvl, NULL);
+	dump_stack_print_info(log_lvl, 10);
+	dump_backtrace(log_lvl, NULL, 10);
 }
 
 struct stack_trace_data {
@@ -173,7 +173,7 @@ void print_stack_trace(struct stack_trace *trace, int spaces)
 			break;
 
 		sprint_symbol(sym, trace->entries[i]);
-		logf(LOG_ERROR, "%*c%s\n", 1 + spaces, ' ', sym);
+		logf(LOG_ERROR, "%*s%s\n", 1 + spaces, " ", sym);
 	}
 }
 
@@ -196,7 +196,7 @@ int snprint_stack_trace(char *buf, size_t size,
 			break;
 
 		sprint_symbol(sym, trace->entries[i]);
-		generated = snprintf(buf, size, "%*c%s\n", 1 + spaces, ' ', sym);
+		generated = snprintf(buf, size, "%*s%s\n", 1 + spaces, " ", sym);
 
 		total += generated;
 

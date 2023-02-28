@@ -19,7 +19,7 @@ struct stack_trace {
 int unwind_frame(struct stackframe *frame);
 void walk_stackframe(struct stackframe *frame,
 		     int (*fn)(struct stackframe *, void *), void *data);
-void dump_backtrace(int log_lvl, struct stackframe *sf);
+void dump_backtrace(int log_lvl, struct stackframe *sf, int spaces);
 void __dump_stack(int log_lvl);
 
 #define dump_stack()	__dump_stack(LOG_ERROR)
@@ -42,7 +42,7 @@ int snprint_stack_trace(char *buf, size_t size,
 int unwind_frame(struct stackframe *frame) { return 0; }
 void walk_stackframe(struct stackframe *frame,
 		     int (*fn)(struct stackframe *, void *), void *data) { }
-void dump_backtrace(int log_lvl, struct stackframe *sf) { }
+void dump_backtrace(int log_lvl, struct stackframe *sf, int spaces) { }
 void __dump_stack(int log_lvl) { }
 
 #define dump_stack()
