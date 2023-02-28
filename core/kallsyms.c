@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <sys/assert.h>
 
 #include "hyplogs.h"
 #include "helpers.h"
@@ -173,9 +174,9 @@ static unsigned long get_symbol_pos(unsigned long addr,
 
 #if !defined(KALLSYMS_BASE_RELATIVE)
 	/* This kernel should never had been booted. */
-	assert(!!kallsyms_addresses);
+	assert_nopanic(!!kallsyms_addresses);
 #else
-	assert(!!kallsyms_offsets);
+	assert_nopanic(!!kallsyms_offsets);
 #endif
 
 	/* Do a binary search on the sorted kallsyms_addresses array. */

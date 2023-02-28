@@ -41,3 +41,9 @@ void __assert (const char *function, const char *file, unsigned int line,
 	panic("assert at %s:%d '%s'\n", function, line, assertion);
 }
 WEAK_ALIAS(__assert, __assert_fail)
+
+void __assert_nopanic(const char *function, const char *file,
+		      unsigned int line, const char *assertion)
+{
+	ERROR("assert at %s:%d '%s'\n", function, line, assertion);
+}
