@@ -92,9 +92,22 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 			clear_share(guest, a1, a2);
 		break;
 	case HYP_SET_GUEST_MEMORY_OPEN:
+		/* Is it already shared? */
+		res = is_share(guest, a1, a2);
+		if (res == 1) {
+			res = 0;
+			break;
+		} else if (res < 0) {
+			ERROR("invalid share region %p/%d\n", a1, (int)a2);
+			break;
+		}
+
 		res = restore_host_range(guest, a1, a2, false);
-		if (res)
-			goto out;
+		if (res) {
+			ERROR("unable to restore shared range to host %p/%d\n",
+			      a1, (int)a2);
+			break;
+		}
 
 		res = set_share(guest, a1, a2);
 		if (res)
@@ -136,7 +149,6 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		break;
 	}
 
-out:
 	spin_unlock(&host->hvc_lock);
 	load_guest_s2(guest->vmid);
 
