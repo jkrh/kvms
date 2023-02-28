@@ -165,7 +165,7 @@ int load_guest_s2(uint64_t vmid)
 
 int guest_memmap(uint32_t vmid, void *gaddr, size_t pc, void *addr, size_t addrlen)
 {
-	kvm_guest_t *guest;
+	kvm_guest_t *guest = NULL;
 	uint64_t paddr, tmp;
 	int n = 0;
 
@@ -421,7 +421,7 @@ out:
 
 int update_guest_state(guest_state_t state)
 {
-	kvm_guest_t *guest;
+	kvm_guest_t *guest = NULL;
 	uint64_t vmid;
 
 	vmid = get_current_vmid();
@@ -435,7 +435,7 @@ int update_guest_state(guest_state_t state)
 
 guest_state_t get_guest_state(uint64_t vmid)
 {
-	kvm_guest_t *guest;
+	kvm_guest_t *guest = NULL;
 
 	guest = get_guest(vmid);
 	if (!guest)
@@ -458,9 +458,8 @@ guest_state_t get_guest_state(uint64_t vmid)
 static kvm_guest_t *__get_guest_by_kvm(void **kvm, int *guest_index)
 {
 	int i;
-	kvm_guest_t *guest;
+	kvm_guest_t *guest = NULL;
 
-	guest = NULL;
 	*kvm = kern_hyp_va(*kvm);
 	for (i = 0; i < last_guest_index; i++) {
 		if (guests[i].kvm == *kvm) {
@@ -1369,7 +1368,7 @@ int delete_memslot(kvm_guest_t *guest, kvm_memslots *slots, short id)
 int update_memslot(void *kvm, kvm_memslot *slot,
 		   kvm_userspace_memory_region *reg)
 {
-	kvm_guest_t *guest;
+	kvm_guest_t *guest = NULL;
 	uint64_t addr, size;
 	uint64_t ramend;
 
@@ -1460,14 +1459,9 @@ int guest_user_copy(uint64_t dest, uint64_t src, uint64_t count)
 int guest_stage2_access_flag(uint64_t operation, uint64_t vmid, uint64_t ipa,
 			     uint64_t size)
 {
-	int res;
-	kvm_guest_t *guest;
-	uint64_t addr, *pte;
-
-	res = 0;
-	guest = NULL;
-	addr = 0;
-	pte = NULL;
+	int res = 0;
+	kvm_guest_t *guest = NULL;
+	uint64_t addr = 0, *pte = NULL;
 
 	/* We only support page granularity at the moment */
 	if ((size != PAGE_SIZE) && (size != 0)) {
@@ -1811,7 +1805,7 @@ void host_inst_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	esr_el2 = read_reg(ESR_EL2);
 
 	/* make sure MMU is enabled for EL1&0 stage 1 address translation */
-	if (sctlr_el1 & 0x1)
+	if (!bit_raised(sctlr_el1,  SCTLR_MMU))
 		goto out;
 
 	if (vmid != HOST_VMID) {
