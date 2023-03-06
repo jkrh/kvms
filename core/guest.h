@@ -564,4 +564,7 @@ int copy_to_guest(kvm_guest_t *guest, uint64_t stage, void *dst, void *src, size
  static inline void share_decrement(kvm_guest_t *guest, uint64_t map_addr) { };
 #endif
 
+/* Init function - do not touch */
+void set_host_context(void);
+
 #endif // __KVM_GUEST_H__

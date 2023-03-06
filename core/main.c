@@ -72,6 +72,7 @@ int mbedtls_hardware_poll(void *data, unsigned char *entropy, size_t len,
 int early_setup(void)
 {
 	platform_early_setup();
+	set_host_context();
 
 	/* Exception vector */
 	__asm__ __volatile__("adr	x0, __hyp_vectors\n"
@@ -238,6 +239,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 		memcpy(&host->aes_ctx[init_index], &host->aes_ctx[0],
 		       sizeof(mbedtls_aes_context));
 	}
+	set_host_context();
 
 	gettimeofday(&tv, NULL);
 	LOG("HYP core %ld initialization time was %ldms\n",

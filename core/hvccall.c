@@ -88,15 +88,11 @@ static int sync_call(uint64_t cn)
 
 static int get_and_set_vmid(register_t a1, register_t a2)
 {
-	static spinlock_t vmid_lock;
 	uint32_t vmid;
 	int res;
 
-	spin_lock(&vmid_lock);
 	vmid = platform_get_next_vmid(a2);
 	res = guest_set_vmid((void *)a1, vmid);
-	spin_unlock(&vmid_lock);
-
 	if (res < 0)
 		return res;
 	return vmid;

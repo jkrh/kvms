@@ -96,6 +96,7 @@ extern uint64_t hyp_guest_enter(const struct user_pt_regs *regs);
 #define MPIDR_LEVEL_SHIFT(level) \
 	(((1 << level) >> 1) << MPIDR_LEVEL_BITS_SHIFT)
 
+static rwlock_t guest_index_lock;
 static uint16_t guest_index[PRODUCT_VMID_MAX] ALIGN(16);
 kvm_guest_t guests[MAX_VM] ALIGN(16);
 uint16_t last_guest_index ALIGN(16);
@@ -109,6 +110,16 @@ spinlock_t *get_guest_lock(uint32_t vmid)
 	if (!guest)
 		return NULL;
 	return &guest->hvc_lock;
+}
+
+void set_host_context(void)
+{
+	sys_context_t *host_ctxt;
+	uint16_t id;
+
+	id = smp_processor_id();
+	host_ctxt = &host->ctxt[id];
+	host_ctxt->vttbr_el2 = read_reg(VTTBR_EL2);
 }
 
 void lock_guest(kvm_guest_t *guest)
@@ -139,8 +150,6 @@ static bool guest_has_valid_runstate(kvm_guest_t *g)
 {
 	if (likely((g->state == GUEST_RUNNING) || (g->state == GUEST_INIT)))
 		return true;
-	if (g->vmid == INVALID_VMID)
-		return true;
 	return false;
 }
 
@@ -148,7 +157,7 @@ int load_host_s2(void)
 {
 	sys_context_t *host_ctxt;
 
-	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
+	host_ctxt = &host->ctxt[smp_processor_id()];
 	write_reg(VTCR_EL2, host_ctxt->vtcr_el2);
 	write_reg(VTTBR_EL2, host_ctxt->vttbr_el2);
 	speculative_at_isb();
@@ -161,14 +170,10 @@ int load_guest_s2(uint64_t vmid)
 	kvm_guest_t *guest;
 	sys_context_t *host_ctxt;
 
-	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
-
-	guest = &guests[guest_index[vmid]];
-	if (unlikely(!guest || !guest_has_valid_runstate(guest)))
-		return -ENOENT;
-
+	guest = get_guest(vmid);
+	host_ctxt = &host->ctxt[smp_processor_id()];
 	host_ctxt->vtcr_el2 = read_reg(VTCR_EL2);
-	host_ctxt->vttbr_el2 = read_reg(VTTBR_EL2);
+
 	write_reg(VTTBR_EL2, guest->ctxt[0].vttbr_el2);
 	speculative_at_isb();
 
@@ -387,9 +392,10 @@ kvm_guest_t *get_free_guest(uint64_t vmid)
 		return NULL;
 
 	vmid = array_index_nospec(vmid, PRODUCT_VMID_MAX);
+	spin_write_lock(&guest_index_lock);
 	if ((guest_index[vmid] != INVALID_GUEST) &&
 	    (vmid != 0))
-		return NULL;
+		goto out;
 
 	for (i = 0; i < MAX_VM; i++) {
 		if (guests[i].vmid == INVALID_VMID) {
@@ -408,26 +414,29 @@ kvm_guest_t *get_free_guest(uint64_t vmid)
 			last_guest_index = i + 1;
 	}
 
+out:
+	spin_write_unlock(&guest_index_lock);
 	return entry;
 }
 
 kvm_guest_t *get_guest(uint64_t vmid)
 {
-	kvm_guest_t *guest = NULL;
+	kvm_guest_t *guest;
 	uint16_t i;
 
 	if (vmid >= PRODUCT_VMID_MAX)
-		goto out;
+		return NULL;
 
 	vmid = array_index_nospec(vmid, PRODUCT_VMID_MAX);
+	spin_read_lock(&guest_index_lock);
 	i = guest_index[vmid];
 	if (i != INVALID_GUEST) {
 		guest = &guests[i];
 		if (guest->vmid != vmid)
 			guest = NULL;
-	}
-
-out:
+	} else
+		guest = NULL;
+	spin_read_unlock(&guest_index_lock);
 	return guest;
 }
 
@@ -896,10 +905,13 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	 * VMID zero at this point). Make sure we update the right one.
 	 */
 	vmid = array_index_nospec(vmid, PRODUCT_VMID_MAX);
+	spin_write_lock(&guest_index_lock);
 	guest = __get_guest_by_kvm(&kvm, &i);
 	if (guest == NULL) {
+		spin_write_unlock(&guest_index_lock);
 		ERROR("no such guest %p\n", kvm);
-		return -ENOENT;
+		res = -ENOENT;
+		goto out;
 	}
 
 	/*
@@ -907,8 +919,10 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	 * the index when VMID is zero i.e guest is being initialized.
 	 */
 	if (guest->vmid) {
+		spin_write_unlock(&guest_index_lock);
 		ERROR("VMID already set:%d new:vmid\n", guest->vmid, vmid);
-		return -EPERM;
+		res = -EPERM;
+		goto out;
 	}
 	guest_index[guest->vmid] = INVALID_GUEST;
 
@@ -916,22 +930,27 @@ int guest_set_vmid(void *kvm, uint64_t vmid)
 	guest->vmid = vmid;
 	c = guest->s2_tablepool.firstchunk;
 	if (c == GUEST_MEMCHUNKS_MAX) {
+		spin_write_unlock(&guest_index_lock);
 		ERROR("guest %p not initialized\n", kvm);
-		return -ENOENT;
+		res = -ENOENT;
+		goto out;
 	}
 	guest->mempool[c].owner_vmid = guest->vmid;
 
 	/* Guest index and vttbr */
 	guest_index[guest->vmid] = i;
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) | (vmid << 48));
+	spin_write_unlock(&guest_index_lock);
+
 	/* Start physical address tracking */
 	res = patrack_start(guest);
 	if (res) {
 		ERROR("patrack start failed %d\n", res);
-		return res;
+		goto out;
 	}
-
-	return platform_init_guest(guest->vmid);
+	res = platform_init_guest(guest->vmid);
+out:
+	return res;
 }
 
 /**
@@ -1856,7 +1875,6 @@ out:
 
 void host_inst_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *regs)
 {
-	kvm_guest_t *host = NULL;
 	uint64_t spsr_el2, elr_el2, paddr, sctlr_el1, esr_el2;
 
 	sctlr_el1 = read_reg(SCTLR_EL1);
@@ -1873,14 +1891,7 @@ void host_inst_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		goto out;
 	}
 
-	host = get_guest(vmid);
-	if (unlikely(!host)) {
-		ERROR("no running host with vmid %d\n", vmid);
-		goto out;
-	}
-
-	spin_lock(&host->hvc_lock);
-
+	lock_guest(host);
 	paddr = (uint64_t)virt_to_ipa((void *)far_el2);
 
 	ERROR("host prefetch violation for %p (%p), syndrome %p, pstate %p\n",
@@ -1888,7 +1899,7 @@ void host_inst_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	ERROR("exception was at host virtual address %p (%p)\n",
 	      elr_el2, virt_to_phys((void *)elr_el2));
 	print_regs(regs);
-	spin_unlock(&host->hvc_lock);
+	unlock_guest(host);
 
 	switch (spsr_el2 & 0xC) {
 	case 0x0:
