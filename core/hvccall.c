@@ -192,14 +192,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	 * Stage 1 and 2 host side mappings
 	 */
 	case HYP_HOST_MAP_STAGE1:
-		if (!a5)
-			guest = host;
-		else
-			guest = get_guest_by_kvm((void *)a5);
-		/*
-		 * This is a hyp mode mapping.
-		 * Validate the requested range for the host.
-		 */
 		if (is_locked(HOST_STAGE1_EXEC_LOCK) && (a4 & S1_PXN)) {
 			ERROR("EL2S1 exec lock is set: unable to map as exec\n");
 			res = -EPERM;
@@ -207,14 +199,8 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		}
 		res = guest_validate_range(host, a1, a2, a3);
 		if (!res)
-			res = mmap_range(guest, EL2_STAGE1, a1, a2, a3, a4,
+			res = mmap_range(host, EL2_STAGE1, a1, a2, a3, a4,
 				 KERNEL_MATTR);
-		/*
-		 * kern_hyp_va: MSB WATCH
-		 *
-		LOG("HYP_HOST_MAP_STAGE1: %ld: 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx\n",
-		     res, a1, a2, a3, a4, a5);
-		 */
 		break;
 	case HYP_HOST_UNMAP_STAGE1:
 		/*
