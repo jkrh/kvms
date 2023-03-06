@@ -338,8 +338,8 @@ el1_irq:
 guest_hvc_trap:
 	ldp	x0, x1, [sp, #(8 * 0)]
 	bl	is_apicall
-	cmp	x0, #0
-	bne	6f
+	cmp	w0, #0
+	bge	6f
 	ldp	x0, x1, [sp, #(8 * 0)]
 	load_all_regs
 	bl	psci_reg

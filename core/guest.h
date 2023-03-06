@@ -112,7 +112,6 @@ struct share_tracker {
 };
 
 struct kvm_guest {
-	spinlock_t hvc_lock;
 	uint32_t vmid;
 	guest_state_t state;
 	kernel_func_t *cpu_map[NUM_VCPUS];
@@ -148,6 +147,8 @@ struct kvm_guest {
 #ifdef EXITLOG
 	struct guest_exitlog exitlog;
 #endif
+	bool locked_call;
+	spinlock_t hvc_lock;
 };
 
 typedef struct kvm_guest kvm_guest_t;
@@ -166,6 +167,22 @@ typedef enum {
  * @return lock or NULL if no such guest exists.
  */
 spinlock_t *get_guest_lock(uint32_t vmid);
+
+/**
+ * Lock a given guest for modifications
+ *
+ * @param guest to lock
+ * @return void
+ */
+void lock_guest(kvm_guest_t *guest);
+
+/**
+ * Unlock a given guest, see above
+ *
+ * @param guest to lock
+ * @return void
+ */
+void unlock_guest(kvm_guest_t *guest);
 
 /**
  * Build an array of existing guest mappings
@@ -209,6 +226,14 @@ int clear_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
  * @return negative error code in failure, 1 if it is, 0 otherwise
  */
 int is_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
+
+/*
+ * Query if given area is a share in any guest.
+ *
+ * @paran paddr, physical address to query
+ * @return negative error code in failure, 1 if it is, 0 otherwise
+ */
+int is_any_share(uint64_t paddr);
 
 /**
  * Initialize the guests and guest lookup array.

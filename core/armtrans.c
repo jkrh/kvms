@@ -40,6 +40,8 @@
 #define PLATFORM_VTCR_EL2 0x600000UL
 #endif
 
+extern spinlock_t *host_lock;
+extern kvm_guest_t *host;
 struct tdinfo_t tdinfo;
 static uint64_t kmaidx2pmaidx[8];
 static bool need_hyp_s1_init = true;
@@ -197,13 +199,8 @@ block_type:
 uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		 uint64_t **ptep)
 {
-	kvm_guest_t *host;
 	struct ptable *tbl;
 	uint64_t addr, ipa, lvl;
-
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host?\n");
 
 	if (guest == host) {
 		host->EL1S1_1_pgd = (struct ptable *)(read_reg(TTBR1_EL1) & TTBR_BADDR_MASK);
@@ -244,18 +241,12 @@ uint64_t pt_walk(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		addr = ~0UL;
 		break;
 	}
-
 	return addr;
 }
 
 uint64_t pt_walk_el2(uint64_t vaddr, uint64_t **ptep)
 {
-	kvm_guest_t *host;
 	uint64_t lvl;
-
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host?\n");
 
 	lvl = host->table_levels_el2s1;
 	return __pt_walk(host->EL2S1_pgd, vaddr, ptep, &lvl, NULL);
@@ -287,28 +278,23 @@ static int lock_kernel_page(kvm_guest_t *guest, uint64_t ipa)
 int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 {
 	uint64_t ipa, noff, end, levels, ovaddr = vaddr;
-	kvm_guest_t *guest = NULL;
 	struct ptable *nl;
 
 	LOG("Area lock requested for kernel %p, size %lu bytes\n", vaddr, size);
 
-	guest = get_guest(HOST_VMID);
-	if (!guest)
-		panic("no host?\n");
-
 	/*
 	 * Don't go changing anything that's not there.
 	 */
-	ipa = pt_walk(guest, STAGE2, vaddr, 0);
+	ipa = pt_walk(host, STAGE2, vaddr, 0);
 	if (ipa == ~0UL) {
 		ERROR("Host kernel %p does not appear to be mapped\n", vaddr);
 		return -EINVAL;
 	}
-	nl = guest->EL1S2_pgd;
-	levels = guest->table_levels_el1s2;
+	nl = host->EL1S2_pgd;
+	levels = host->table_levels_el1s2;
 
 	if (depth & 0x1)
-		lock_kernel_page(guest, (uint64_t)nl);
+		lock_kernel_page(host, (uint64_t)nl);
 
 	vaddr = ROUND_UP(vaddr, SZ_1M * 2);
 	size -= ovaddr - vaddr;
@@ -326,7 +312,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 			if (!nl)
 				goto cont;
 			if (depth & 0x2)
-				lock_kernel_page(guest, (uint64_t)nl);
+				lock_kernel_page(host, (uint64_t)nl);
 		}
 
 		if (levels >= 3) {
@@ -339,7 +325,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 			if (!nl)
 				goto cont;
 			if (depth & 0x4)
-				lock_kernel_page(guest, (uint64_t)nl);
+				lock_kernel_page(host, (uint64_t)nl);
 		}
 
 		noff = (vaddr & TABLE_2_MASK) >> L2_SHIFT;
@@ -351,7 +337,7 @@ int lock_host_kernel_area(uint64_t vaddr, size_t size, uint64_t depth)
 		if (!nl)
 			goto cont;
 		if (depth & 0x8)
-			lock_kernel_page(guest, (uint64_t)nl);
+			lock_kernel_page(host, (uint64_t)nl);
 
 cont:
 		vaddr += 0x1000;
@@ -889,25 +875,24 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	       uint64_t paddr, size_t length, uint64_t prot, uint64_t type)
 {
 	uint64_t attr, nattr, *pte, pgd_levels;
-	kvm_guest_t *host;
-	int cid;
+	int cid, res;
 
 	if (!guest || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR) ||
 	   (length > (SZ_1G * 4)))
 		return -EINVAL;
 
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host\n");
-
 	cid = smp_processor_id();
-
 	_zeromem16(&block[cid], sizeof(mblockinfo_t));
+
+	if (!guest->locked_call)
+		spin_lock(&guest->hvc_lock);
 
 	switch (stage) {
 	case STAGE2:
-		if (!guest->EL1S2_pgd)
-			return -ENOENT;
+		if (!guest->EL1S2_pgd) {
+			res = -ENOENT;
+			goto out_unlock;
+		}
 
 		block[cid].guest = guest;
 		block[cid].pgd = guest->EL1S2_pgd;
@@ -926,8 +911,10 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		 * Unmap and 1:1 mapping allowed for the host so the blinded
 		 * VMs also run with the locks on.
 		 */
-		if ((vaddr != paddr) && (type != INVALID_MEMORY))
-			return -EINVAL;
+		if ((vaddr != paddr) && (type != INVALID_MEMORY)) {
+			res = -EINVAL;
+			goto out_unlock;
+		}
 
 		if (!(is_locked(HOST_STAGE2_LOCK)))
 			break;
@@ -936,23 +923,30 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		 * Reducing permissions allowed for locked kernel stage2
 		 * mapping. Allow remap for one page at a time.
 		 */
-		if (length != PAGE_SIZE)
-			return -EPERM;
+		if (length != PAGE_SIZE) {
+			res = -EPERM;
+			goto out_unlock;
+		}
 
-		if (__pt_walk(block[cid].pgd, vaddr, &pte, 0, NULL) == ~0UL)
-			return -EPERM;
+		if (__pt_walk(block[cid].pgd, vaddr, &pte, 0, NULL) == ~0UL) {
+			res = -EPERM;
+			goto out_unlock;
+		}
 
 		attr = (*pte &
 			(PROT_MASK_STAGE2 | TYPE_MASK_STAGE2));
 		nattr = (type | prot);
 
 		/* Remap with same parameters denied */
-		if (nattr == attr)
-			return -EPERM;
+		if (nattr == attr) {
+			res = -EPERM;
+			goto out_unlock;
+		}
 
-		if (!has_less_s2_perms(nattr, attr))
-			return -EPERM;
-
+		if (!has_less_s2_perms(nattr, attr)) {
+			res = -EPERM;
+			goto out_unlock;
+		}
 		break;
 	case EL2_STAGE1:
 		/* Page global directory base address for EL2 is owned by host */
@@ -965,16 +959,20 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		}
 		prot &= PROT_MASK_STAGE1;
 
-		if (is_locked(HOST_STAGE1_LOCK))
-			return -EPERM;
+		if (is_locked(HOST_STAGE1_LOCK)) {
+			res = -EPERM;
+			goto out_unlock;
+		}
 
 		block[cid].tpool = &host->el2_tablepool;
 		pgd_levels = block[cid].guest->table_levels_el2s1;
 
 		break;
 	case PATRACK_STAGE1:
-		if (!guest->patrack.EL1S1_0_pgd)
-			return -ENOENT;
+		if (!guest->patrack.EL1S1_0_pgd) {
+			res = -ENOENT;
+			goto out_unlock;
+		}
 
 		block[cid].guest = guest;
 		block[cid].pgd = guest->patrack.EL1S1_0_pgd;
@@ -982,37 +980,46 @@ int mmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		pgd_levels = block[cid].guest->table_levels_el1s1;
 		break;
 	default:
-		return -EINVAL;
+		res = -EINVAL;
+		goto out_unlock;
+		break;
 	}
 
-	if (!block[cid].pgd || !block[cid].guest || (length % PAGE_SIZE))
-		return -EINVAL;
+	if (!block[cid].pgd || !block[cid].guest || (length % PAGE_SIZE)) {
+		res = -EINVAL;
+		goto out_unlock;
+	}
 
 	block[cid].stage = stage;
+	res = __block_remap(vaddr, length, &block[cid], paddr, prot, type,
+			    pgd_levels);
 
-	return __block_remap(vaddr, length, &block[cid], paddr, prot, type,
-			     pgd_levels);
+out_unlock:
+	if (!guest->locked_call)
+		spin_unlock(&guest->hvc_lock);
+
+	return res;
 }
 
 int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		size_t length)
 {
-	kvm_guest_t *host;
 	uint64_t pgd_levels;
-	int cid;
+	int cid, res;
 
 	if (!guest || (vaddr > MAX_VADDR) || (length > (SZ_1G * 4)))
 		return -EINVAL;
 
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host\n");
+	if (!guest->locked_call)
+		spin_lock(&guest->hvc_lock);
 
 	cid = smp_processor_id();
 	switch (stage) {
 	case STAGE2:
-		if (is_locked(HOST_STAGE2_LOCK))
-			return -EPERM;
+		if (is_locked(HOST_STAGE2_LOCK)) {
+			res = -EPERM;
+			goto out_unlock;
+		}
 
 		block[cid].guest = guest;
 		block[cid].pgd = guest->EL1S2_pgd;
@@ -1020,17 +1027,20 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		pgd_levels = block[cid].guest->table_levels_el1s2;
 		break;
 	case EL2_STAGE1:
-		if (is_locked(HOST_STAGE1_LOCK))
-			return -EPERM;
-
+		if (is_locked(HOST_STAGE1_LOCK)) {
+			res = -EPERM;
+			goto out_unlock;
+		}
 		block[cid].guest = host;
 		block[cid].pgd = host->EL2S1_pgd;
 		block[cid].tpool = &host->el2_tablepool;
 		pgd_levels = block[cid].guest->table_levels_el2s1;
 		break;
 	case PATRACK_STAGE1:
-		if (!guest->patrack.EL1S1_0_pgd)
-			return -ENOENT;
+		if (!guest->patrack.EL1S1_0_pgd) {
+			res = -ENOENT;
+			goto out_unlock;
+		}
 
 		block[cid].guest = guest;
 		block[cid].pgd = guest->patrack.EL1S1_0_pgd;
@@ -1038,16 +1048,23 @@ int unmap_range(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 		pgd_levels = block[cid].guest->table_levels_el1s1;
 		break;
 	default:
-		return -EINVAL;
+		res = -EINVAL;
+		goto out_unlock;
 	}
 
-	if (!block[cid].pgd || !block[cid].guest || (length % PAGE_SIZE))
-		return -EINVAL;
+	if (!block[cid].pgd || !block[cid].guest || (length % PAGE_SIZE)) {
+		res = -EINVAL;
+		goto out_unlock;
+	}
 
 	block[cid].stage = stage;
+	res = __block_remap(vaddr, length, &block[cid], 0, 0, INVALID_MEMORY,
+			    pgd_levels);
 
-	return __block_remap(vaddr, length, &block[cid], 0, 0, INVALID_MEMORY,
-			     pgd_levels);
+out_unlock:
+	if (!guest->locked_call)
+		spin_unlock(&guest->hvc_lock);
+	return res;
 }
 
 int user_copy(uint64_t dest, uint64_t src, uint64_t count,

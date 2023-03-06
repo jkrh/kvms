@@ -33,6 +33,8 @@
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
 
+extern spinlock_t *host_lock;
+extern kvm_guest_t *host;
 extern struct mbedtls_entropy_context mbedtls_entropy_ctx;
 
 #define CHECKRES(x) if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;
@@ -109,6 +111,18 @@ spinlock_t *get_guest_lock(uint32_t vmid)
 	return &guest->hvc_lock;
 }
 
+void lock_guest(kvm_guest_t *guest)
+{
+	spin_lock(&guest->hvc_lock);
+	guest->locked_call = true;
+}
+
+void unlock_guest(kvm_guest_t *guest)
+{
+	guest->locked_call = false;
+	spin_unlock(&guest->hvc_lock);
+}
+
 void format_guest(int i)
 {
 	guests[i].vmid = INVALID_VMID;
@@ -150,10 +164,8 @@ int load_guest_s2(uint64_t vmid)
 	host_ctxt = &guests[guest_index[HOST_VMID]].ctxt[smp_processor_id()];
 
 	guest = &guests[guest_index[vmid]];
-	if (unlikely(!guest || !guest_has_valid_runstate(guest))) {
-		ERROR("no running guest with vmid %d\n", vmid);
+	if (unlikely(!guest || !guest_has_valid_runstate(guest)))
 		return -ENOENT;
-	}
 
 	host_ctxt->vtcr_el2 = read_reg(VTCR_EL2);
 	host_ctxt->vttbr_el2 = read_reg(VTTBR_EL2);
@@ -567,15 +579,10 @@ int __guest_memchunk_add(kvm_guest_t *guest, guest_memchunk_t *chunk)
 
 int guest_memchunk_add(void *kvm, uint64_t s1addr, uint64_t paddr, uint64_t len)
 {
-	kvm_guest_t *host;
 	struct ptable *s1_pgd;
 	uint64_t tpaddr;
 	guest_memchunk_t chunk;
 	int res;
-
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host\n");
 
 	if ((len < PAGE_SIZE) || (len & (PAGE_SIZE - 1)) ||
 	    (paddr & (PAGE_SIZE - 1)))
@@ -814,6 +821,10 @@ int clear_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 
 int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 {
+	if (guest->vmid == HOST_VMID) {
+		ERROR("setting shares for the host is not supported\n");
+		return -EINVAL;
+	}
 	return patrack_gpa_set_share(guest, gpa, len);
 }
 
@@ -1022,7 +1033,6 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	uint64_t newtype, maptype, mapprot, mc = 0;
 	kvm_memslot *slot1;
 	kvm_memslot *slot2;
-	kvm_guest_t *host;
 	int res;
 
 	if (!guest || !vaddr || !paddr || (len % PAGE_SIZE)) {
@@ -1037,10 +1047,6 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	if (guest->state > GUEST_RUNNING)
 		return -EFAULT;
 
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host\n");
-
 	/*
 	 * Permission(s) are integrity verified, so always disable the
 	 * dirty state
@@ -1052,11 +1058,13 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	slot2 = gfn_to_memslot(guest, addr_to_fn(end));
 	if (!slot1) {
 		ERROR("no slot for 0x%llx\n", vaddr);
-		return -EINVAL;
+		res = -EINVAL;
+		goto out_error;
 	}
  	if ((slot1 != slot2) || (slot1->flags & KVM_MEM_READONLY)) {
  		ERROR("invalid slot %p, %p, 0x%lx\n", slot1, slot2, slot1->flags);
-		return -EINVAL;
+		res = -EINVAL;
+		goto out_error;
 	}
 	newtype = (prot & TYPE_MASK_STAGE2);
 
@@ -1066,7 +1074,10 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	page_vaddr = vaddr;
 	page_paddr = paddr;
 	while (page_vaddr < (vaddr + len)) {
-		pte = NULL;
+		/*
+		 * Note that this is a lockless walk. In the worst case we will
+		 * do this map twice.
+		 */
 		taddr = pt_walk(guest, STAGE2, page_vaddr, &pte);
 		if (!pte || (taddr == ~0UL))
 			goto new_map;
@@ -1114,9 +1125,10 @@ cont:
 	 * hinder the guest progress by remapping again and doing
 	 * the full break-before-make cycle.
 	 */
-	if (len == (mc * PAGE_SIZE))
-		return 0;
-
+	if (len == (mc * PAGE_SIZE)) {
+		res = 0;
+		goto out_error;
+	}
 	/*
 	 * Attach the region to the guest
 	 */
@@ -1131,7 +1143,6 @@ cont:
 	res = patrack_mmap(guest, paddr, vaddr, len);
 	if (res)
 		panic("patrack_mmap failed with error %d\n", res);
-
 	/*
 	 * If it's a normal region that is mapped on the host, remove it.
 	 * If it's a share, let it be but make sure the share area does
@@ -1157,14 +1168,9 @@ out_error:
 
 int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t sec)
 {
-	kvm_guest_t *host;
 	uint64_t paddr, map_addr, range_end, pc = 0;
 	uint64_t *pte;
 	int res = 0;
-
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host\n");
 
 	range_end = vaddr + len;
 	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr)) {
@@ -1211,6 +1217,10 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 
 	map_addr = vaddr;
 	while (map_addr < range_end) {
+		/*
+		 * Note that this is a lockless walk. In the worst case we will
+		 * unmap multiple times.
+		 */
 		paddr = pt_walk(guest, STAGE2, map_addr, &pte);
 		if (paddr == ~0UL)
 			goto do_loop;
@@ -1240,7 +1250,7 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 				if (res) {
 					ERROR("add_range_info(%u): %lx:%d\n",
 					      guest->vmid, map_addr, res);
-					return res;
+					goto out_error;
 				}
 			}
 #endif
@@ -1291,15 +1301,10 @@ out_error:
 int free_guest(void *kvm)
 {
 	kvm_guest_t *guest = NULL;
-	kvm_guest_t *host = NULL;
 	int i, res, gi;
 
 	if (!kvm)
 		return -EINVAL;
-
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host\n");
 
 	guest = __get_guest_by_kvm(&kvm, NULL);
 	if (guest == NULL)
@@ -1308,12 +1313,17 @@ int free_guest(void *kvm)
 	if (guest->EL1S2_pgd == host->EL1S2_pgd)
 		panic("not host pgd\n");
 
-	if (guest->vmid == HOST_VMID)
+	if (guest->vmid <= GUEST_VMID_START)
 		return 0;
+
+	guest->state = GUEST_STOPPED;
+	dsb(); isb();
+
 	kic_free(guest);
 	res = restore_host_mappings(guest);
 	if (res)
-		return res;
+		panic("restore_host_mappings failed for guest %u\n",
+		      guest->vmid);
 
 	res = patrack_stop(guest);
 	if (res)
@@ -1342,9 +1352,7 @@ int free_guest(void *kvm)
 			}
 		}
 	}
-
 	guest->state = GUEST_INVALID;
-
 	gi = guest->index;
 	memset(guest, 0, sizeof(*guest));
 	format_guest(gi);
@@ -1538,7 +1546,7 @@ out_no_entry:
 int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 			 size_t len)
 {
-	kvm_guest_t *host, *powner;
+	kvm_guest_t *powner;
 	uint64_t tmp;
 	int ret;
 
@@ -1569,8 +1577,6 @@ int guest_validate_range(kvm_guest_t *guest, uint64_t addr, uint64_t paddr,
 	/*
 	 * Check that we actually own this area.
 	 */
-	host = get_guest(HOST_VMID);
-
 	tmp = paddr;
 	while (tmp < (paddr + len)) {
 		powner = owner_of(tmp);
@@ -1742,21 +1748,31 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr,
 
 bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *regs)
 {
-	kvm_guest_t *guest, *host;
+	kvm_guest_t *guest;
 	uint64_t spsr_el2, elr_el2, paddr;
 	bool res = false, move_to_host = false;
+	uint64_t ipa, haddr;
 
 	if (vmid != HOST_VMID)
 		panic("host_data_abort for non-host");
 
-	host = get_guest(vmid);
-	spin_lock(&host->hvc_lock);
-
+	lock_guest(host);
 	paddr = (uint64_t)virt_to_ipa((void *)far_el2);
-	/* Shared page should never abort at host context. */
-	if (is_any_share(paddr))
-		panic("host should not have shares\n");
 
+	if (is_any_share(paddr)) {
+		haddr = pt_walk(host, STAGE2, paddr, NULL);
+		if (haddr != ~0UL) {
+			LOG("already mapped host share trap, reverting\n");
+			unlock_guest(host);
+			return true;
+		} else {
+			guest = owner_of(paddr);
+			ipa = patrack_hpa2gpa(guest, paddr);
+			panic("guest %u ipa 0x%lx phys 0x%lx marked as share "
+			      "trapping in the host, host walk results 0x%lx\n",
+			      guest->vmid, ipa, paddr, haddr);
+		}
+	}
 	guest = get_guest_by_s1pgd((struct ptable *)(ttbr0_el1 &
 				   TTBR_BADDR_MASK));
 	spsr_el2 = read_reg(SPSR_EL2);
@@ -1834,8 +1850,7 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		break;
 	}
 out:
-	spin_unlock(&host->hvc_lock);
-
+	unlock_guest(host);
 	return res;
 }
 

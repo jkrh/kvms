@@ -34,6 +34,7 @@
 #define HYP_VERSION "HYP version " XSTR(GHEAD) "\n"
 
 spinlock_t *host_lock;
+kvm_guest_t *host;
 struct mbedtls_entropy_context mbedtls_entropy_ctx;
 struct mbedtls_ctr_drbg_context ctr_drbg;
 uint8_t crypto_buf[PAGE_SIZE*4];
@@ -82,7 +83,6 @@ int early_setup(void)
 
 int crypto_init(void)
 {
-	kvm_guest_t *host;
 	platform_crypto_ctx_t crypto_ctx;
 	uint8_t key[32];
 	int res;
@@ -104,10 +104,6 @@ int crypto_init(void)
 	/*
 	 * Host AES encryption keys
 	 */
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host?\n");
-
 	mbedtls_aes_init(&host->aes_ctx[0]);
 	res = mbedtls_ctr_drbg_random(&ctr_drbg, key, 32);
 	if (res != MBEDTLS_EXIT_SUCCESS)
@@ -170,11 +166,8 @@ void enter_el1_warm(kernel_func_t *entry_addr)
 
 void hyp_warm_entry(uint64_t core_index)
 {
-	kvm_guest_t *host;
-
 	early_setup();
 	enable_mmu();
-	host = get_guest(HOST_VMID);
 
 	core_index = smp_processor_id();
 	enter_el1_warm(host->cpu_map[core_index]);
@@ -183,7 +176,6 @@ void hyp_warm_entry(uint64_t core_index)
 int main(int argc UNUSED, char **argv UNUSED)
 {
 	struct timeval tv ALIGN(16);
-	kvm_guest_t *host;
 	int res;
 
 	__asm__ __volatile__("str	x26, %[__lr_addr]\n"
@@ -243,9 +235,6 @@ int main(int argc UNUSED, char **argv UNUSED)
 		host_lock = get_guest_lock(HOST_VMID);
 		init_kvm_vector();
 	} else {
-		host = get_guest(HOST_VMID);
-		if (!host)
-			panic("no host\n");
 		memcpy(&host->aes_ctx[init_index], &host->aes_ctx[0],
 		       sizeof(mbedtls_aes_context));
 	}

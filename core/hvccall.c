@@ -35,7 +35,6 @@
 #define CALL_TYPE_KVMCALL	0
 #define CALL_TYPE_HOSTCALL	1
 #define CALL_TYPE_GUESTCALL	2
-#define CALL_TYPE_MAPCALL	4
 
 typedef int hyp_func_t(void *, ...);
 typedef int kvm_func_t(uint64_t, ...);
@@ -45,23 +44,62 @@ extern uint64_t __kvm_host_data[PLATFORM_CORE_COUNT];
 extern uint64_t hyp_text_start;
 extern uint64_t hyp_text_end;
 extern bool apiwarned;
+extern kvm_guest_t *host;
 
 hyp_func_t *__fpsimd_guest_restore DATA;
-spinlock_t crash_lock;
+static spinlock_t crash_lock;
 
 int is_apicall(uint64_t cn)
 {
-	if ((cn == HYP_HOST_SWAP_PAGE) ||
-	    (cn == HYP_HOST_RESTORE_SWAP_PAGE) ||
-	    (cn == HYP_GUEST_UNMAP_STAGE2))
-		return CALL_TYPE_MAPCALL;
-	if (unlikely((cn >= HYP_FIRST_GUESTCALL) &&
-		     (cn <= HYP_LAST_GUESTCALL)))
-		return CALL_TYPE_GUESTCALL;
+	uint64_t hcn;
+
 	if (unlikely((cn >= HYP_FIRST_HOSTCALL) &&
 		     (cn <= HYP_LAST_HOSTCALL)))
 		return CALL_TYPE_HOSTCALL;
-	return CALL_TYPE_KVMCALL;
+
+	if (is_locked(HOST_KVM_CALL_LOCK))
+		return -EPERM;
+
+	hcn = (uint64_t)kern_hyp_va((void *)cn);
+	if (likely((hcn >= hyp_text_start) && (hcn < hyp_text_end)))
+		return CALL_TYPE_KVMCALL;
+
+	if (unlikely((cn >= HYP_FIRST_GUESTCALL) &&
+		     (cn <= HYP_LAST_GUESTCALL)))
+		return CALL_TYPE_GUESTCALL;
+
+	return -EINVAL;
+}
+
+static int sync_call(uint64_t cn)
+{
+	switch(cn) {
+	case HYP_GUEST_MAP_STAGE2:
+	case HYP_GUEST_UNMAP_STAGE2:
+	case HYP_HOST_MAP_STAGE1:
+	case HYP_HOST_PREPARE_STAGE2:
+	case HYP_HOST_SWAP_PAGE:
+	case HYP_HOST_RESTORE_SWAP_PAGE:
+	case HYP_HOST_GET_VMID:
+		return 0;
+	}
+	return 1;
+}
+
+static int get_and_set_vmid(register_t a1, register_t a2)
+{
+	static spinlock_t vmid_lock;
+	uint32_t vmid;
+	int res;
+
+	spin_lock(&vmid_lock);
+	vmid = platform_get_next_vmid(a2);
+	res = guest_set_vmid((void *)a1, vmid);
+	spin_unlock(&vmid_lock);
+
+	if (res < 0)
+		return res;
+	return vmid;
 }
 
 int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
@@ -69,7 +107,7 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		      register_t a8, register_t a9)
 {
 	platform_crypto_ctx_t crypto_ctx;
-	kvm_guest_t *guest, *host;
+	kvm_guest_t *guest;
 	int64_t res = -EINVAL;
 
 	do_debugstop();
@@ -78,12 +116,8 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	if (unlikely(guest == NULL))
 		return -EINVAL;
 
-	host = get_guest(HOST_VMID);
-	if (!host)
-		panic("no host\n");
-
 	load_host_s2();
-	spin_lock(&host->hvc_lock);
+	lock_guest(guest);
 
 	switch (cn) {
 	case HYP_SET_GUEST_MEMORY_BLINDED:
@@ -148,8 +182,7 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	default:
 		break;
 	}
-
-	spin_unlock(&host->hvc_lock);
+	unlock_guest(guest);
 	load_guest_s2(guest->vmid);
 
 	return res;
@@ -159,38 +192,31 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		register_t a4, register_t a5, register_t a6, register_t a7,
 		register_t a8, register_t a9)
 {
-	kvm_guest_t *guest = NULL, *host = NULL;
+	kvm_guest_t *guest = NULL;
 	platform_crypto_ctx_t crypto_ctx;
 	struct hyp_extension_ops **eop;
 	int64_t res = -EINVAL;
 	hyp_func_t *func;
 	uint32_t vmid;
-	int ct;
+	int ct, sync = 0;
 
 	do_debugstop();
 
 	ct = is_apicall(cn);
-	if (unlikely((ct == CALL_TYPE_GUESTCALL) && (is_locked(HOST_KVM_CALL_LOCK))))
-		return -EPERM;
+	if (ct < 0)
+		return ct;
 
 	vmid = get_current_vmid();
 	if (unlikely(vmid != HOST_VMID))
 		return guest_hvccall(cn, a1, a2, a3, a4, a5, a6, a7, a8, a9);
 
-	host = get_guest(HOST_VMID);
-	switch (ct) {
-	case CALL_TYPE_GUESTCALL:
-	case CALL_TYPE_HOSTCALL:
-		spin_lock(&host->hvc_lock);
-		break;
-	default:
-		break;
+	if (ct != CALL_TYPE_KVMCALL) {
+		sync = sync_call(cn);
+		if (sync)
+			lock_guest(host);
 	}
 
 	switch (cn) {
-	/*
-	 * Stage 1 and 2 host side mappings
-	 */
 	case HYP_HOST_MAP_STAGE1:
 		if (is_locked(HOST_STAGE1_EXEC_LOCK) && (a4 & S1_PXN)) {
 			ERROR("EL2S1 exec lock is set: unable to map as exec\n");
@@ -205,17 +231,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	case HYP_HOST_UNMAP_STAGE1:
 		/*
 		 * We currently do automatic guest residue cleaning from the
-		 * EL2, so this function is obsolete. Leaving the code here
-		 * anyway should the need for it arise later on.
-
-		if (!a3)
-			guest = host;
-		else
-			guest = get_guest_by_kvm((void *)a3);
-		 *
-		res = guest_validate_range(host, a1, a1, a2);
-		if (!res)
-			res = unmap_range(guest, EL2_STAGE1, a1, a2);
+		 * EL2, so this function is obsolete.
 		 */
 		res = 0;
 		break;
@@ -239,7 +255,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = guest_validate_range(host, a1, a2, a3);
 		if (!res)
 			res = mmap_range(host, STAGE2, a1, a2, a3, a4,
-				 KEEP_MATTR);
+					 KEEP_MATTR);
 		break;
 	case HYP_HOST_MAP_STAGE2:
 		res = guest_validate_range(host, a1, a2, a3);
@@ -247,7 +263,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 			if (a5)
 				platform_add_denyrange(a2, a3);
 			res = mmap_range(host, STAGE2, a1, a2, a3, a4,
-				 KERNEL_MATTR);
+					 KERNEL_MATTR);
 		}
 		break;
 	case HYP_HOST_BOOTSTEP:
@@ -255,8 +271,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		res = 0;
 		break;
 	case HYP_HOST_GET_VMID:
-		res = platform_get_next_vmid(a2);
-		guest_set_vmid((void *)a1, res);
+		res = get_and_set_vmid(a1, a2);
 		break;
 	case HYP_HOST_SET_LOCKFLAGS:
 		res = set_lockflags(a1, a2, a3, a4);
@@ -279,9 +294,9 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 		break;
 	case HYP_SET_HYP_TXT:
 		if (is_locked(HOST_STAGE1_EXEC_LOCK)) {
-			ERROR("Hyp text already set\n");
+			ERROR("hyp text already set\n");
 			res = -EPERM;
-			break;
+			goto out;
 		}
 		hyp_text_start = (uint64_t)kern_hyp_va((void *)a1);
 		hyp_text_end = (uint64_t)kern_hyp_va((void *)a2);
@@ -412,7 +427,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 					  (size_t)a3, (uint64_t)a4);
 		break;
 	/*
-	 * Misc calls, grab lock if you need it
+	 * Misc calls
 	 */
 	case HYP_READ_LOG:
 		res = read_log();
@@ -453,15 +468,8 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	}
 
 out:
-	switch (ct) {
-	case CALL_TYPE_GUESTCALL:
-	case CALL_TYPE_HOSTCALL:
-		spin_unlock(&host->hvc_lock);
-		break;
-	default:
-		break;
-	}
-
+	if ((ct != CALL_TYPE_KVMCALL) && sync)
+		unlock_guest(host);
 	return res;
 }
 

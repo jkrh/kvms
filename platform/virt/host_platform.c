@@ -240,7 +240,7 @@ uint32_t platform_get_next_vmid(uint32_t next_vmid)
 	int i;
 	kvm_guest_t *guest;
 
-	if (next_vmid < GUEST_VMID_START)
+	if ((next_vmid < GUEST_VMID_START) || (next_vmid == PRODUCT_VMID_MAX))
 		next_vmid = GUEST_VMID_START;
 
 	for (i = next_vmid; i < PRODUCT_VMID_MAX; i++) {

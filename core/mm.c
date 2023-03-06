@@ -348,13 +348,10 @@ int encrypt_guest_page(void *g, uint64_t ipa, uint64_t addr, uint64_t prot)
 	pd = get_range_info(guest, ipa);
 	if (pd) {
 		spin_read_lock(&pd->el);
-		if (pd->nonce) {
-			ERROR("page 0x%lx already encrypted\n", ipa);
-			res = -EEXIST;
-		}
+		if (pd->nonce)
+			LOG("page 0x%lx already encrypted\n", ipa);
 		spin_read_unlock(&pd->el);
-		if (res)
-			goto out_error;
+		goto out_error;
 	}
 
 	/*
@@ -489,10 +486,15 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		return 0;
 	}
 
+	lock_guest(host);
 	while (gpap < (gpa + len)) {
 		/*
 		 * Unmap scattered ranges from host page by page. Guest stage 2 mapping
 		 * must be validated and created before entering this functionality.
+		 *
+		 * The guest lock is taken in the guest hvc trap, so the walk is
+		 * safe. Host change is secured similarly by the host hvc lock
+		 * taken inside the unmap_range().
 		 */
 		phys = pt_walk(guest, STAGE2, gpap, NULL);
 		if (phys == ~0UL)
@@ -504,6 +506,7 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 cont:
 		gpap += PAGE_SIZE;
 	}
+	unlock_guest(host);
 
 	return 0;
 }
@@ -568,10 +571,15 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		goto out;
 	}
 
+	lock_guest(host);
 	while (gpap < (gpa + len)) {
 		/*
 		 * Restore scattered ranges page by page. Guest stage 2 mapping
 		 * must be maintained until this call has been completed.
+		 *
+		 * The guest lock is taken in the guest hvc trap, so the walk is
+		 * safe. Host change is secured similarly by the host hvc lock
+		 * taken inside the mmap_range().
 		 */
 		phys = pt_walk(guest, STAGE2, gpap, NULL);
 		if (phys == ~0UL)
@@ -586,6 +594,8 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 cont:
 		gpap += PAGE_SIZE;
 	}
+	unlock_guest(host);
+
 out:
 	return res;
 }
