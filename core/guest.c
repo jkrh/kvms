@@ -858,33 +858,69 @@ kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 	return guest;
 }
 
+/**
+ * Update guest structure with the VMID used in VM runtime.
+ * Assumes global guest lock being held when called.
+ *
+ * @param kvm the kernel KVM structure pointer.
+ * @param vmid the runtime VMID.
+ * @return zero on success or negative error code on failure.
+ */
 int guest_set_vmid(void *kvm, uint64_t vmid)
 {
 	kvm_guest_t *guest = NULL;
-	int i, res = -ENOENT;
+	int i, res;
 	uint16_t c;
 
-	if (vmid < GUEST_VMID_START) {
-		ERROR("invalid vmid %u\n", vmid);
-		return res;
+	if (!vmid || vmid < GUEST_VMID_START) {
+		ERROR("invalid VMID %u\n", vmid);
+		return -EINVAL;
 	}
+
+	/*
+	 * VMID is updated for the actual KVM structure which exists
+	 * during VM lifetime. The KVM structure used to probe
+	 * the underlying HW capabilities during initialization is
+	 * destroyed at some point of time (both of the VMs would have
+	 * VMID zero at this point). Make sure we update the right one.
+	 */
 	vmid = array_index_nospec(vmid, PRODUCT_VMID_MAX);
 	guest = __get_guest_by_kvm(&kvm, &i);
-	if (guest != NULL) {
-		guest_index[guest->vmid] = INVALID_GUEST;
-		/* Update pgd owner */
-		c = guest->s2_tablepool.firstchunk;
-		if (c != GUEST_MEMCHUNKS_MAX)
-			guest->mempool[c].owner_vmid = vmid;
-		guest->vmid = vmid;
-		guest_index[vmid] = i;
-		guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) | (vmid << 48));
-		res = patrack_start(guest);
+	if (guest == NULL) {
+		ERROR("no such guest %p\n", kvm);
+		return -ENOENT;
 	}
 
-	res = platform_init_guest(guest->vmid);
+	/*
+	 * Invalidate previous index. It is only allowed to set
+	 * the index when VMID is zero i.e guest is being initialized.
+	 */
+	if (guest->vmid) {
+		ERROR("VMID already set:%d new:vmid\n", guest->vmid, vmid);
+		return -EPERM;
+	}
+	guest_index[guest->vmid] = INVALID_GUEST;
 
-	return res;
+	/* Update stage2 pgd owner information with the actual VMID */
+	guest->vmid = vmid;
+	c = guest->s2_tablepool.firstchunk;
+	if (c == GUEST_MEMCHUNKS_MAX) {
+		ERROR("guest %p not initialized\n", kvm);
+		return -ENOENT;
+	}
+	guest->mempool[c].owner_vmid = guest->vmid;
+
+	/* Guest index and vttbr */
+	guest_index[guest->vmid] = i;
+	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) | (vmid << 48));
+	/* Start physical address tracking */
+	res = patrack_start(guest);
+	if (res) {
+		ERROR("patrack start failed %d\n", res);
+		return res;
+	}
+
+	return platform_init_guest(guest->vmid);
 }
 
 /**
