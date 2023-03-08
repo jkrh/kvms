@@ -94,6 +94,10 @@ endif
 	@rm -f $(SPICESOCK)
 	@$(QEMUCMD)
 
+poorman:
+	@CROSS_COMPILE=$(CROSS_COMPILE) PROG=$(PROG) BASE_DIR=$(BASE_DIR) VMLINUX=$(VMLINUX) \
+		$(BASE_DIR)/scripts/poorman.sh
+
 gdb:
 ifeq ($(USE_COMP_IMG),1)
 	#

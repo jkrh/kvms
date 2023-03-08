@@ -101,6 +101,13 @@ export DEBUGOPTS := -S -s
 endif
 
 #
+# Poormans profiler session
+#
+ifeq ($(POORMAN),1)
+export DEBUGOPTS := -s
+endif
+
+#
 # Use to invoke QEMU under a host gdb session. It
 # will invoke qemu with full debug symbols.
 #
