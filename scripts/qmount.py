@@ -4,6 +4,20 @@ import sys
 import os
 from sys import exit
 import glob
+import time
+
+def wait_for_dev(dev: str, secs: int = 5):
+    print("Waiting for {}...".format(dev))
+    s_time = time.time()
+    while True:
+        if time.time() - s_time > secs:
+            print("ERROR: {} secs timeout exceeded!".format(secs))
+            return False
+        if os.path.exists(dev):
+            break
+        else:
+            time.sleep(1)
+    return True
 
 def find_free_dev():
     tmp = subprocess.run(["mount","-t","ext4"], stdout=subprocess.PIPE)
@@ -39,6 +53,9 @@ if (len(dev) > 0):
     print(cmd)
     if os.system(cmd):
         exit(1)
+
+    pdev = "{}p1".format(dev)
+    wait_for_dev(pdev)
 
     cmd = "mount {}p1 {}".format(dev,sys.argv[2])
     print(cmd)
