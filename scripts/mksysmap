@@ -1,4 +1,4 @@
-#!/bin/sh -x
+#!/bin/sh
 # Based on the vmlinux file create the System.map file
 # System.map is used by module-init tools and some debugging
 # tools to retrieve the actual addresses of symbols in the kernel.
