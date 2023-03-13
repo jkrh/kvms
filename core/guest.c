@@ -22,6 +22,7 @@
 #include "heap.h"
 #include "kic.h"
 #include "nospec.h"
+#include "kvms_rs.h"
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -514,7 +515,7 @@ kvm_guest_t *alloc_guest(void *kvm)
 		set_blinding_default(guest);
 	}
 
-	gettimeofday(&guest->st.boottime, NULL);
+	gettimeofday(&guest->st.boottime);
 	return guest;
 }
 
@@ -2129,7 +2130,7 @@ void share_increment(kvm_guest_t *guest)
 	 * in size.
 	 */
 	guest->st.shared_pages++;
-	gettimeofday(&ts, NULL);
+	gettimeofday(&ts);
 
 	if ((ts.tv_sec - guest->st.boottime.tv_sec) >=
 	     EXPECTED_BOOT_TIME_IN_SECONDS) {
@@ -2138,7 +2139,7 @@ void share_increment(kvm_guest_t *guest)
 			LOG("note: guest %u share count %u\n",
 			    guest->vmid,
 			    guest->st.shared_pages);
-			gettimeofday(&guest->st.last_nag, NULL);
+			gettimeofday(&guest->st.last_nag);
 			guest->st.last_spc = guest->st.shared_pages;
 		}
 	}

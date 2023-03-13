@@ -4,7 +4,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
-#include <sys/time.h>
 
 #include "platform_api.h"
 #include "host_platform.h"
@@ -20,6 +19,7 @@
 #include "heap.h"
 #include "host.h"
 #include "crypto/platform_crypto.h"
+#include "kvms_rs.h"
 
 #include "mbedtls/platform.h"
 #include "mbedtls/entropy.h"
@@ -189,7 +189,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 			     : "memory");
 
 	init_index = smp_processor_id();
-	gettimeofday(&tv, NULL);
+	gettimeofday(&tv);
 	platform_console_init();
 
 	if (init_index == 0) {
@@ -241,7 +241,7 @@ int main(int argc UNUSED, char **argv UNUSED)
 	}
 	set_host_context();
 
-	gettimeofday(&tv, NULL);
+	gettimeofday(&tv);
 	LOG("HYP core %ld initialization time was %ldms\n",
 	     init_index, us_to_ms(tv.tv_usec));
 	spin_unlock(&entrylock);

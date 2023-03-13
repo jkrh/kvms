@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <sys/time.h>
 #include <errno.h>
 #include <stdarg.h>
 
 #include "hyplogs.h"
+#include "kvms_rs.h"
 #include "commondefines.h"
 
 #define BUFSIZE 128
@@ -71,7 +71,7 @@ void __log(int level, const char *func, const char *fmt, ...)
 	struct timeval tv2;
 	va_list args;
 
-	gettimeofday(&tv2, NULL);
+	gettimeofday(&tv2);
 
 	if (level)
 		printf("\033[0;31m");
@@ -94,7 +94,7 @@ void logf(int level, const char *fmt, ...)
 	struct timeval tv2;
 	va_list args;
 
-	gettimeofday(&tv2, NULL);
+	gettimeofday(&tv2);
 
 	if (level)
 		printf("\033[0;31m");

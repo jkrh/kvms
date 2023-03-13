@@ -4,7 +4,7 @@ C_OBJ := $(patsubst %.c,$(OBJDIR)/%.o,$(notdir $(C_SOURCES)))
 OBJS := $(C_OBJ) $(AS_OBJ)
 
 COMMONLIBS := -lcore -lcommon -lplatform-common -lmbedcrypto -lmbedx509 \
-		-lmbedtls -larmv8crypto -lstdlib  -u print_gicdreg
+		-lmbedtls -larmv8crypto -lstdlib -lkvms_rs -u print_gicdreg
 COMMON_ARLIBS := $(OBJDIR)/libcore.a \
 		 $(OBJDIR)/libcommon.a \
 		 $(OBJDIR)/libplatform-common.a \

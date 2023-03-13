@@ -29,7 +29,7 @@ $(info KERNEL_DIR:	$(KERNEL_DIR))
 $(info PLATFORM:	$(PLATFORM))
 $(info CHIPSET:		$(CHIPSET))
 
-all: check prepare dirs comp-image
+all: check prepare librs dirs comp-image
 check:
 	@[ "${KERNEL_DIR}" ] && echo -n "" || ( echo "KERNEL_DIR is not set"; exit 1 )
 	@[ "${PLATFORM}" ] && echo -n "" || ( echo "PLATFORM is not set"; exit 1 )
@@ -37,6 +37,9 @@ check:
 
 prepare:
 	@$(HOST_CC) scripts/kallsyms.c -o scripts/kallsyms
+
+librs:
+	@./scripts/build-rs.sh
 
 dirs: gen_key $(SUBDIRS) | $(OBJDIR)
 	@./scripts/gen-symhdr.sh
@@ -53,6 +56,8 @@ clean:
 	done
 	@rm -rf $(OBJDIR)
 	@rm -rf core/generated
+	@rm -rf core/librs/target
+	@rm -rf core/librs/generated-include/*.h
 	@rm -f scripts/kallsyms
 	$(MAKE) -Ccore/crypto revert_patch_mbedtls
 

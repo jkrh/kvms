@@ -26,7 +26,8 @@ export INCLUDES := -I. \
 		-I$(BASE_DIR)/platform/$(PLATFORM)/$(CHIPSET)/$(PRODUCT) \
 		-I$(BASE_DIR)/stdlib/sys \
 		-I$(OBJDIR)/$(PLATFORM)/$(CHIPSET)/$(PRODUCT) \
-		-I$(BASE_DIR)/guest/keys
+		-I$(BASE_DIR)/guest/keys \
+		-I$(CORE_DIR)/librs/include
 #
 # Due to size constraints on some platforms
 #

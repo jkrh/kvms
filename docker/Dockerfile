@@ -36,4 +36,18 @@ COPY gitconfig /home/$username/.gitconfig
 RUN chown $userid:$groupid /home/$username/.gitconfig
 ENV HOME=/home/$username
 ENV USER=$username
+
+# Install Rust
+USER $username
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
+ENV PATH=$HOME/.cargo/bin:$PATH
+RUN rustup target add aarch64-unknown-linux-gnu
+RUN rustup toolchain install --force-non-host stable-aarch64-unknown-linux-gnu
+RUN bash -c 'echo -e "[target.aarch64-unknown-linux-gnu]\nlinker = \"aarch64-linux-gnu-gcc\"" >> $HOME/.cargo/config'
+RUN cargo install cargo-binutils
+RUN rustup component add llvm-tools-preview
+RUN cd /tmp && git clone https://github.com/eqrion/cbindgen.git
+RUN cargo install --force cbindgen
+
+USER root
 ENTRYPOINT chroot --userspec=$(cat /root/username):$(cat /root/username) / /bin/bash -i

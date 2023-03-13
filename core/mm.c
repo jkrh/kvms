@@ -2,7 +2,6 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <sys/time.h>
 
 #include "mtree.h"
 #include "mm.h"
@@ -18,6 +17,7 @@
 #include "hvccall.h"
 #include "bits.h"
 #include "platform_api.h"
+#include "kvms_rs.h"
 
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
@@ -625,7 +625,7 @@ int restore_host_mappings(void *gp)
 	if (!host)
 		panic("");
 
-	gettimeofday(&tv1, NULL);
+	gettimeofday(&tv1);
 
 	/* Restore the abort instruction if this was a core dump */
 
@@ -697,7 +697,7 @@ cont:
 			slot_end += PAGE_SIZE;
 		}
 	}
-	gettimeofday(&tv2, NULL);
+	gettimeofday(&tv2);
 	LOG("%s %ld pages. Latency was %ldms\n", __func__, rcount,
 	   (tv2.tv_usec - tv1.tv_usec) / 1000);
 

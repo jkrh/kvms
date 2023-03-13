@@ -5,7 +5,6 @@
 
 #include <stdint.h>
 #include <errno.h>
-#include <sys/time.h>
 
 #include "hvccall-defines.h"
 #include "mm.h"
@@ -15,6 +14,7 @@
 #include "sys_context.h"
 #include "patrack.h"
 #include "spinlock.h"
+#include "kvms_rs.h"
 
 #include "mbedtls/aes.h"
 #include "kic_defs.h"
