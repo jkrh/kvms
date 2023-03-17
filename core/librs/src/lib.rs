@@ -2,6 +2,11 @@
 #![no_main]
 
 //! kvms_rs crate
+
+/// set global_allocator
+pub mod alloc;
+/// C api bindings
+pub mod bindings;
 /// arch specific registers access
 pub mod reg;
 /// common api for getting time and calling usleep
@@ -24,7 +29,13 @@ pub extern "C" fn usleep(usec: u64) -> i32 {
     0
 }
 
+/// panic handler
+/// # Example
+/// '''
+/// panic!();
+/// '''
 #[panic_handler]
-fn my_panic(_info: &core::panic::PanicInfo<'_>) -> ! {
+fn hyp_panic(_info: &core::panic::PanicInfo<'_>) -> ! {
+    unsafe { bindings::hyp_abort_plain(); }
     loop {}
 }

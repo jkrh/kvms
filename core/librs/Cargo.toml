@@ -13,6 +13,8 @@ crate-type = ["staticlib"] # Creates static lib
 
 [profile.dev]
 panic = "abort"
+lto = true
 
 [profile.release]
 panic = "abort"
+lto = true

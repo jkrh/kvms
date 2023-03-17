@@ -519,6 +519,11 @@ void hyp_abort(const char *func, const char *file, int line,
 		wfi();
 }
 
+void hyp_abort_plain(void)
+{
+	hyp_abort(__func__, __FILE__, __LINE__, "Oops\n");
+}
+
 void print_regs(void *regs)
 {
 	uint64_t *__frame = (uint64_t *)regs;

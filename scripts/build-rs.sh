@@ -17,6 +17,7 @@ export RUSTFLAGS="-O -Cstrip=debuginfo -Copt-level=z \
 		-Wclippy::dbg_macro"
 #		-Zbinary_dep_depinfo=y
 
+#cargo +nightly build --target=aarch64-unknown-linux-gnu
 cargo build --target=aarch64-unknown-linux-gnu
 cbindgen --config cbindgen.toml --output generated-include/kvms_rs.h --lang c ./
 
