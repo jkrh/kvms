@@ -31,7 +31,10 @@
 #define HCR_TVM_BIT 26
 #define HCR_TRVM_BIT 30
 #define HCR_RW_BIT 31
-#define HCR_NV_BIT 40
+#define HCR_APK_BIT 40
+#define HCR_API_BIT 41
+#define HCR_NV_BIT 42
+
 #define HCR_NV1_BIT 43
 #define HCR_NV2_BIT 45
 

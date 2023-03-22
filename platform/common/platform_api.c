@@ -46,6 +46,8 @@ void platform_early_setup(void)
 	bit_set(hcr_el2, HCR_VM_BIT);
 	bit_set(hcr_el2, HCR_NV2_BIT);
 	bit_set(hcr_el2, HCR_TVM_BIT);
+	//bit_set(hcr_el2, HCR_APK_BIT);
+	bit_set(hcr_el2, HCR_API_BIT);
 	write_reg(HCR_EL2, hcr_el2);
 
 	/* EL1 timer access */

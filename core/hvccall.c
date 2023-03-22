@@ -628,6 +628,48 @@ void memctrl_exec(uint64_t *sp)
 		PRINTREG("vmid %u core %u ttbr0_el1 0x%lx\n", vmid, cid, sp[rt]);
 		write_reg(TTBR0_EL1, sp[rt]);
 		break;
+#ifdef PTRAUTH
+	case 0x300802:
+		PRINTREG("vmid %u core %u apiakeylo_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APIAKEYLO_EL1, sp[rt]);
+		break;
+	case 0x300804:
+		PRINTREG("vmid %u core %u apdakeylo_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APDAKEYLO_EL1, sp[rt]);
+		break;
+	case 0x300806:
+		PRINTREG("vmid %u core %u apgakeylo_el1, 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APGAKEYLO_EL1, sp[rt]);
+		break;
+        case 0x320802:
+                PRINTREG("vmid %u core %u apiakeyhi_el1 0x%lx\n", vmid, cid, sp[rt]);
+                write_reg(APIAKEYHI_EL1, sp[rt]);
+                break;
+	case 0x320804:
+		PRINTREG("vmid %u core %u apdakeyhi_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APDAKEYHI_EL1, sp[rt]);
+		break;
+	case 0x320806:
+		PRINTREG("vmid %u core %u apgakeyhi_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APGAKEYHI_EL1, sp[rt]);
+		break;
+	case 0x340802:
+		PRINTREG("vmid %u core %u apibkeylo_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APIBKEYLO_EL1, sp[rt]);
+		break;
+	case 0x340804:
+		PRINTREG("vmid %u core %u apdbkeylo_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APDBKEYLO_EL1, sp[rt]);
+		break;
+	case 0x360802:
+		PRINTREG("vmid %u core %u apibkeyihi_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APIBKEYHI_EL1, sp[rt]);
+		break;
+	case 0x360804:
+		PRINTREG("vmid %u core %u apdbkeyhi_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(APDBKEYHI_EL1, sp[rt]);
+		break;
+#endif
 	case 0x320800:
 		PRINTREG("vmid %u core %u ttbr1_el1 0x%lx\n", vmid, cid, sp[rt]);
 		write_reg(TTBR1_EL1, sp[rt]);

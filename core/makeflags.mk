@@ -39,6 +39,12 @@ else
 export SANITIZER_OPTS ?=
 endif
 
+ifeq ($(PTRAUTH),1)
+export ARM_BASE=armv8.3-a
+else
+export ARM_BASE=armv8-a
+endif
+
 export CFLAGS := \
 	--sysroot=$(TOOLDIR) --no-sysroot-suffix -fstack-protector-strong -mstrict-align \
 	-static -ffreestanding -fno-hosted -std=c99 -fno-omit-frame-pointer -fno-data-sections \
@@ -46,12 +52,16 @@ export CFLAGS := \
 
 ifeq ($(USE_HW_CRYPTO),1)
 export CFLAGS += -DUSE_HW_CRYPTO=1
-export CFLAGS_MBED := $(CFLAGS) -march=armv8-a+crypto
+export CFLAGS_MBED := $(CFLAGS) -march=$(ARM_BASE)+crypto
 else
-export CFLAGS_MBED += $(CFLAGS) -march=armv8-a+nosimd -mgeneral-regs-only
+export CFLAGS_MBED += $(CFLAGS) -march=$(ARM_BASE)+nosimd -mgeneral-regs-only
+endif
+export CFLAGS += -march=$(ARM_BASE)+nosimd -mgeneral-regs-only
+
+ifeq ($(PTRAUTH),1)
+export CFLAGS += -mbranch-protection=standard -DPTRAUTH
 endif
 
-export CFLAGS += -march=armv8-a+nosimd -mgeneral-regs-only
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
 export AFLAGS := -D__ASSEMBLY__ \
 		-I$(KERNEL_DIR)/usr/include

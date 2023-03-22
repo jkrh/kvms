@@ -44,6 +44,13 @@ else
 endif
 
 #
+# Define if system should support pointer authentication.
+#
+ifeq ($(PTRAUTH),1)
+else
+endif
+
+#
 # Add validate.c tests into the build. These symbols are for
 # hypervisor internal state validation and can be called via
 # the debugger.
