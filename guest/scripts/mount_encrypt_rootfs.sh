@@ -62,11 +62,7 @@ if [ -z "${KEY}" ] ||[ -z "${ROOTFS}" ] || [ -z "${OUTFILE}" ] ; then
 fi
 
 find_free_nbddev
-CIPHER_GUEST=$(mktemp -d)
 PLAIN_GUEST=$(mktemp -d)
-
-SIZE=$(qemu-img info ${ROOTFS} | sed  -ne '/virtual size: /p' | \
-	sed -ne 's/.*(\([0-9]* bytes\)).*/\1/p' | sed -e 's/ bytes//')
 
 qemu-nbd --connect=$nbddev $ROOTFS
 sleep 1

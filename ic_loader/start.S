@@ -15,8 +15,9 @@
 _start:
 	adr x29, .stack_top
 	mov sp, x29
-	sub sp, sp, #(8 * 2)
-	stp	x0, x1, [sp, #(8 * 0)]
+	sub sp, sp, #(8 * 4)
+	stp x0, x1, [sp, #(8 * 0)]
+	stp x2, x3, [sp, #(8 * 2)]
 
 	/* remap loader to final address */
 	adr x1, _start
@@ -27,8 +28,8 @@ _start:
 	/* reinit the stack pointer on final address */
 	adr x29, .stack_top
 	mov sp, x29
-	sub sp, sp, #(8 * 2)
-	ldp	x0, x1, [sp, #(8 * 0)]
+	sub sp, sp, #(8 * 4)
+	ldp x0, x1, [sp, #(8 * 0)]
 
 	/* ic_loader cal modify registers contents on the stack */
 	mov x0, sp

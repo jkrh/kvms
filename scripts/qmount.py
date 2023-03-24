@@ -36,9 +36,9 @@ def find_free_dev():
         return ""
 
 def usage():
-    print("Usage: qmount.sh <qcow2 file> <mount point> ")
+    print("Usage: qmount.sh <qcow2 file> <mount point> <mount option> ")
 
-if (len(sys.argv) != 3):
+if (len(sys.argv) < 3 or len(sys.argv) > 4):
     usage()
     exit(1)
 
@@ -59,8 +59,11 @@ if (len(dev) > 0):
 
     pdev = "{}p1".format(dev)
     wait_for_dev(pdev)
-
-    cmd = "mount {}p1 {}".format(dev,sys.argv[2])
+    if (len(sys.argv) == 4):
+        mparam = sys.argv[3]
+    else:
+         mparam = ""
+    cmd = "mount {} {}p1 {}".format(mparam,dev,sys.argv[2])
     print(cmd)
     if os.system(cmd):
         cmd = "qemu-nbd --disconnect {}".format(dev)

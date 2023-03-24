@@ -2,6 +2,8 @@
 
 usage() {
 	echo "$0 -r <plain rootfs file> -o <output> "
+	echo ""
+	echo "Add intrd-start and initrd-end field to device tree file"
 }
 
 do_cleanup()
@@ -23,7 +25,9 @@ while getopts "h?r:o:" opt; do
 		exit 0
 		;;
 	r)	GUEST_ROOT=$OPTARG
-		;;
+
+
+	;;
 	o)	OUT=$OPTARG
 		;;
 	esac
@@ -34,13 +38,13 @@ INITRD_TMP=$(mktemp -d)
 echo "original guest root $GUEST_ROOT"
 echo "output $OUT"
 
-sudo ${BASE_DIR}/scripts/qmount.py $GUEST_ROOT $GUEST_TMP
+sudo ${BASE_DIR}/scripts/qmount.py $GUEST_ROOT $GUEST_TMP -r
 mkdir --p ${INITRD_TMP}/{dev,etc,usr/bin,usr/sbin,usr/lib/aarch64-linux-gnu,proc,sbin,sys}
 
 input="${BASE_DIR}/guest/scripts/files"
 while read -r line
 do
-	echo "cp -a ${GUEST_TMP}/$line $(dirname ${INITRD_TMP}/$line)"
+	#echo "cp -a ${GUEST_TMP}/$line $(dirname ${INITRD_TMP}/$line)"
 	cp -a ${GUEST_TMP}/$line* $(dirname ${INITRD_TMP}/$line)
 done < "$input"
 
@@ -51,5 +55,5 @@ cd ${INITRD_TMP}
 ln -s usr/bin bin
 ln -s usr/lib lib
 
-find . -print0 | cpio --null --create --verbose --format=newc | zstd > ${OUT}
+find . -print0 | cpio --null --create --format=newc | zstd > ${OUT}
 echo Done

@@ -1,32 +1,73 @@
 #!/bin/bash
 set -e
-# calculate signature over integrity check data, kernel image and device tree
-SIGN_VERSION=0x0201
+# calculate signatures over guest authenticated data, kernel image, initrd file
+# and device tree
 
-create_shared_secret()
-{
+SIGN_VERSION=0x0300
 
-	openssl ecparam -name prime256v1 -genkey -noout -out  guest_priv.pem
-	openssl pkey -in guest_priv.pem -pubout -out guest_pub.pem
-	openssl pkeyutl -derive -inkey guest_ipriv.pem -peerkey pubk2.pem -out ss
-
-
-}
 usage() {
-	echo "$0 -p <private_key -i <guest id>  -k <kernel> --d <dtb load address> - D <dtb file> -o <output name>"
+	echo "usage:"
+	echo "$0 -p <private_key -g <guest id>  -k <kernel> -d <dtb load address> \\"
+	echo "-D <dtb file> -i <inittd load address> -I <inittŕd file> -c <guest certificate> \\"
+	echo "-o <output name>"
 	echo ""
 	echo "  Create kernel image signature file"
 }
 
-while getopts "h?p:i:k:d:D:o:g:" opt; do
+add_hdr()
+{
+	local MACIG
+	local FLAGS
+	local OFFSET
+	local LOAD
+	local SIZE
+	local FILE=$5
+
+	if [ -n "$FILE" ] ; then
+		MACIG=$1
+		FLAGS=$2
+		OFFSET=$3
+		LOAD=$4
+		SIZE=$(stat -c"%s" "$FILE")
+	else
+		MACIG="\0\0\0\0"
+		FLAGS=0
+		OFFSET=0
+		LOAD=0
+		SIZE=0
+	fi
+
+	# magig
+	echo -ne "$MACIG"
+	# flags
+	printf "0: %.8x" $(( "$FLAGS" )) | sed -E 's/0: (..)(..)(..)(..)/0:\4\3\2\1/' | xxd -r
+	#size
+	printf "0: %.8x" $(( $SIZE)) | \
+		sed -E 's/0: (..)(..)(..)(..)/0:\4\3\2\1/' | xxd -r
+	#offset
+	printf "0: %.8x" $(( $OFFSET )) | \
+		sed -E 's/0: (..)(..)(..)(..)/0:\4\3\2\1/' | xxd -r
+	#load_address
+	printf "0: %.16x" $(( $LOAD)) | \
+		sed -E 's/0: (..)(..)(..)(..)(..)(..)(..)(..)/0:\8\7\6\5\4\3\2\1/'  | xxd -r
+
+	if [ "$SIZE" -ne 0 ] ; then
+		cat "$5" | openssl dgst -sha256 --binary
+	else
+		echo -n ""  | openssl dgst -sha256 --binary
+	fi
+}
+
+while getopts "h?p:g:k:d:D:i:I:o:c:" opt; do
 	case "$opt" in
-	h|\?)
+	h|\?)	-D "${DTB_FILE}" -d "$(DTB_ADDR)"
+
 		usage
 		exit 0
 	;;
 	p)  PRIV_KEY=$OPTARG
 	;;
-	i)  GUESTID=$OPTARG
+	g)  GUESTID=$OPTARG
 	;;
 	k)  KERNEL=$OPTARG
 	;;
@@ -34,7 +75,11 @@ while getopts "h?p:i:k:d:D:o:g:" opt; do
 	;;
 	D)  DTB_FILE=$OPTARG
 	;;
-	g)  GUEST_PUB=$OPTARG
+	i)  INITRD_ADDR=$OPTARG
+	;;
+	I)  INITRD_FILE=$OPTARG
+	;;
+	c)  GUEST_CERT=$OPTARG
 	;;
 	o)  OUTFILE=$OPTARG
 	;;
@@ -46,9 +91,10 @@ echo "key=$PRIV_KEY"
 echo "guest_id=$GUESTID"
 echo "kernel=$KERNEL"
 echo "dtb file=$DTB_FILE"
-echo "dtb address=$DTB_ADDR"
+echo "dtb load address=$DTB_ADDR"
+echo "initrd file=$INITRD_FILE"
+echo "initrd load address=$INITRD_ADDR"
 echo "guest pub key=$GUEST_PUB"
-
 echo ""
 
 if [ -z "${PRIV_KEY}" ] || [ -z "${KERNEL}" ] || [ -z "${OUTFILE}" ] ; then
@@ -56,66 +102,63 @@ if [ -z "${PRIV_KEY}" ] || [ -z "${KERNEL}" ] || [ -z "${OUTFILE}" ] ; then
     echo exit
     exit 1
 fi
-
-KERNEL_LEN=$(stat -c"%s" $KERNEL)
-#add zeros to end of image so that its size is page multiple
-PADS=$(( 4096 - $KERNEL_LEN % 4096 ))
-
-KERNEL_TMP=$(mktemp)
-cp ${KERNEL}  ${KERNEL_TMP}
-
-#add zeros to end of image so that its size is page multiple
-dd if=/dev/zero of=${KERNEL_TMP} bs=$PADS count=1 oflag=append conv=notrunc > /dev/null 2>&1
-KERNEL_LEN=$(stat -c"%s" $KERNEL_TMP)
-KERNEL_PAGES=$(( $KERNEL_LEN / 4096 ))
+KERNEL_LEN=$(stat -c"%s" "$KERNEL")
 
 if [ -z "$DTB_FILE" ]; then
 	DTB_LEN=0
 else
-	DTB_LEN=$(stat -c"%s" ${DTB_FILE})
+	DTB_LEN=$(stat -c"%s" "${DTB_FILE}")
 fi
 
-echo -n "SIGN" > ${OUTFILE}
-printf "0: %.8x" $(( $SIGN_VERSION )) | sed -E 's/0: (..)(..)(..)(..)/0:\4\3\2\1/' | xxd -r >> ${OUTFILE}
-printf "0: %.16x" $(( $KERNEL_LEN ))  | sed -E 's/0: (..)(..)(..)(..)(..)(..)(..)(..)/0:\8\7\6\5\4\3\2\1/' | xxd -r >> ${OUTFILE}
-printf "0: %.16x" $(( $DTB_ADDR ))  | sed -E 's/0: (..)(..)(..)(..)(..)(..)(..)(..)/0:\8\7\6\5\4\3\2\1/' | xxd -r >> ${OUTFILE}
-printf "0: %.16x" $(( $DTB_LEN ))  | sed -E 's/0: (..)(..)(..)(..)(..)(..)(..)(..)/0:\8\7\6\5\4\3\2\1/' | xxd -r >> ${OUTFILE}
+DTB_OFFSET=$(( KERNEL_LEN  + 4096))
+INIT_OFFSET=$(( DTB_OFFSET + DTB_LEN ))
 
-# add guest id to guest authenticated data area
+# start to buils output image
+echo -n "SIGN" > "${OUTFILE}"
+printf "0: %.8x" $(( $SIGN_VERSION )) | \
+	sed -E 's/0: (..)(..)(..)(..)/0:\4\3\2\1/' | xxd -r >> "${OUTFILE}"
+
+#add guest certificate
+cat "$GUEST_CERT" >> "$OUTFILE"
+CERT_LEN=$(stat -c"%s" "${GUEST_CERT}")
+dd if=/dev/zero of=${OUTFILE} bs=$(( 264 - CERT_LEN )) count=1 oflag=append \
+	conv=notrunc status=none
+
+#add loader data
+add_hdr "KRNL" 0 0 0 "$KERNEL" >> "$OUTFILE"
+add_hdr "DEVT" 0x18 $DTB_OFFSET "$DTB_ADDR" "${DTB_FILE}" >> "$OUTFILE"
+add_hdr "INRD" 0x08 $INIT_OFFSET "$INITRD_ADDR" "${INITRD_FILE}" >> "$OUTFILE"
+
+# add guest id
 echo -n ${GUESTID} >> ${OUTFILE}
-dd if=/dev/zero of=${OUTFILE} bs=$(( 16 - ${#GUESTID} )) count=1 oflag=append conv=notrunc > /dev/null 2>&1
+dd if=/dev/zero of=${OUTFILE} bs=$(( 16 - ${#GUESTID} )) count=1 oflag=append \
+	conv=notrunc status=none
 
-# add guest public key to guest authenticated data area
-if [ -n "$GUEST_PUB" ] ; then
-#	KEY=$(openssl pkey -in $GUEST_PUB  -text -noout | ${BASE_DIR}/core/keys/convert_to_h.py pub)
-	KEY=$(cat $GUEST_PUB)
-else
-	KEY=0
-fi
+# add signature
+cat  "${OUTFILE}" | openssl dgst -sha256
+cat  "${OUTFILE}" | openssl dgst -sha256 -sign "${PRIV_KEY}" >> "${OUTFILE}"
 
-# add guest encryption public key
-KEYLEN=$(( ${#KEY} / 2 ))
-printf "0: %.8x" $(( $KEYLEN )) | sed -E 's/0: (..)(..)(..)(..)/0:\4\3\2\1/' | xxd -r >> ${OUTFILE}
-echo ${KEY} | xxd -r -p >>  ${OUTFILE}
-dd if=/dev/zero bs=1 count=$(( 80 - ${#KEY} / 2 )) >>  ${OUTFILE}
+# add zeros so that size id 4096 bytes
+LEN=$(stat -c"%s" "${OUTFILE}")
+PADS=$(( 4096 - $LEN % 4096 ))
+dd if=/dev/zero of="${OUTFILE}" bs=$PADS count=1 oflag=append conv=notrunc \
+	status=none
+# Guest Authenticated data page is ready
 
-#do signature
-cat  ${OUTFILE} ${KERNEL_TMP} ${DTB_FILE} | openssl dgst -sha256 -sign ${PRIV_KEY} >>  ${OUTFILE}
+# add kernel image. The first page is moved to end of it
+dd if="${KERNEL}" of="${OUTFILE}" ibs=4096 count=$(( $KERNEL_LEN / 4096 )) \
+	skip=1 oflag=append conv=notrunc status=none
+dd if="${KERNEL}" of="${OUTFILE}" bs=4096 count=1 oflag=append \
+	conv=notrunc status=none
 
-# add zeros to th end of signarure so that its ize is one page
-DATA_LEN=$(stat -c"%s" ${OUTFILE})
-PADS=$(( 4096 - $DATA_LEN % 4096 ))
-dd if=/dev/zero of=${OUTFILE} bs=$PADS count=1 oflag=append conv=notrunc > /dev/null 2>&1
-
-#copy kernel to output so that first page of kernel is moved to end of image
-dd if=${KERNEL_TMP} of=${OUTFILE} ibs=4096 count=$(( $KERNEL_PAGES -1 )) skip=1 oflag=append conv=notrunc > /dev/null 2>&1
-dd if=${KERNEL_TMP} of=${OUTFILE} bs=4096 count=1 oflag=append conv=notrunc > /dev/null 2>&1
-
-#copy device tree to output if defined
 if [ -n "$DTB_FILE" ]; then
-	cat ${DTB_FILE} >> ${OUTFILE}
+	# add device three file if it is defined
+	cat "$DTB_FILE" >>  "${OUTFILE}"
+fi
+if [ -n "$INITRD_FILE" ]; then
+	# add initrd file if is is defined
+	cat "${INITRD_FILE}" >> "${OUTFILE}"
 fi
 
-rm ${KERNEL_TMP}
-echo Signature file ${OUTFILE} is ready
-
+echo Signature file "${OUTFILE}" is ready
+exit 0

@@ -91,7 +91,7 @@ blks=$(blockdev --getsize ${nbddev}p1)
 dmsetup create guestfs --table "0 $blks crypt aes-xts-plain64 ${KEY} 0 ${nbddev}p1 0 1 allow_discards"
 mkfs.ext4 /dev/mapper/guestfs
 mount /dev/mapper/guestfs $CIPHER_GUEST
-${BASE_DIR}/scripts/qmount.py $ROOTFS $PLAIN_GUEST
+${BASE_DIR}/scripts/qmount.py $ROOTFS $PLAIN_GUEST -r
 
 echo "Copying files to encrypted rootfs (${CIPHER_GUEST})..."
 cp -a $PLAIN_GUEST/* $CIPHER_GUEST/

@@ -40,46 +40,60 @@ void err_handler(int ret)
 	while(1);
 #endif
 }
+uint64_t laddr[KIC_IMAGE_COUNT];
 
 void ic_loader(uint64_t sp[], uint64_t start)
 {
 	volatile uint64_t dummy;
+
 	uint8_t *p;
-	gad_t *sign_params = (gad_t *) start;
-	uint64_t image_size = sign_params->image_size;
-	uint64_t dtb = sign_params->dtb;
-	uint64_t dtb_size = sign_params->dtb_size;;
+
+	kic_image_t *img;
+
+	gad_t *gad = (gad_t *) start;
 	int ret;
+	int i;
+
+	/* map the first page */
+	p = (uint8_t *) start;
+	dummy += *p;
 
 	ret = call_hyp(HYP_GUEST_INIT_IMAGE_CHECK, start);
 	if (ret) {
 		err_handler(ret);
 		return;
 	}
+	for (i = 0 ; i < KIC_IMAGE_COUNT; i++) {
+		img = &gad->images[i];
+		if (img->macig) {
+			if (img->flags & KIC_FLAG_LOAD) {
+				laddr[i] = img->load_address;
+				if (laddr[i] == 0) {
+					/* X0 contains the load address*/
+					laddr[i] = sp[0];
+				}
+				if (img->flags & KIC_FLAG_STORE_ADDR_TO_X0) {
+					/* */
+					sp[0] = laddr[i];
+				}
 
-	/* S2 map kernel image */
-	p = (uint8_t *) sign_params;
-	while ((uint64_t) p < start + image_size) {
-		dummy += *p;
-		p += PAGE;
+				memcpy((void *)laddr[i], (void *) start + img->offset,
+					ROUND_UP(img->size, sizeof(uint64_t)));
+			} else {
+				laddr[i] = start;
+				p = (uint8_t *) start;
+				while ((uint64_t) p < start + img->size) {
+					dummy += *p;
+					p += PAGE;
+				}
+			}
+		}
 	}
 
 	/* restore original first page */
-	memcpy((void *) start, p, PAGE);
+	memcpy((void *) start, (void *) start + gad->images[0].size, PAGE);
 
-	/* If dtb check is in use */
-	if (dtb) {
-		/* x0 should point to dtb */
-		sp[0] = dtb;
-	}
-
-	/* copy  dtb to its location  */
-	if (dtb && dtb_size) {
-		memcpy((void *)dtb, p + PAGE,
-		       ROUND_UP(dtb_size, sizeof(uint64_t)));
-	}
-
-	ret = call_hyp(HYP_GUEST_DO_IMAGE_CHECK, (uint64_t) start);
+	ret = call_hyp(HYP_GUEST_DO_IMAGE_CHECK, (uint64_t) laddr);
 	if (ret)
 		err_handler(ret);
 }

@@ -12,7 +12,7 @@
 #include "mbedtls/bignum.h"
 #include "mbedtls/error.h"
 #include "mbedtls/platform.h"
-#include "signature_pub.h"
+//#include "signature_pub.h"
 
 #define CHECKRES(x, expected, err_handler) \
 		do { \
@@ -21,7 +21,7 @@
 			} \
 		} while (0)
 
-int do_ecdsa(uint8_t *sign, uint8_t *hash)
+int do_ecdsa(uint8_t *sign, uint8_t *hash, uint8_t *pub, size_t pub_size)
 {
 	mbedtls_ecdsa_context ctx;
 	mbedtls_ecp_group grp;
@@ -42,8 +42,8 @@ int do_ecdsa(uint8_t *sign, uint8_t *hash)
 
 	ret = mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1);
 	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
-	ret = mbedtls_ecp_point_read_binary(&grp, &key.Q, signature_pub,
-			sizeof(signature_pub));
+	ret = mbedtls_ecp_point_read_binary(&grp, &key.Q,
+					    pub, pub_size);
 	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);
 	ret = mbedtls_ecp_group_copy(&key.grp, &grp);
 	CHECKRES(ret, MBEDTLS_EXIT_SUCCESS, err_handler);

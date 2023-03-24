@@ -172,7 +172,6 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);
 		break;
 	case HYP_GUEST_GET_DERIVED_KEY :
-		printf("get derived\n");
 		RESERVE_PLATFORM_CRYPTO(&crypto_ctx);
 		res = get_derived_key(guest, (void *)a1, a2, (void *)a3, a4);
 		RESTORE_PLATFORM_CRYPTO(&crypto_ctx);

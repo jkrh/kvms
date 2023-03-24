@@ -215,22 +215,15 @@ else
 fi
 echo "- Host wlan ip $LOCALIP"
 
-if [ "$ENCYPTED_ROOTFS" -eq 1 ]  ; then
-	echo "Run with KIC and encrypted rootfs..."
-	$QEMUDIR/qemu-system-aarch64 -name $VMNAME \
-	-device loader,file=initrd,addr=0x48008000 \
-	-device loader,addr=0x40200000,cpu-num=0 \
-	-device loader,file=$KERNEL,addr=0x40200000 \
-	$DRIVE $DTB $INPUT $PARTITIONS $SCREEN  $QEMUOPTS
-	exit 0
-fi
-if [ "$KIC_DISABLED" -eq 1 ]  ; then
+if [ -n "$KIC_DISABLE" ]  ; then
 	$QEMUDIR/qemu-system-aarch64 -name $VMNAME -kernel $KERNEL $DRIVE $DTB $INPUT \
  	$PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
 	exit 0
 else
 	echo "Run with KIC (kernel integrity check)"
-	$QEMUDIR/qemu-system-aarch64 -name $VMNAME -device loader,addr=0x40200000,cpu-num=0  \
-	-device loader,file=$KERNEL,addr=0x40200000  $DRIVE $DTB $INPUT $PARTITIONS $SCREEN  $QEMUOPTS
+	$QEMUDIR/qemu-system-aarch64 -name $VMNAME \
+	-device loader,addr=0x40200000,cpu-num=0  \
+	-device loader,file=$KERNEL,addr=0x40200000 \
+	$DRIVE $DTB $INPUT $PARTITIONS $SCREEN  $QEMUOPTS
 	exit 0
 fi

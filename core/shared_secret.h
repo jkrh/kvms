@@ -5,7 +5,7 @@
 /***
  * Derive a key from shared secret
  * @param guest the guest
- * @param key  the pointer to the derived key
+ * @param key the pointer to the derived key
  * @param key_size the size of the key
  * @param salt the salt for key derivation
  * @return zero in case of success

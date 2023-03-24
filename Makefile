@@ -2,7 +2,6 @@ export BASE_DIR := $(PWD)
 export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
 export MBEDDIR := $(BASE_DIR)/mbedtls/library
-
 ifeq ($(KIC_DISABLE),1)
 COREDIRS := stdlib core core/crypto core/common platform/common
 else
@@ -115,7 +114,7 @@ hostimage: $(BUILD_TOOLS)
 	@sudo -E ./scripts/create_hostimg.sh $(USER)
 
 sign_guest: | gen_key
-	$(MAKE)  -C guest sign_guest
+	$(MAKE) -C guest sign_guest
 
 gen_key:
 	$(MAKE) -C $(KEYS_PATH)

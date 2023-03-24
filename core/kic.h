@@ -69,9 +69,10 @@ int image_check_init(void *guest, uint64_t start_page);
  *
  * @param guest the guest
  * @param kernel image start address (ipa)
+ * @param laddr address of load address table
  * @return zero in case of success
  */
-int check_guest_image(void *guest, uint64_t params);
+int check_guest_image(void *guest, uint64_t laddr);
 /*
  * Internal use only.
  */
