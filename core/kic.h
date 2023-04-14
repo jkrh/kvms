@@ -4,7 +4,7 @@
 #define CORE_KIC_H_
 #include "kic_defs.h"
 
-#ifndef KIC_DISABLE
+#ifdef KIC_ENABLE
 extern spinlock_t kic_lock;
 #endif
 
@@ -17,7 +17,7 @@ extern spinlock_t kic_lock;
 static inline int handle_kic_mapping(kvm_guest_t *guest,
 				     uint64_t vaddr, uint64_t *paddr)
 {
-#ifndef KIC_DISABLE
+#ifdef KIC_ENABLE
 	if (unlikely(guest->kic_status < KIC_PASSED))
 		return handle_icldr_mapping(guest, vaddr, paddr);
 #endif
@@ -31,7 +31,7 @@ static inline int handle_kic_mapping(kvm_guest_t *guest,
  */
 static inline void handle_kic_start(kvm_guest_t *gst, struct vcpu_context *ctx)
 {
-#ifndef KIC_DISABLE
+#ifdef KIC_ENABLE
 	if (unlikely(gst->kic_status == KIC_NOT_STARTED)) {
 		spin_lock(&kic_lock);
 		if (gst->kic_status == KIC_NOT_STARTED) {

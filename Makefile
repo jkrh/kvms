@@ -2,10 +2,10 @@ export BASE_DIR := $(PWD)
 export CORE_DIR := $(BASE_DIR)/core
 export OBJDIR := $(BASE_DIR)/.objs
 export MBEDDIR := $(BASE_DIR)/mbedtls/library
-ifeq ($(KIC_DISABLE),1)
-COREDIRS := stdlib core core/crypto core/common platform/common
-else
+ifeq ($(KIC_ENABLE),1)
 COREDIRS := stdlib ic_loader core core/crypto core/common platform/common
+else
+COREDIRS := stdlib core core/crypto core/common platform/common
 endif
 
 ifeq ($(PLATFORM),virt)

@@ -42,11 +42,7 @@ echo "copying images to  $HOST_IMAGE:/$HOST_PATH"
 cp -u $BASE_DIR/scripts/run-qemu6-linux.sh $HOST_TMP/$HOST_PATH/
 cp -u $BASE_DIR/buildtools/usr/share/qemu/efi-virtio.rom $HOST_TMP/$HOST_PATH/
 
-if [ -n "${KIC_DISABLE}" ]; then
-	cp $BASE_DIR/guest/images/Image $HOST_TMP/$HOST_PATH/
-	echo " export KIC_DISABLE=1" > $HOST_TMP/$HOST_PATH/env.sh
-	chmod u+x $HOST_TMP/$HOST_PATH/env.sh
-else
+if [ -n "${KIC_ENABLE}" ]; then
 	cp $BASE_DIR/guest/images/Image.sign $HOST_TMP/$HOST_PATH/
 	if [ -n "${ENCRYPTED_ROOTFS}" ]; then
 		cp -u $BASE_DIR/guest/images/ubuntu.enc.qcow2 $HOST_TMP/$HOST_PATH/
@@ -59,5 +55,9 @@ else
 	else
 		cp -u $BASE_DIR/guest/images/ubuntuguest.qcow2 $HOST_TMP/$HOST_PATH/
 	fi
+else
+	cp $BASE_DIR/guest/images/Image $HOST_TMP/$HOST_PATH/
+	echo " " > $HOST_TMP/$HOST_PATH/env.sh
+	chmod u+x $HOST_TMP/$HOST_PATH/env.sh
 fi
 sync
