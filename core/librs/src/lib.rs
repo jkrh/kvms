@@ -11,6 +11,8 @@ pub mod bindings;
 pub mod reg;
 /// common api for getting time and calling usleep
 pub mod time;
+/// spinlock
+pub mod spinlock;
 
 use time::timeval;
 

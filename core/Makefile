@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-AS_SOURCES := ventry.S kentry.S spinlock.S cache.S \
+AS_SOURCES := ventry.S kentry.S cache.S \
 	mhelpers.S guest_entry.S
 C_SOURCES := armtrans.c main.c hvccall.c \
 	smccall.c guest.c psci.c mm.c \

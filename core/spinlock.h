@@ -5,29 +5,13 @@
 #include <stdint.h>
 
 #include "commondefines.h"
+#include "kvms_rs.h"
 
-typedef uint64_t spinlock_t ALIGN(8);
 typedef struct {
 	spinlock_t __r;
 	spinlock_t __w;
 	uint8_t __b;
 } rwlock_t ALIGN(8);
-
-
-/*
- * spin_lock - acquire a lock on critical section
- *
- * Note: the lock is not recursive. Acquire it twice and you will
- * deadlock.
- */
-void spin_lock(spinlock_t *lock);
-void spin_unlock(spinlock_t *lock);
-
-/*
- * Attempt to acquire a spinlock. Returns one if we hold the lock,
- * zero otherwise.
- */
-int spin_try_lock(spinlock_t *lock);
 
 /*
  * Very simple reader-writer lock

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include "guest.h"
 #include "helpers.h"
+#include "kvms_rs.h"
 #include "kic.h"
 #include "mbedtls/platform.h"
 #include "mbedtls/sha256.h"
@@ -17,7 +18,7 @@ uint32_t el1_hyp_img[512] = {
 #include "generated/ic_loader.hex"
 };
 
-spinlock_t kic_lock;
+DEFINE_SPINLOCK(kic_lock);
 
 /* Guest Authenticated Data */
 static gad_t *gad;

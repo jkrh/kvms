@@ -11,7 +11,7 @@
 #include "armtrans.h"
 #include "bits.h"
 #include "helpers.h"
-#include "spinlock.h"
+#include "kvms_rs.h"
 #include "hvccall.h"
 #include "psci.h"
 #include "guest.h"
@@ -48,7 +48,7 @@ extern bool apiwarned;
 extern kvm_guest_t *host;
 
 hyp_func_t *__fpsimd_guest_restore DATA;
-static spinlock_t crash_lock;
+static DEFINE_SPINLOCK(crash_lock);
 
 int is_apicall(uint64_t cn)
 {

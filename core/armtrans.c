@@ -17,6 +17,7 @@
 #include "hvccall.h"
 #include "mhelpers.h"
 #include "tables.h"
+#include "kvms_rs.h"
 #include "oplocks.h"
 
 #define DESCR_ATTR_MASK			0xFFFF00000001FFFFUL

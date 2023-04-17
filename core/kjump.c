@@ -10,7 +10,6 @@
 #include "kjump.h"
 #include "hyplogs.h"
 #include "mm.h"
-#include "spinlock.h"
 
 #include "kvmsyms.h"
 
@@ -30,7 +29,7 @@ static int compfunc(const void *v1, const void *v2)
 
 static inline void apiwarn(uint64_t addr)
 {
-	static spinlock_t plock;
+	static DEFINE_SPINLOCK(plock);
 
 	spin_lock(&plock);
 	ERROR("the kvm jump 0x%lx is not valid, is hyp up to date?\n",

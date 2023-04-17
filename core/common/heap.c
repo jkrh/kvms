@@ -7,11 +7,11 @@
 #include <stdarg.h>
 
 #include "helpers.h"
-#include "spinlock.h"
+#include "kvms_rs.h"
 #include "heap.h"
 
 uint8_t hyp_malloc_pool[MALLOC_POOL_SIZE] ALIGN(PAGE_SIZE) WEAK_SYM;
-static spinlock_t malloc_lock = 0;
+static DEFINE_SPINLOCK(malloc_lock);
 static void *__heap;
 static size_t __heap_sz;
 

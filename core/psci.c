@@ -10,7 +10,7 @@
 #include "hvccall.h"
 #include "spinlock.h"
 
-static spinlock_t psci_lock;
+static DEFINE_SPINLOCK(psci_lock);
 
 /*
  * TODO: Add implementation to UART driver to check whether clocks are

@@ -24,4 +24,4 @@ _start:
 .global entrylock
 .align	8
 entrylock:
-	.quad	0x000000000000
+	.long	0x00000000
