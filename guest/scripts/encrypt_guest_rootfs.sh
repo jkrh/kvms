@@ -89,6 +89,7 @@ wait_for_dev ${nbddev}p1
 blks=$(blockdev --getsize ${nbddev}p1)
 
 dmsetup create guestfs --table "0 $blks crypt aes-xts-plain64 ${KEY} 0 ${nbddev}p1 0 1 allow_discards"
+wait_for_dev /dev/mapper/guestfs
 mkfs.ext4 /dev/mapper/guestfs
 mount /dev/mapper/guestfs $CIPHER_GUEST
 ${BASE_DIR}/scripts/qmount.py $ROOTFS $PLAIN_GUEST -r

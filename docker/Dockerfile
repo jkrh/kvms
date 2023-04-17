@@ -11,7 +11,7 @@ RUN apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu make ninja-bu
 RUN apt-get install -y libepoxy0 libvirglrenderer1 meson python3-mako python-is-python3 libxdamage-dev libxcb-glx0-dev libx11-xcb-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev libxshmfence-dev llvm libvirglrenderer-dev libaio-dev libepoxy-dev wayland-protocols libwayland-egl-backend-dev
 RUN apt-get install -y net-tools iputils-ping iproute2 gdb-multiarch sshpass device-tree-compiler glslang-tools libxcb-shm0-dev
 RUN apt-get update && apt-get install -y doxygen graphviz texlive-latex-base texlive-fonts-recommended texlive-latex-extra
-RUN apt-get install -y kmod qemu-utils parted cpio xxd zstd udev
+RUN apt-get update && apt-get install -y kmod qemu-utils parted cpio xxd zstd udev
 
 RUN pip install absl-py && pip install urlfetch
 
