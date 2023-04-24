@@ -117,7 +117,7 @@ sign_guest: | gen_key
 	$(MAKE) -C guest sign_guest
 
 gen_key:
-	$(MAKE) -C $(KEYS_PATH)
+	$(MAKE) PATH=$(PATH) -C $(KEYS_PATH)
 
 guest_images: | gen_key
 	make -C guest images

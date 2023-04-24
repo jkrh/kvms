@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
+export PATH := $(PATH)
+
 all: signature_pub.h encryption_priv.h encryption_pub.pem
 
 signature_pub.h:
