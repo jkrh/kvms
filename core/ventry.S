@@ -157,7 +157,8 @@ wait_core_ready:
 	 * might well be mapped already.
 	 */
 	str	x30, [sp, #(8 * 30)]
-	mov	x0, x2
+	adr	x2, host_lock
+	ldr	x0, [x2]
 	bl	spin_lock
 	/* Just wait for the hyp core and unlock once ready. */
 	bl	spin_unlock
@@ -177,7 +178,9 @@ handle_abort:
 	adr	x2, host_lock
 	ldr	x2, [x2]
 	ldr	x3, [x2]
-	cbnz	x3, wait_core_ready
+	// Is ticket spinlock unlocked?
+	eor	w2, w3, w3, ror #16
+	cbnz	w2, wait_core_ready
 	ldp	x2, x3, [sp, #(8 * 2)]
 
 	cmp	x1, #0x24		// Data abort
