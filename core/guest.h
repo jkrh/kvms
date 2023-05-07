@@ -149,7 +149,6 @@ struct kvm_guest {
 #ifdef EXITLOG
 	struct guest_exitlog exitlog;
 #endif
-	bool locked_call;
 	spinlock_t hvc_lock;
 };
 

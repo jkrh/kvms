@@ -486,7 +486,6 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 		return 0;
 	}
 
-	lock_guest(host);
 	while (gpap < (gpa + len)) {
 		/*
 		 * Unmap scattered ranges from host page by page. Guest stage 2 mapping
@@ -506,7 +505,6 @@ int remove_host_range(void *g, uint64_t gpa, size_t len, bool contiguous)
 cont:
 		gpap += PAGE_SIZE;
 	}
-	unlock_guest(host);
 
 	return 0;
 }
@@ -571,7 +569,6 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 		goto out;
 	}
 
-	lock_guest(host);
 	while (gpap < (gpa + len)) {
 		/*
 		 * Restore scattered ranges page by page. Guest stage 2 mapping
@@ -594,7 +591,6 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 cont:
 		gpap += PAGE_SIZE;
 	}
-	unlock_guest(host);
 
 out:
 	return res;
@@ -740,8 +736,8 @@ bool __map_back_host_page(void *h, void *g, uint64_t far_el2)
 	ipa = ipa & PAGE_MASK;
 
 	/* 1:1 mapping - TODO the parameters from platform map */
-	if (mmap_range(host, STAGE2, ipa, ipa,
-		       PAGE_SIZE, ((SH_NO<<8)|PAGE_HYP_RWX), S2_NORMAL_MEMORY))
+	if (mmap_range(host, STAGE2, ipa, ipa, PAGE_SIZE,
+		       ((SH_NO<<8)|PAGE_HYP_RWX), S2_NORMAL_MEMORY))
 		panic("mmap_range returned %d\n", res);
 
 map_back_out:

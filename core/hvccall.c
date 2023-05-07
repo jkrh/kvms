@@ -72,21 +72,6 @@ int is_apicall(uint64_t cn)
 	return -EINVAL;
 }
 
-static int sync_call(uint64_t cn)
-{
-	switch(cn) {
-	case HYP_GUEST_MAP_STAGE2:
-	case HYP_GUEST_UNMAP_STAGE2:
-	case HYP_HOST_MAP_STAGE1:
-	case HYP_HOST_PREPARE_STAGE2:
-	case HYP_HOST_SWAP_PAGE:
-	case HYP_HOST_RESTORE_SWAP_PAGE:
-	case HYP_HOST_GET_VMID:
-		return 0;
-	}
-	return 1;
-}
-
 static int get_and_set_vmid(register_t a1, register_t a2)
 {
 	uint32_t vmid;
@@ -114,7 +99,6 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		return -EINVAL;
 
 	load_host_s2();
-	lock_guest(guest);
 
 	switch (cn) {
 	case HYP_SET_GUEST_MEMORY_BLINDED:
@@ -184,7 +168,6 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	default:
 		break;
 	}
-	unlock_guest(guest);
 	load_guest_s2(guest->vmid);
 
 	return res;
@@ -200,7 +183,7 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	int64_t res = -EINVAL;
 	hyp_func_t *func;
 	uint32_t vmid;
-	int ct, sync = 0;
+	int ct;
 
 	do_debugstop();
 
@@ -211,12 +194,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	vmid = get_current_vmid();
 	if (unlikely(vmid != HOST_VMID))
 		return guest_hvccall(cn, a1, a2, a3, a4, a5, a6, a7, a8, a9);
-
-	if (ct != CALL_TYPE_KVMCALL) {
-		sync = sync_call(cn);
-		if (sync)
-			lock_guest(host);
-	}
 
 	switch (cn) {
 	case HYP_HOST_MAP_STAGE1:
@@ -470,8 +447,6 @@ int64_t hvccall(register_t cn, register_t a1, register_t a2, register_t a3,
 	}
 
 out:
-	if ((ct != CALL_TYPE_KVMCALL) && sync)
-		unlock_guest(host);
 	return res;
 }
 

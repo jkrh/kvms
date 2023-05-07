@@ -126,12 +126,10 @@ void set_host_context(void)
 void lock_guest(kvm_guest_t *guest)
 {
 	spin_lock(&guest->hvc_lock);
-	guest->locked_call = true;
 }
 
 void unlock_guest(kvm_guest_t *guest)
 {
-	guest->locked_call = false;
 	spin_unlock(&guest->hvc_lock);
 }
 
@@ -1776,14 +1774,12 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 	if (vmid != HOST_VMID)
 		panic("host_data_abort for non-host");
 
-	lock_guest(host);
 	paddr = (uint64_t)virt_to_ipa((void *)far_el2);
 
 	if (is_any_share(paddr)) {
 		haddr = pt_walk(host, STAGE2, paddr, NULL);
 		if (haddr != ~0UL) {
 			LOG("already mapped host share trap, reverting\n");
-			unlock_guest(host);
 			return true;
 		} else {
 			guest = owner_of(paddr);
@@ -1870,7 +1866,6 @@ bool host_data_abort(uint64_t vmid, uint64_t ttbr0_el1, uint64_t far_el2, void *
 		break;
 	}
 out:
-	unlock_guest(host);
 	return res;
 }
 

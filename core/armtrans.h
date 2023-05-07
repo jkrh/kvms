@@ -106,6 +106,21 @@ uint64_t pt_walk_el2(uint64_t vaddr, uint64_t **ptep);
  */
 int lock_host_kernel_area(uint64_t addr, size_t size, uint64_t depth);
 
+/*
+ * This is unlocked version of mmap/unmap functions
+ * These should be locked with spin_lock/unlock(&guest->hvc_lock)
+ *
+ * Example:
+ *    spin_lock(&guest->hvc_lock);
+ *    mmap/unmap_range_unlocked(...);
+ *    spin_unlock(&guest->hvc_lock);
+ */
+int mmap_range_unlocked(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
+			uint64_t paddr, size_t length, uint64_t prot,
+			uint64_t type);
+int unmap_range_unlocked(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
+			 size_t length);
+
 /**
  * Generic stage-1 and -2 map function
  *
