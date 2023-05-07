@@ -53,65 +53,57 @@ const CONFIG_ARM64_LSE: bool = false;
 
 /// spin_lock
 #[no_mangle]
-pub extern "C" fn spin_lock(lock: *mut spinlock_t) {
-    let mut _tmp: u32;
-    let mut _ptr = unsafe { core::ptr::addr_of!((*lock).__val) };
-    let mut _owner = unsafe { core::ptr::addr_of!((*lock).s.owner) };
-    let mut lockval = spinlock::default();
-    let mut newval = spinlock::default();
-
+pub extern "C" fn spin_lock(_lock: *mut spinlock_t) {
     if CONFIG_ARM64_LSE == true {
         unsafe {
             // LSE atomics
-            asm!("  mov     {2:w}, #(1 << 16)",
-                "   ldadda  {2:w}, {0:w}, [{3:x}]",
+            asm!("  stp     x0, x1, [sp, #-16]!",
+                "   stp     x2, x3, [sp, #-16]!",
+                "   mov     w2, #(1 << 16)",
+                "   ldadda  w2, w3, [x0]",
                 ".rept 3",
                 "   nop",
                 ".endr",
                 // Did we get the lock?
-                "   eor {1:w}, {0:w}, {0:w}, ror #16",
-                "   cbz {1:w}, 3f",
+                "   eor w1, w3, w3, ror #16",
+                "   cbz w1, 3f",
                 // No: spin on the owner. Send a local event to avoid missing
                 // an unlock before the exclusive load.
                 "   sevl",
                 "2: wfe",
-                "   ldaxrh  {2:w}, [{4:x}]",
-                "   eor     {1:w}, {2:w}, {0:w}, lsr #16",
-                "   cbnz    {1:w}, 2b",
+                "   ldaxrh  w2, [x0]",
+                "   eor     w1, w2, w3, lsr #16",
+                "   cbnz    w1, 2b",
                 // We got the lock. Critical section starts here.
                 "3:",
-                inout(reg) lockval.__val,
-                inout(reg) newval.__val,
-                out(reg) _tmp,
-                inout(reg) _ptr,
-                inout(reg) _owner,
+                "   ldp     x2, x3, [sp], #16",
+                "   ldp     x0, x1, [sp], #16",
             );
         }
     } else {
         unsafe {
             // LL/SC atomics
-            asm!("  prfm    pstl1strm, [{3:x}]",
-                "1: ldaxr   {0:w}, [{3:x}]",
-                "   add     {1:w}, {0:w}, #(1 << 16)",
-                "   stxr    {2:w}, {1:w}, [{3:x}]",
-                "   cbnz    {2:w}, 1b",
+            asm!("  stp     x0, x1, [sp, #-16]!",
+                "   stp     x2, x3, [sp, #-16]!",
+                "   prfm    pstl1strm, [x0]",
+                "1: ldaxr   w3, [x0]",
+                "   add     w1, w3, #(1 << 16)",
+                "   stxr    w2, w1, [x0]",
+                "   cbnz    w2, 1b",
                 // Did we get the lock?
-                "   eor {1:w}, {0:w}, {0:w}, ror #16",
-                "   cbz {1:w}, 3f",
+                "   eor w1, w3, w3, ror #16",
+                "   cbz w1, 3f",
                 // No: spin on the owner. Send a local event to avoid missing
                 // an unlock before the exclusive load.
                 "   sevl",
                 "2: wfe",
-                "   ldaxrh  {2:w}, [{4:x}]",
-                "   eor     {1:w}, {2:w}, {0:w}, lsr #16",
-                "   cbnz    {1:w}, 2b",
+                "   ldaxrh  w2, [x0]",
+                "   eor     w1, w2, w3, lsr #16",
+                "   cbnz    w1, 2b",
                 // We got the lock. Critical section starts here.
                 "3:",
-                inout(reg) lockval.__val,
-                inout(reg) newval.__val,
-                out(reg) _tmp,
-                inout(reg) _ptr,
-                inout(reg) _owner,
+                "   ldp     x2, x3, [sp], #16",
+                "   ldp     x0, x1, [sp], #16",
             );
         }
     }
@@ -119,32 +111,27 @@ pub extern "C" fn spin_lock(lock: *mut spinlock_t) {
 
 /// spin_unlock
 #[no_mangle]
-pub extern "C" fn spin_unlock(lock: *mut spinlock_t) {
-    let mut _tmp: u64 = 0;
-    let mut _owner = unsafe { core::ptr::addr_of!((*lock).s.owner) };
-
+pub extern "C" fn spin_unlock(_lock: *mut spinlock_t) {
     if CONFIG_ARM64_LSE == true {
         unsafe {
             // LSE atomics
-            asm!("  mov     {1:w}, #1",
-                "   staddlh {1:w}, [{0:x}]",
+            asm!("  stp     x0, x1, [sp, #-16]!",
+                "   mov     w1, #1",
+                "   staddlh w1, [x0]",
                 ".rept 1",
                 "   nop",
                 ".endr",
-                inout(reg) _owner,
-                inout(reg) _tmp,
-                options(nostack),
+                "   ldp     x0, x1, [sp], #16",
             );
         }
     } else {
         unsafe {
             // LL/SC atomics
-            asm!("  ldrh    {1:w}, [{0:x}]",
-                "   add     {1:w}, {1:w}, #1",
-                "   stlrh   {1:w}, [{0:x}]",
-                inout(reg) _owner,
-                inout(reg) _tmp,
-                options(nostack),
+            asm!("  stp     x0, x1, [sp, #-16]!",
+                "   ldrh    w1, [x0]",
+                "   add     w1, w1, #1",
+                "   stlrh   w1, [x0]",
+                "   ldp     x0, x1, [sp], #16",
             );
         }
     }
