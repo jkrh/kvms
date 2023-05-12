@@ -1,0 +1,553 @@
+From 6d8ade2dc1abd0991bd70fb28d6ee04cb50e53e9 Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Thu, 4 May 2023 14:11:17 +0300
+Subject: [PATCH] mm: external memory allocator draft
+
+When the guest VMs communicate with the host system via virtio, the
+memory for the communication channel is allocated from the guest
+memory space. The allocations are scattered all around the memory
+and they relatively difficult to track accurately. This patch moves
+all those allocations into configurable memory region that may reside
+outside of the guest kernel.
+
+In the modern virtualization systems the guest memory is either
+separated from the host via the MMU shadow pages tables or encrypted
+against the malicious host access. This leads to the guests having to
+specifically request every page that the host needs to access either
+to be decrypted or opened via set_memory_decrypted() architecture
+extension.
+
+Scattering the virtio memory all over the guest memory space and
+opening them one by one leads to multiple problems for the hypervisor:
+1) Simple hypervisor memory access control policies become impossible
+   as each shared region has to be tracked separately,
+2) Simple usage of the DMA api may lead to unneeded pages being shared
+   with the host exposing the guest to attacks / data leakage,
+3) The shadow page tables explode in size as the shared regions usually
+   cannot be described via large block descriptors,
+4) Allocated shared object alignment may be difficult to verify such
+   that nothing extra is shared with the host.
+
+This patch attempts to resolve all of the above by introducing a new
+kmalloc flag that can be used to allocate memory from a 'open' memory
+pool that may reside anywhere in the device memory that the guest and
+the host have permission to access.
+
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ arch/arm64/configs/defconfig   |   2 +
+ include/linux/emem.h           |  31 ++++++++
+ include/linux/gfp.h            |  20 ++++-
+ include/linux/slab.h           |  26 ++++++-
+ include/trace/events/mmflags.h |   3 +-
+ init/main.c                    |   4 +
+ mm/Kconfig                     |  15 ++++
+ mm/Makefile                    |   1 +
+ mm/emem.c                      | 136 +++++++++++++++++++++++++++++++++
+ mm/page_alloc.c                |  13 ++++
+ mm/slab_common.c               |   3 +
+ mm/slub.c                      |   5 ++
+ tools/perf/builtin-kmem.c      |   1 +
+ 13 files changed, 255 insertions(+), 5 deletions(-)
+ create mode 100644 include/linux/emem.h
+ create mode 100644 mm/emem.c
+
+diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
+index ac7d5d172428..b814e8e7b758 100644
+--- a/arch/arm64/configs/defconfig
++++ b/arch/arm64/configs/defconfig
+@@ -1225,3 +1225,5 @@ CONFIG_VIRTIO_VSOCKETS_COMMON=y
+ CONFIG_VIRTIO_VSOCKETS=y
+ CONFIG_ARM64_PTR_AUTH=n
+ CONFIG_DM_CRYPT=m
++CONFIG_MEMORY_HOTPLUG=y
++CONFIG_EXT_MEMORY=y
+diff --git a/include/linux/emem.h b/include/linux/emem.h
+new file mode 100644
+index 000000000000..b3cd0602dbf9
+--- /dev/null
++++ b/include/linux/emem.h
+@@ -0,0 +1,31 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef __MM_EMEM_H__
++#define __MM_EMEM_H__
++
++#include <linux/init.h>
++#include <linux/mm.h>
++#include <asm/dma.h>
++
++struct emem_region {
++	spinlock_t lock;
++	unsigned long *bitmap;
++	phys_addr_t base;
++	void *dma_base;
++	int npages;
++};
++
++#ifdef CONFIG_EXT_MEMORY
++int __init emem_region_init(void);
++int is_emem(void *vaddr);
++struct page *emem_getpages(gfp_t flags, int order);
++void emem_freepages(struct page *page, int order);
++#else
++static inline int __init emem_region_init(void) { return 0 };
++static inline int is_emem(void *vaddr) { return 0; };
++static inline struct page *emem_getpages(gfp_t flags, int order)
++{
++	return NULL;
++};
++static inline void emem_freepages(struct page *page, int order) { };
++#endif
++#endif // __MM_EMEM_H__
+diff --git a/include/linux/gfp.h b/include/linux/gfp.h
+index 55b2ec1f965a..eb7560ea71b3 100644
+--- a/include/linux/gfp.h
++++ b/include/linux/gfp.h
+@@ -60,6 +60,12 @@ struct vm_area_struct;
+ #else
+ #define ___GFP_NOLOCKDEP	0
+ #endif
++#ifdef CONFIG_EXT_MEMORY
++#define ___GFP_EXT		0x8000000u
++#else
++#define ___GFP_EXT		0
++#endif
++
+ /* If the above are modified, __GFP_BITS_SHIFT may need updating */
+ 
+ /*
+@@ -248,8 +254,11 @@ struct vm_area_struct;
+ /* Disable lockdep for GFP context tracking */
+ #define __GFP_NOLOCKDEP ((__force gfp_t)___GFP_NOLOCKDEP)
+ 
++/* Shared external allocation */
++#define __GFP_EXT	((__force gfp_t)___GFP_EXT)
++
+ /* Room for N __GFP_FOO bits */
+-#define __GFP_BITS_SHIFT (25 + IS_ENABLED(CONFIG_LOCKDEP))
++#define __GFP_BITS_SHIFT (26 + IS_ENABLED(CONFIG_EXT_MEMORY))
+ #define __GFP_BITS_MASK ((__force gfp_t)((1 << __GFP_BITS_SHIFT) - 1))
+ 
+ /**
+@@ -304,6 +313,10 @@ struct vm_area_struct;
+  * %GFP_DMA32 is similar to %GFP_DMA except that the caller requires a 32-bit
+  * address.
+  *
++ * %GFP_EXT indicates that this allocation should be done from an external
++ * memory pool added via the memory hotplug. This allocation type requires
++ * separate configuration and cannot be used without it.
++ *
+  * %GFP_HIGHUSER is for userspace allocations that may be mapped to userspace,
+  * do not need to be directly accessible by the kernel but that cannot
+  * move once in use. An example may be a hardware allocation that maps
+@@ -329,6 +342,7 @@ struct vm_area_struct;
+ #define GFP_USER	(__GFP_RECLAIM | __GFP_IO | __GFP_FS | __GFP_HARDWALL)
+ #define GFP_DMA		__GFP_DMA
+ #define GFP_DMA32	__GFP_DMA32
++#define GFP_EXT		__GFP_EXT
+ #define GFP_HIGHUSER	(GFP_USER | __GFP_HIGHMEM)
+ #define GFP_HIGHUSER_MOVABLE	(GFP_HIGHUSER | __GFP_MOVABLE | \
+ 			 __GFP_SKIP_KASAN_POISON)
+@@ -401,6 +415,10 @@ static inline bool gfpflags_normal_context(const gfp_t gfp_flags)
+ #define OPT_ZONE_DMA32 ZONE_NORMAL
+ #endif
+ 
++#ifdef CONFIG_ZONE_EXT
++#define OPT_ZONE_EXT ZONE_EXT
++#endif
++
+ /*
+  * GFP_ZONE_TABLE is a word size bitstring that is used for looking up the
+  * zone to use given the lowest 4 bits of gfp_t. Entries are GFP_ZONES_SHIFT
+diff --git a/include/linux/slab.h b/include/linux/slab.h
+index 083f3ce550bc..ca03c1243ce4 100644
+--- a/include/linux/slab.h
++++ b/include/linux/slab.h
+@@ -120,6 +120,12 @@
+ /* Slab deactivation flag */
+ #define SLAB_DEACTIVATED	((slab_flags_t __force)0x10000000U)
+ 
++#ifdef CONFIG_EXT_MEMORY
++#define SLAB_CACHE_EXT		((slab_flags_t __force)0x20000000U)
++#else
++#define SLAB_CACHE_EXT		0
++#endif
++
+ /*
+  * ZERO_SIZE_PTR will be returned for zero sized kmalloc requests.
+  *
+@@ -136,6 +142,7 @@
+ #include <linux/kasan.h>
+ 
+ struct mem_cgroup;
++
+ /*
+  * struct kmem_cache related prototypes
+  */
+@@ -319,6 +326,11 @@ enum kmalloc_cache_type {
+ 	KMALLOC_CGROUP = KMALLOC_NORMAL,
+ #else
+ 	KMALLOC_CGROUP,
++#endif
++#ifdef CONFIG_ZONE_EXT
++	KMALLOC_EXT,
++#else
++	KMALLOC_EXT = KMALLOC_NORMAL,
+ #endif
+ 	KMALLOC_RECLAIM,
+ #ifdef CONFIG_ZONE_DMA
+@@ -337,7 +349,8 @@ kmalloc_caches[NR_KMALLOC_TYPES][KMALLOC_SHIFT_HIGH + 1];
+ #define KMALLOC_NOT_NORMAL_BITS					\
+ 	(__GFP_RECLAIMABLE |					\
+ 	(IS_ENABLED(CONFIG_ZONE_DMA)   ? __GFP_DMA : 0) |	\
+-	(IS_ENABLED(CONFIG_MEMCG_KMEM) ? __GFP_ACCOUNT : 0))
++	(IS_ENABLED(CONFIG_MEMCG_KMEM) ? __GFP_ACCOUNT : 0) |	\
++	(IS_ENABLED(CONFIG_EXT_MEMORY) ? __GFP_EXT : 0))
+ 
+ static __always_inline enum kmalloc_cache_type kmalloc_type(gfp_t flags)
+ {
+@@ -352,11 +365,14 @@ static __always_inline enum kmalloc_cache_type kmalloc_type(gfp_t flags)
+ 	 * At least one of the flags has to be set. Their priorities in
+ 	 * decreasing order are:
+ 	 *  1) __GFP_DMA
+-	 *  2) __GFP_RECLAIMABLE
+-	 *  3) __GFP_ACCOUNT
++	 *  2) __GFP_EXT
++	 *  3) __GFP_RECLAIMABLE
++	 *  4) __GFP_ACCOUNT
+ 	 */
+ 	if (IS_ENABLED(CONFIG_ZONE_DMA) && (flags & __GFP_DMA))
+ 		return KMALLOC_DMA;
++	if (IS_ENABLED(CONFIG_ZONE_EXT) && (flags & __GFP_EXT))
++		return KMALLOC_EXT;
+ 	if (!IS_ENABLED(CONFIG_MEMCG_KMEM) || (flags & __GFP_RECLAIMABLE))
+ 		return KMALLOC_RECLAIM;
+ 	else
+@@ -573,6 +589,10 @@ static __always_inline void *kmalloc_large(size_t size, gfp_t flags)
+  * %__GFP_RETRY_MAYFAIL
+  *	Try really hard to succeed the allocation but fail
+  *	eventually.
++ *
++ * %__GFP_EXT
++ *	This allocation should be done from an external memory pool.
++ *
+  */
+ static __always_inline void *kmalloc(size_t size, gfp_t flags)
+ {
+diff --git a/include/trace/events/mmflags.h b/include/trace/events/mmflags.h
+index 116ed4d5d0f8..f9b2c0087231 100644
+--- a/include/trace/events/mmflags.h
++++ b/include/trace/events/mmflags.h
+@@ -50,7 +50,8 @@
+ 	{(unsigned long)__GFP_DIRECT_RECLAIM,	"__GFP_DIRECT_RECLAIM"},\
+ 	{(unsigned long)__GFP_KSWAPD_RECLAIM,	"__GFP_KSWAPD_RECLAIM"},\
+ 	{(unsigned long)__GFP_ZEROTAGS,		"__GFP_ZEROTAGS"},	\
+-	{(unsigned long)__GFP_SKIP_KASAN_POISON,"__GFP_SKIP_KASAN_POISON"}\
++	{(unsigned long)__GFP_SKIP_KASAN_POISON,"__GFP_SKIP_KASAN_POISON"},\
++	{(unsigned long)__GFP_EXT,		"__GFP_EXT"}		\
+ 
+ #define show_gfp_flags(flags)						\
+ 	(flags) ? __print_flags(flags, "|",				\
+diff --git a/init/main.c b/init/main.c
+index 649d9e4201a8..d4b2bf16b113 100644
+--- a/init/main.c
++++ b/init/main.c
+@@ -101,6 +101,7 @@
+ #include <linux/init_syscalls.h>
+ #include <linux/stackdepot.h>
+ #include <linux/randomize_kstack.h>
++#include <linux/emem.h>
+ #include <net/net_namespace.h>
+ 
+ #include <asm/io.h>
+@@ -1091,6 +1092,9 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
+ 	 */
+ 	mem_encrypt_init();
+ 
++	/* Alternative to above */
++	emem_region_init();
++
+ #ifdef CONFIG_BLK_DEV_INITRD
+ 	if (initrd_start && !initrd_below_start_ok &&
+ 	    page_to_pfn(virt_to_page((void *)initrd_start)) < min_low_pfn) {
+diff --git a/mm/Kconfig b/mm/Kconfig
+index c048dea7e342..80de7ff5a89f 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -778,6 +778,10 @@ config ZONE_DMA32
+ 	depends on !X86_32
+ 	default y if ARM64
+ 
++config ZONE_EXT
++	bool "Support external allocation pool"
++	depends on MEMORY_HOTPLUG
++
+ config ZONE_DEVICE
+ 	bool "Device memory (pmem, HMM, etc...) hotplug support"
+ 	depends on MEMORY_HOTPLUG
+@@ -798,6 +802,17 @@ config ZONE_DEVICE
+ config DEV_PAGEMAP_OPS
+ 	bool
+ 
++config EXT_MEMORY
++	bool "Support for allocations from a external memory pool"
++	select ZONE_EXT
++
++	help
++	  Support for kernel memory allocations outside of the regular
++	  kernel regions. These regions are configured separately via
++	  the device tree.
++
++	  If unsure, say N.
++
+ #
+ # Helpers to mirror range of the CPU page tables of a process into device page
+ # tables.
+diff --git a/mm/Makefile b/mm/Makefile
+index fc60a40ce954..c9b7bc97f837 100644
+--- a/mm/Makefile
++++ b/mm/Makefile
+@@ -130,3 +130,4 @@ obj-$(CONFIG_PAGE_REPORTING) += page_reporting.o
+ obj-$(CONFIG_IO_MAPPING) += io-mapping.o
+ obj-$(CONFIG_HAVE_BOOTMEM_INFO_NODE) += bootmem_info.o
+ obj-$(CONFIG_GENERIC_IOREMAP) += ioremap.o
++obj-$(CONFIG_EXT_MEMORY) += emem.o
+diff --git a/mm/emem.c b/mm/emem.c
+new file mode 100644
+index 000000000000..b016879dff66
+--- /dev/null
++++ b/mm/emem.c
+@@ -0,0 +1,136 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ *  linux/mm/emem.c
++ */
++
++#include <linux/slab.h>
++#include <linux/memory_hotplug.h>
++#include <linux/of_address.h>
++#include <linux/of.h>
++#include <linux/emem.h>
++
++extern gfp_t gfp_allowed_mask;
++static struct emem_region emem;
++
++static int emem_get_config(struct device_node *np, phys_addr_t *base, size_t *size)
++{
++	struct device_node *shm_np;
++	struct resource res_mem;
++	int ret;
++
++	shm_np = of_parse_phandle(np, "memory-region", 0);
++	if (!shm_np)
++		return -EINVAL;
++
++	ret = of_address_to_resource(shm_np, 0, &res_mem);
++	if (ret)
++		return -EINVAL;
++
++	*base = res_mem.start;
++	*size = resource_size(&res_mem);
++	of_node_put(shm_np);
++
++	if (!*base || !*size)
++		return -EINVAL;
++
++	pr_info("emem: shm base at 0x%llx size %lu\n", *base, *size);
++	return 0;
++}
++
++int emem_region_init(void)
++{
++	struct device_node *np;
++	phys_addr_t base;
++	size_t size;
++	int res, npages;
++
++	np = of_find_node_by_path("/emem_region");
++	if (!np)
++		return 0;
++
++	res = emem_get_config(np, &base, &size);
++	of_node_put(np);
++	if (res)
++		return res;
++
++	if ((base % PAGE_SIZE) || (size % PAGE_SIZE))
++		return -EINVAL;
++
++	res = add_memory(0, base, size, MMOP_OFFLINE);
++	if (res)
++		goto out_error;
++
++	/* Bookkeeping at the beginning */
++	npages = size / (PAGE_SIZE * 8);
++	emem.base = base;
++	emem.bitmap = phys_to_virt(base);
++	emem.npages = (size / PAGE_SIZE) - npages;
++	emem.dma_base = phys_to_virt(emem.base) + (npages * PAGE_SIZE);
++	spin_lock_init(&emem.lock);
++	gfp_allowed_mask |= GFP_EXT;
++
++	pr_info("emem: region at 0x%llx registered successfully\n",
++		(u64)emem.dma_base);
++	return 0;
++
++out_error:
++	pr_err("emem: region registration failed, error %d\n", res);
++	return res;
++}
++
++int is_emem(void *vaddr)
++{
++	void *s, *e;
++
++	s = emem.dma_base;
++	e = s + (emem.npages * PAGE_SIZE);
++	if ((vaddr >= s) && (vaddr < e))
++		return 1;
++
++	return 0;
++}
++EXPORT_SYMBOL(is_emem);
++
++struct page *emem_getpages(gfp_t flags, int order)
++{
++	struct page *page;
++	unsigned long irq_flags;
++	void *vaddr = NULL;
++	int pageno;
++
++	if (!emem.bitmap)
++		return NULL;
++
++	spin_lock_irqsave(&emem.lock, irq_flags);
++	pageno = bitmap_find_free_region(emem.bitmap,
++					 emem.npages * PAGE_SIZE,
++					 order);
++	if (pageno >= 0)
++		vaddr = emem.dma_base + (pageno << PAGE_SHIFT);
++	spin_unlock_irqrestore(&emem.lock, irq_flags);
++	if (!vaddr)
++		return NULL;
++
++	page = virt_to_page(vaddr);
++	if (!page)
++		panic("no page for allocation emem page\n");
++	return page;
++}
++EXPORT_SYMBOL_GPL(emem_getpages);
++
++void emem_freepages(struct page *page, int order)
++{
++	unsigned long irq_flags;
++	int pageno;
++
++	if (!emem.bitmap)
++		return;
++
++	pageno = (page_to_virt(page) - emem.dma_base) >> PAGE_SHIFT;
++	page_mapcount_reset(page);
++
++	spin_lock_irqsave(&emem.lock, irq_flags);
++	bitmap_release_region(emem.bitmap, pageno, order);
++	spin_unlock_irqrestore(&emem.lock, irq_flags);
++}
++EXPORT_SYMBOL_GPL(emem_freepages);
+diff --git a/mm/page_alloc.c b/mm/page_alloc.c
+index a71722b4e464..da387024b7f6 100644
+--- a/mm/page_alloc.c
++++ b/mm/page_alloc.c
+@@ -72,6 +72,7 @@
+ #include <linux/padata.h>
+ #include <linux/khugepaged.h>
+ #include <linux/buffer_head.h>
++#include <linux/emem.h>
+ #include <asm/sections.h>
+ #include <asm/tlbflush.h>
+ #include <asm/div64.h>
+@@ -5398,6 +5399,14 @@ struct page *__alloc_pages(gfp_t gfp, unsigned int order, int preferred_nid,
+ 	}
+ 
+ 	gfp &= gfp_allowed_mask;
++
++	if (unlikely(gfp & __GFP_EXT)) {
++		page = emem_getpages(gfp, order);
++		if (!page)
++			return NULL;
++		goto out;
++	}
++
+ 	/*
+ 	 * Apply scoped allocation constraints. This is mainly about GFP_NOFS
+ 	 * resp. GFP_NOIO which has to be inherited for all allocation requests
+@@ -5490,6 +5499,10 @@ EXPORT_SYMBOL(get_zeroed_page);
+  */
+ void __free_pages(struct page *page, unsigned int order)
+ {
++	if (unlikely(is_emem(page_to_virt(page)))) {
++		emem_freepages(page, order);
++		return;
++	}
+ 	if (put_page_testzero(page))
+ 		free_the_page(page, order);
+ 	else if (!PageHead(page))
+diff --git a/mm/slab_common.c b/mm/slab_common.c
+index 022319e7deaf..e85e57c7bf2c 100644
+--- a/mm/slab_common.c
++++ b/mm/slab_common.c
+@@ -774,6 +774,7 @@ struct kmem_cache *kmalloc_slab(size_t size, gfp_t flags)
+ {								\
+ 	.name[KMALLOC_NORMAL]  = "kmalloc-" #__short_size,	\
+ 	.name[KMALLOC_RECLAIM] = "kmalloc-rcl-" #__short_size,	\
++	.name[KMALLOC_EXT]     = "kmalloc-ext-" #__short_size,  \
+ 	KMALLOC_CGROUP_NAME(__short_size)			\
+ 	KMALLOC_DMA_NAME(__short_size)				\
+ 	.size = __size,						\
+@@ -872,6 +873,8 @@ new_kmalloc_cache(int idx, enum kmalloc_cache_type type, slab_flags_t flags)
+ 		}
+ 		flags |= SLAB_ACCOUNT;
+ 	}
++	if (type == KMALLOC_EXT)
++		flags |= SLAB_CACHE_EXT;
+ 
+ 	kmalloc_caches[type][idx] = create_kmalloc_cache(
+ 					kmalloc_info[idx].name[type],
+diff --git a/mm/slub.c b/mm/slub.c
+index f95ae136a069..c2ea46f920c6 100644
+--- a/mm/slub.c
++++ b/mm/slub.c
+@@ -4152,6 +4152,9 @@ static int calculate_sizes(struct kmem_cache *s, int forced_order)
+ 	if (s->flags & SLAB_CACHE_DMA32)
+ 		s->allocflags |= GFP_DMA32;
+ 
++	if (s->flags & SLAB_CACHE_EXT)
++		s->allocflags |= GFP_EXT;
++
+ 	if (s->flags & SLAB_RECLAIM_ACCOUNT)
+ 		s->allocflags |= __GFP_RECLAIMABLE;
+ 
+@@ -5891,6 +5894,8 @@ static char *create_unique_id(struct kmem_cache *s)
+ 		*p++ = 'd';
+ 	if (s->flags & SLAB_CACHE_DMA32)
+ 		*p++ = 'D';
++	if (s->flags & SLAB_CACHE_EXT)
++		*p++ = 'E';
+ 	if (s->flags & SLAB_RECLAIM_ACCOUNT)
+ 		*p++ = 'a';
+ 	if (s->flags & SLAB_CONSISTENCY_CHECKS)
+diff --git a/tools/perf/builtin-kmem.c b/tools/perf/builtin-kmem.c
+index da03a341c63c..08f9ff68e25b 100644
+--- a/tools/perf/builtin-kmem.c
++++ b/tools/perf/builtin-kmem.c
+@@ -660,6 +660,7 @@ static const struct {
+ 	{ "__GFP_RECLAIM",		"R" },
+ 	{ "__GFP_DIRECT_RECLAIM",	"DR" },
+ 	{ "__GFP_KSWAPD_RECLAIM",	"KR" },
++	{ "__GFP_EXT",			"EXT" },
+ };
+ 
+ static size_t max_gfp_len;
+-- 
+2.34.1
+
