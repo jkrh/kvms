@@ -343,7 +343,6 @@ guest_hvc_trap:
 	bl	is_apicall
 	cmp	w0, #0
 	bge	6f
-	ldp	x0, x1, [sp, #(8 * 0)]
 	load_caller_saved_regs
 	bl	psci_reg
 	load_caller_saved_regs

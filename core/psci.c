@@ -10,8 +10,6 @@
 #include "hvccall.h"
 #include "spinlock.h"
 
-static DEFINE_SPINLOCK(psci_lock);
-
 /*
  * TODO: Add implementation to UART driver to check whether clocks are
  * enabled. Meanwhile be careful when adding printfs at this function.
@@ -43,8 +41,7 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 	 * play safe so that we can never be turning things on and off in
 	 * parallel.
 	 */
-	if (vmid != HOST_VMID)
-		spin_lock(&psci_lock);
+	lock_guest(guest);
 
 	switch (cn) {
 	case PSCI_FEATURES:
@@ -55,6 +52,7 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 		if (vmid != HOST_VMID) {
 			LOG("VMID %lu running core: %lu\n", vmid, cpuid);
 			update_guest_state(GUEST_RUNNING);
+			init_global_area(guest);
 		}
 		set_lockflags(HOST_KVM_TRAMPOLINE_LOCK, 0, 0, 0);
 		break;
@@ -120,6 +118,5 @@ void psci_reg(u_register_t cn, u_register_t a1, u_register_t a2,
 		break;
 	}
 
-	if (vmid != HOST_VMID)
-		spin_unlock(&psci_lock);
+	unlock_guest(guest);
 }

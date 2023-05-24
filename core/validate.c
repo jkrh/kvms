@@ -518,7 +518,7 @@ int validate_host_mappings(void)
 	LOG("%d mapped pages, %d mismatches\n", count, ret);
 
 	if (vmid != HOST_VMID) {
-		load_guest_s2(vmid);
+		load_guest_s2(get_guest(vmid));
 		isb();
 	}
 

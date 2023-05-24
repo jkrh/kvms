@@ -95,8 +95,8 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	do_debugstop();
 
 	guest = get_guest(get_current_vmid());
-	if (unlikely(guest == NULL))
-		return -EINVAL;
+	if (unlikely(!guest))
+		panic("no guest?\n");
 
 	load_host_s2();
 
@@ -168,7 +168,7 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 	default:
 		break;
 	}
-	load_guest_s2(guest->vmid);
+	load_guest_s2(guest);
 
 	return res;
 }

@@ -15,8 +15,17 @@
 		compatible = "arm,psci-1.0\0arm,psci-0.2\0arm,psci";
 	};
 
+	/*
+	 *  0x4000 0000 -  0xbfff ffff - Kernel (2G)
+	 *  0xc000 0000 -  0xcfff ffff - HYP    (256M)
+	 *  0xd000 0000 -  0xffff ffff - Kernel (756M)
+	 * 0x10000 0000 - 0x10fff ffff - EMEM   (256M, guest0)
+	 * 0x11000 0000 - 0x11fff ffff - EMEM   (256M, guest1)
+	 * 0x12000 0000 - 0x12fff ffff - EMEM   (256M, guest2)
+	 * 0x13000 0000 - 0x13fff ffff - EMEM   (256M, guest3)
+	 */
 	memory@40000000 {
-		reg = <0x00 0x40000000 0x01 0x00>;
+		reg = <0x00 0x40000000 0x0 0xc0000000>;
 		device_type = "memory";
 	};
 
@@ -30,6 +39,15 @@
 			reg = <0x0 0xc0000000 0x0 0x10000000>;
 			phandle = <0x121>;
 		};
+
+		emem: region@100000000 {
+			reg = <0x1 0x00000000 0x0 0x10000000>;
+			alignment = <0x1000>;
+		};
+	};
+
+	emem_region {
+		memory-region = <&emem>;
 	};
 
 	platform@c000000 {

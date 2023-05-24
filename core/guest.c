@@ -27,6 +27,7 @@
 #include "platform_api.h"
 #include "host_platform.h"
 #include "hyp_config.h"
+#include "guestconfig.h"
 
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
@@ -164,19 +165,21 @@ int load_host_s2(void)
 	return 0;
 }
 
-int load_guest_s2(uint64_t vmid)
+int load_guest_s2(kvm_guest_t *guest)
 {
-	kvm_guest_t *guest;
 	sys_context_t *host_ctxt;
 
-	guest = get_guest(vmid);
 	host_ctxt = &host->ctxt[smp_processor_id()];
 	host_ctxt->vtcr_el2 = read_reg(VTCR_EL2);
-
 	write_reg(VTTBR_EL2, guest->ctxt[0].vttbr_el2);
 	speculative_at_isb();
 
 	return 0;
+}
+
+int load_guest_s2_by_vmid(uint64_t vmid)
+{
+	return load_guest_s2(get_guest(vmid));
 }
 
 int guest_memmap(uint32_t vmid, void *gaddr, size_t pc, void *addr, size_t addrlen)
@@ -695,7 +698,7 @@ static int guest_set_table_levels(kvm_guest_t *guest, void *kvm)
 
 const struct hyp_extension_ops eops ALIGN(16) = {
 	.load_host_stage2 = load_host_s2,
-	.load_guest_stage2 = load_guest_s2,
+	.load_guest_stage2 = load_guest_s2_by_vmid,
 	.save_host_traps = save_host_traps,
 	.restore_host_traps = restore_host_traps,
 	.hyp_vcpu_regs = hyp_vcpu_regs,
@@ -820,21 +823,46 @@ kvm_guest_t *get_guest_by_s1pgd(struct ptable *pgd)
 
 int is_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 {
+#ifdef USE_EXT_SHARES
+	const guest_share_t *share;
+	int i = 0;
+
+	share = &guest_shares[i];
+	while (share->len) {
+		if (memcmp(share->guest_id, guest->guest_id,
+			   strlen(share->guest_id))) {
+			if ((gpa >= share->gpa) &&
+			    (gpa < (share->gpa + share->len)))
+				return 1;
+		}
+		share = &guest_shares[++i];
+	}
+	return 0;
+#else
 	return patrack_gpa_is_share(guest, gpa, len);
+#endif
 }
 
 int clear_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 {
+#ifdef USE_EXT_SHARES
+	return 0;
+#else
 	return patrack_gpa_clear_share(guest, gpa, len);
+#endif
 }
 
 int set_share(kvm_guest_t *guest, uint64_t gpa, size_t len)
 {
+#ifdef USE_EXT_SHARES
+	return 0;
+#else
 	if (guest->vmid == HOST_VMID) {
 		ERROR("setting shares for the host is not supported\n");
 		return -EINVAL;
 	}
 	return patrack_gpa_set_share(guest, gpa, len);
+#endif
 }
 
 int is_any_share(uint64_t paddr)
@@ -863,6 +891,46 @@ int is_any_share(uint64_t paddr)
 
 	return 0;
 }
+
+#ifdef USE_EXT_SHARES
+/*
+ * Please enter with the guest lock held & use guest context.
+ */
+void init_global_area(kvm_guest_t *guest)
+{
+	static int gid;
+	const guest_share_t *share;
+	int res, i = 0;
+
+	if (guest == host)
+		panic("global region init from the host\n");
+
+	/* Make up some symbolic names if none are set, for testing */
+	if (!guest->guest_id || (gid < MAX_GUESTS)) {
+		sprintf((char *)guest->guest_id, "guest%d", gid);
+		gid++;
+	}
+
+	load_host_s2();
+	share = &guest_shares[i];
+	while (share->len) {
+		if (memcmp(share->guest_id, guest->guest_id,
+			   strlen(share->guest_id)))
+			goto cont;
+
+		res = mmap_range_unlocked(guest, STAGE2, share->gpa,
+				 share->hpa, share->len,
+                                 (EL1S2_SH | PAGE_HYP_RW),
+                                 S2_NORMAL_MEMORY);
+                if (res)
+                        panic("mmap_range failed with error %d\n", res);
+
+cont:
+		share = &guest_shares[++i];
+	}
+	load_guest_s2(guest);
+}
+#endif
 
 kvm_guest_t *get_guest_by_s2pgd(struct ptable *pgd)
 {
@@ -1697,7 +1765,7 @@ void guest_exit_prep(uint64_t vmid, uint64_t vcpuid, uint32_t esr,
 	kvm_memslot *slot;
 	kvm_guest_t *guest = get_guest(vmid);
 
-	if (!guest || vcpuid >= NUM_VCPUS) {
+	if (!guest || vcpuid >= NUM_VCPUS || vmid < GUEST_VMID_START) {
 		ERROR("invalid vmid %u or vcpuid %u\n",
 		      vmid, vcpuid);
 		return;

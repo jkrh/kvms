@@ -36,6 +36,13 @@ MAX_PAGING_BLOCKS := 64000
 endif
 
 #
+# Use pre-shared virtio memory. Requires guest support.
+#
+ifeq ($(USE_EXT_SHARES),1)
+BUILDOPTS += -DUSE_EXT_SHARES
+endif
+
+#
 # Define if hardware cryptographic extensions should be used for
 # the aes / sha computations.
 #

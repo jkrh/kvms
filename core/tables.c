@@ -425,7 +425,7 @@ int free_pgd(struct tablepool *tpool, struct ptable *pgd_base)
 
 	if (tpool == &tpool->guest->s2_tablepool) {
 		if (tpool->guest->vmid != HOST_VMID) {
-			load_guest_s2(tpool->guest->vmid);
+			load_guest_s2(tpool->guest);
 			isb();
 		}
 		dsb();

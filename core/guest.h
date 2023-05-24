@@ -231,10 +231,24 @@ int is_share(kvm_guest_t *guest, uint64_t gpa, size_t len);
 /*
  * Query if given area is a share in any guest.
  *
- * @paran paddr, physical address to query
+ * @param paddr, physical address to query
  * @return negative error code in failure, 1 if it is, 0 otherwise
  */
 int is_any_share(uint64_t paddr);
+
+/*
+ * KVMS can be used with a guest kernel patch that can allocate ram
+ * from this block. This function will initialize that area per the
+ * specifications in guestconfig.h.
+ *
+ * @param guest to configure
+ * @return void
+ */
+#ifdef USE_EXT_SHARES
+void init_global_area(kvm_guest_t *guest);
+#else
+static inline void init_global_area(kvm_guest_t *guest) { };
+#endif
 
 /**
  * Initialize the guests and guest lookup array.
@@ -400,10 +414,10 @@ int load_host_s2(void);
 /**
  * Load guest stage2 context
  *
- * @param vmid the guest virtual machine identifier
+ * @param the guest virtual machine
  * @return 0 if ok, negative error code otherwise
  */
-int load_guest_s2(uint64_t vmid);
+int load_guest_s2(kvm_guest_t *guest);
 
 /**
  * Get guest context pointer

@@ -5,7 +5,7 @@ QEMU := qemu-system-aarch64
 
 KERNEL := $(KERNEL_DIR)/arch/arm64/boot/Image
 VMLINUX := $(KERNEL_DIR)/vmlinux
-KERNEL_OPTS := root=/dev/vda1 console=ttyAMA0 mem=4G nokaslr loglevel=8 rw
+KERNEL_OPTS := root=/dev/vda1 console=ttyAMA0 mem=3G nokaslr loglevel=8 rw
 WAYOUT := $(shell exec ip route get 1.1.1.1 | grep -oP 'src \K\S+')
 PORT := 10022
 DRIVE := -drive file=$(IMAGE),format=qcow2,if=sd,id=ubu-sd -device virtio-blk-device,drive=ubu-sd

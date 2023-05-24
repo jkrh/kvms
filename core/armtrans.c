@@ -672,12 +672,12 @@ static int __block_remap(uint64_t vaddr, size_t len, mblockinfo_t *block,
 	uint64_t tvaddr, tpaddr, bsize;
 	struct ptable *tbl;
 	int res = 0;
-	size_t rlen, tlen, mlen;
 	uint32_t vmid = block->guest->vmid;
+	size_t rlen, tlen, mlen;
 	bool hit;
 
 	if (vmid != HOST_VMID) {
-		load_guest_s2(vmid);
+		load_guest_s2(block->guest);
 		isb();
 	}
 
