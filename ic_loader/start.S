@@ -13,25 +13,31 @@
 
 .global _start
 _start:
-	adr x29, .stack_top
-	mov sp, x29
-	sub sp, sp, #(8 * 4)
-	stp x0, x1, [sp, #(8 * 0)]
-	stp x2, x3, [sp, #(8 * 2)]
+	#save possible input registers
+	mov x4, x0
+	mov x5, x1
+	mov x6, x2
+	mov x7, x3
 
 	/* remap loader to final address */
 	adr x1, _start
 	mov x0, #HYP_GUEST_REMAP_LOADER
 	hvc #0
-	cbnz x0, err_handler
 
-	/* reinit the stack pointer on final address */
+	/* init the stack pointer to final address */
 	adr x29, .stack_top
 	mov sp, x29
-	sub sp, sp, #(8 * 4)
-	ldp x0, x1, [sp, #(8 * 0)]
+	cbnz x0, err_handler
 
-	/* ic_loader cal modify registers contents on the stack */
+	#restore input registers
+	mov x0, x4
+	mov x1, x5
+	mov x2, x6
+	mov x3, x7
+	sub sp, sp, #(8 * 4)
+	stp x0, x1, [sp, #(8 * 0)]
+
+	/* ic_loader can modify registers contents on the stack */
 	mov x0, sp
 	bl ic_loader
 

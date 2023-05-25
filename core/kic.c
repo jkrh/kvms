@@ -14,9 +14,16 @@
 #ifdef KIC_ENABLE
 #define CHECKRES(x) (if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;)
 __attribute__((__section__(".el1_hyp_img")))
-uint32_t el1_hyp_img[512] = {
+uint32_t el1_hyp_img[1024] = {
 #include "generated/ic_loader.hex"
 };
+__attribute__((__section__(".el1_hyp_data")))
+uint32_t el1_hyp_data[1024];
+
+#define VA_EL1_HYP_IMAGE ((uint64_t) el1_hyp_img)
+#define PA_EL1_HYP_IMAGE ((uint64_t) el1_hyp_img)
+#define VA_EL1_HYP_DATA  (VA_EL1_HYP_IMAGE + PAGE_SIZE)
+#define PA_EL1_HYP_DATA ((uint64_t) el1_hyp_data)
 
 DEFINE_SPINLOCK(kic_lock);
 
@@ -30,7 +37,7 @@ void init_kic(kvm_guest_t *guest)
 
 void kic_free(kvm_guest_t *guest)
 {
-	if (guest->kic_status <= KIC_PASSED) {
+	if (guest->kic_status < KIC_PASSED) {
 		/* KIC process died, remote the lock
 		 */
 		guest->kic_status = KIC_FAILED;
@@ -38,24 +45,48 @@ void kic_free(kvm_guest_t *guest)
 	}
 }
 
-int handle_icldr_mapping(kvm_guest_t *guest, uint64_t vaddr, uint64_t *paddr)
+int handle_icldr_mapping(kvm_guest_t *guest, uint64_t vaddr,
+			 uint64_t *paddr, uint64_t len, uint64_t *prot)
 {
 	int res = 0;
+
 	if (guest->kic_status < KIC_RUNNING) {
 		guest->kic_status = KIC_RUNNING;
-		*paddr = (uint64_t)&el1_hyp_img;
+		*paddr = PA_EL1_HYP_IMAGE;
+		if (len > PAGE_SIZE) {
+			/* Executable area of ICL cannot be more than 1 page */
+			ERROR("invalid ICL size 0x%llx\n", len);
+			return -EFAULT;
+		}
+		/* Executable page of ICL must be read only */
+		*prot = (*prot & ~S2AP_MASK) | S2AP_READ;
+
+		return 0;
 	}
 	if (guest->kic_status >= KIC_VERIFIED_OK) {
-		res = unmap_range(guest, STAGE2, (uint64_t) &el1_hyp_img,
-				  PAGE_SIZE);
+		/* Unmap ICL */
+		res = unmap_range(guest, STAGE2, VA_EL1_HYP_IMAGE, PAGE_SIZE);
+		res |= unmap_range(guest, STAGE2, VA_EL1_HYP_DATA, PAGE_SIZE);
+
 		if (res)
-			return res;
+			return -EFAULT;
+
 		if (guest->kic_status == KIC_VERIFIED_OK)
 			guest->kic_status = KIC_PASSED;
 		else
 			guest->kic_status = KIC_FAILED;
 		 spin_unlock(&kic_lock);
+	} else {
+		/* No executable pages (other than el1_hyp_img page) until
+		 * KIC is complete
+		 */
+		if ((*prot & S2_EXEC_NONE) != S2_EXEC_NONE) {
+			ERROR("invalid prot bits 0x%llx on addr 0x%llx\n",
+			       *prot, vaddr);
+			return -EFAULT;
+		}
 	}
+
 	return res;
 }
 
@@ -86,6 +117,7 @@ int remap_icloader(void *g, uint64_t image)
 {
 	kvm_guest_t *guest = g;
 	uint64_t ret_addr = read_reg(ELR_EL2) & 0xfff;
+
 	if (guest->kic_status != KIC_RUNNING) {
 		ERROR("remap_icloder() call\n");
 		guest->kic_status = KIC_VERIFIED_FAIL;
@@ -94,11 +126,23 @@ int remap_icloader(void *g, uint64_t image)
 	if (unmap_range(guest, STAGE2, image, PAGE_SIZE))
 		return KIC_FATAL;
 
-	if (mmap_range(guest, STAGE2, (uint64_t) &el1_hyp_img,
-			(uint64_t) &el1_hyp_img, PAGE_SIZE,
-			0x03fc, KERNEL_MATTR))
+	if (mmap_range(guest, STAGE2, VA_EL1_HYP_IMAGE, PA_EL1_HYP_IMAGE,
+			PAGE_SIZE,
+			S2_SH_INN | S2AP_READ |
+			S2_MEM_TYPE_MASK | S2_IWB,
+			KERNEL_MATTR))
 		return KIC_FATAL;
-	ret_addr |=  ((uint64_t) &el1_hyp_img & ~0xfff);
+
+	if (mmap_range(guest, STAGE2, VA_EL1_HYP_DATA, PA_EL1_HYP_DATA,
+			PAGE_SIZE,
+			S2_EXEC_NONE | S2_SH_INN | S2AP_RW |
+			S2_MEM_TYPE_MASK | S2_IWB,
+			KERNEL_MATTR)) {
+		unmap_range(guest, STAGE2, VA_EL1_HYP_IMAGE, PAGE_SIZE);
+		return KIC_FATAL;
+	}
+
+	ret_addr |=  VA_EL1_HYP_IMAGE & ~0xfff;
 
 	write_reg(ELR_EL2, ret_addr);
 	return 0;

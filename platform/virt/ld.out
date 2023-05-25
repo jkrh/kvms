@@ -23,7 +23,6 @@ SECTIONS
 	.rodata : ALIGN(4096) { *(.rodata) } > RAM
 	.data : ALIGN(4096) { *(.data) } > RAM
 	_end = .;
-	.el1_hyp_img : ALIGN(4096) { *.(.el1_hyp_img) } > RAM
 	.bss : ALIGN(4096) { *(.bss COMMON) } > RAM
 
 	xlat_table (NOLOAD) : ALIGN(16) {
@@ -31,5 +30,7 @@ SECTIONS
 		*(xlat_table)
 		__XLAT_END__ = .;
 	} > RAM
+	.el1_hyp_img : ALIGN(4096) { *.(.el1_hyp_img) } > RAM
+	.el1_hyp_data : ALIGN(4096) {*.(.el1_hyp_img) } > RAM
 	. = ALIGN(8);
 }

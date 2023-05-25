@@ -30,16 +30,10 @@ int call_hyp(uint64_t fid, uint64_t x1)
 
 void err_handler(int ret)
 {
-#ifdef DEBUG
-	if (ret == KIC_FATAL) {
-		call_hyp(PSCI_SYSTEM_OFF, 0);
-		while(1);
-	}
-#else
 	call_hyp(PSCI_SYSTEM_OFF, 0);
 	while(1);
-#endif
 }
+
 uint64_t laddr[KIC_IMAGE_COUNT];
 
 void ic_loader(uint64_t sp[], uint64_t start)

@@ -88,6 +88,8 @@
 #define SH_OUT			0x2
 #define SH_INN			0x3
 
+#define S2_SH_INN		(SH_INN << SH_SHIFT)
+
 /* Stage 2 MemAttr[3:2] */
 #define S2_MEM_ATTR_SHIFT	2
 #define S2_MEM_TYPE_SHIFT	(S2_MEM_ATTR_SHIFT + 2)

@@ -13,13 +13,16 @@ extern spinlock_t kic_lock;
  * @param guest the guest
  * @param vaddr IPA address to map
  * @param vaddr paddr physical address to map.
+ * @param len length of the blob
+ * @param prot memory protection bits of the blob
  */
 static inline int handle_kic_mapping(kvm_guest_t *guest,
-				     uint64_t vaddr, uint64_t *paddr)
+				     uint64_t vaddr, uint64_t *paddr,
+				     uint64_t len, uint64_t *prot)
 {
 #ifdef KIC_ENABLE
 	if (unlikely(guest->kic_status < KIC_PASSED))
-		return handle_icldr_mapping(guest, vaddr, paddr);
+		return handle_icldr_mapping(guest, vaddr, paddr, len, prot);
 #endif
 	return 0;
 }

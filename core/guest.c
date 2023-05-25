@@ -1059,7 +1059,7 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 		res = -EINVAL;
 		goto out_error;
 	}
-	if (handle_kic_mapping(guest, vaddr, &paddr))
+	if (handle_kic_mapping(guest, vaddr, &paddr, len, &prot))
 		return -EFAULT;
 
 	if (guest->state > GUEST_RUNNING)
