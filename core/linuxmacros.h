@@ -59,6 +59,28 @@
 	ldp	x29, x30, [sp, #(8 * 29)]
 .endm
 
+.macro	load_caller_saved_regs
+	ldp	x0, x1, [sp, #(8 * 0)]
+	ldp	x2, x3, [sp, #(8 * 2)]
+	ldp	x4, x5, [sp, #(8 * 4)]
+	ldp	x6, x7, [sp, #(8 * 6)]
+	ldp	x8, x9, [sp, #(8 * 8)]
+	ldp	x10, x11, [sp, #(8 * 10)]
+	ldp	x12, x13, [sp, #(8 * 12)]
+	ldp	x14, x15, [sp, #(8 * 14)]
+.endm
+
+.macro	save_caller_saved_regs
+	stp	x0, x1, [sp, #(8 * 0)]
+	stp	x2, x3, [sp, #(8 * 2)]
+	stp	x4, x5, [sp, #(8 * 4)]
+	stp	x6, x7, [sp, #(8 * 6)]
+	stp	x8, x9, [sp, #(8 * 8)]
+	stp	x10, x11, [sp, #(8 * 10)]
+	stp	x12, x13, [sp, #(8 * 12)]
+	stp	x14, x15, [sp, #(8 * 14)]
+.endm
+
 .macro	save_callee_saved_regs ctxt
 	str	x18, [\ctxt, #(8 * 18)]
 	stp	x19, x20, [\ctxt, #(8 * 19)]

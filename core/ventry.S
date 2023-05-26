@@ -344,8 +344,9 @@ guest_hvc_trap:
 	cmp	w0, #0
 	bge	6f
 	ldp	x0, x1, [sp, #(8 * 0)]
-	load_all_regs
+	load_caller_saved_regs
 	bl	psci_reg
+	load_caller_saved_regs
 	mrs	x18, ESR_EL2
 	mov	x19, #ARM_EXCEPTION_TRAP
 	b	guest_exit
