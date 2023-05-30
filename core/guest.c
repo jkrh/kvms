@@ -726,13 +726,14 @@ int init_guest(void *kvm)
 	if (!kvm)
 		return -EINVAL;
 
-	guest = __get_guest_by_kvm(&kvm, NULL);
+	if (__get_guest_by_kvm(&kvm, NULL)) {
+		ERROR("the guest is already initialized\n");
+		return -EINVAL;
+	}
+	guest = alloc_guest(kvm);
 	if (guest == NULL) {
-		guest = alloc_guest(kvm);
-		if (guest == NULL) {
-			ERROR("no space for a new guest\n");
-			return -ENOSPC;
-		}
+		ERROR("no space for a new guest\n");
+		return -ENOSPC;
 	}
 	guest->state = GUEST_INIT;
 
