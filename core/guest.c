@@ -1332,7 +1332,7 @@ int free_guest(void *kvm)
 	if (guest->EL1S2_pgd == host->EL1S2_pgd)
 		panic("not host pgd\n");
 
-	if (guest->vmid <= GUEST_VMID_START)
+	if (guest->vmid < GUEST_VMID_START)
 		return 0;
 
 	guest->state = GUEST_STOPPED;
