@@ -8,6 +8,7 @@ UBUNTU_STABLE=http://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/re
 UBUNTU_UNSTABLE=https://cdimage.debian.org/mirror/cdimage.ubuntu.com/ubuntu-base/releases/22.10/release/ubuntu-base-22.10-base-arm64.tar.gz
 QEMU_USER=$BASE_DIR/oss/ubuntu/usr/bin/qemu-aarch64-static
 QEMU_HOST=$BASE_DIR/oss/ubuntu/usr/bin/qemu-system-aarch64
+QEMU_VIRTIO_ROM=$BASE_DIR/oss/ubuntu/usr/share/qemu/efi-virtio.rom
 CPUS=`nproc`
 
 USERNAME=$1
@@ -93,6 +94,14 @@ if [ ! -f $QEMU_HOST ]; then
 	exit 1
 fi
 cp $QEMU_HOST tmp/usr/bin
+
+if [ ! -f $QEMU_VIRTIO_ROM ]; then
+	echo "ERROR: can't find out $QEMU_VIRTIO_ROM"
+	echo "ERROR: please run 'make target-qemu'"
+	exit 1
+fi
+mkdir -p tmp/usr/share/qemu
+install --mode=0644 $QEMU_VIRTIO_ROM tmp/usr/share/qemu
 
 echo "Installing packages.."
 mount --bind /dev tmp/dev
