@@ -409,7 +409,7 @@ kvm_guest_t *get_free_guest(uint64_t vmid)
 		}
 	}
 	if (!entry)
-		return entry;
+		goto out;
 
 	for (i = 0; i < MAX_VM; i++) {
 		if (guests[i].vmid != INVALID_VMID)
