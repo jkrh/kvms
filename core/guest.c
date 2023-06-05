@@ -171,6 +171,10 @@ int load_guest_s2(kvm_guest_t *guest)
 
 	host_ctxt = &host->ctxt[smp_processor_id()];
 	host_ctxt->vtcr_el2 = read_reg(VTCR_EL2);
+	if (!guest) {
+		return 0;
+	}
+
 	write_reg(VTTBR_EL2, guest->ctxt[0].vttbr_el2);
 	speculative_at_isb();
 
