@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-export PATH=$PATH:/usr/sbin
+export PATH=../buildtools/usr/bin:../buildtools/usr/sbin:$PATH:/usr/sbin
 cd "$(dirname "$0")"
 modprobe nbd max_part=8
 
