@@ -77,17 +77,17 @@ err_handler:
 	return err;
 }
 
-int  get_derived_key(kvm_guest_t *guest, void *key, size_t key_size,
+int get_derived_key(kvm_guest_t *guest, void *key, size_t key_size,
 		     const void *salt, size_t salt_size)
 {
 	int ret;
 
-	void *keybuf = malloc(sizeof(gad_t));
+	void *keybuf = malloc(key_size);
 	if (!keybuf) {
 		ERROR("No memory\n");
 		return KIC_ERROR;
 	}
-	void *saltbuf = malloc(sizeof(gad_t));
+	void *saltbuf = malloc(salt_size);
 	if (!saltbuf) {
 		ERROR("No memory\n");
 		return KIC_ERROR;
@@ -99,6 +99,7 @@ int  get_derived_key(kvm_guest_t *guest, void *key, size_t key_size,
 			(uint8_t *)&encryption_priv, sizeof(encryption_priv));
 
 	copy_to_guest(guest, STAGEA, key, keybuf, key_size);
-
+	free(keybuf);
+	free(saltbuf);
 	return ret;
 }

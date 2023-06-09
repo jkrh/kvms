@@ -148,10 +148,10 @@ int main(void)
 	if (ret == -EINVAL)
 		printf("save_vm_keys() if buffer size is too small OK\n");
 	else
-
 		printf("save_vm_keys() if buffer size is too small FAIL\n");
 
-
+	free_keys(&guest[0]);
+	TEST_GET_KEY(Getkey after load 32B key, 1, 32, 32, -ENOKEY);
 
 	return 0;
 }

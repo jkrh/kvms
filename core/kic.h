@@ -76,7 +76,16 @@ int image_check_init(void *guest, uint64_t start_page);
  * @return zero in case of success
  */
 int check_guest_image(void *guest, uint64_t laddr);
-/*
- * Internal use only.
+
+/***
+ * Free KIC memory allocation and release KIC lock
+ *
+ * @param guest the guest
  */
+#ifdef KIC_ENABLE
+	void free_kic(kvm_guest_t *guest);
+#else
+	static inline void free_kic(kvm_guest_t *guest) {};
+#endif
+
 #endif /* CORE_KIC_H_ */

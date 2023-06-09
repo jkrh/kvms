@@ -518,9 +518,9 @@ kvm_guest_t *alloc_guest(void *kvm)
 
 		guest->kvm = kern_hyp_va(kvm);
 		set_blinding_default(guest);
+		gettimeofday(&guest->st.boottime);
 	}
 
-	gettimeofday(&guest->st.boottime);
 	return guest;
 }
 
@@ -785,6 +785,7 @@ int init_guest(void *kvm)
 	guest->ctxt[0].vttbr_el2 = (((uint64_t)guest->EL1S2_pgd) |
 				    ((uint64_t)guest->vmid << 48));
 	memset(guest->guest_id, 0, GUEST_ID_LEN);
+	guest->keybuf = 0;
 	init_kic(guest);
 	/* Save the current VM process stage1 PGDs */
 	guest->EL1S1_0_pgd = (struct ptable *)(read_reg(TTBR0_EL1) & TTBR_BADDR_MASK);
@@ -1404,13 +1405,11 @@ int free_guest(void *kvm)
 	if (guest->EL1S2_pgd == host->EL1S2_pgd)
 		panic("not host pgd\n");
 
-	if (guest->vmid < GUEST_VMID_START)
-		return 0;
-
 	guest->state = GUEST_STOPPED;
 	dsb(); isb();
 
-	kic_free(guest);
+	free_kic(guest);
+	free_keys(guest);
 	res = restore_host_mappings(guest);
 	if (res)
 		panic("restore_host_mappings failed for guest %u\n",
@@ -1420,11 +1419,12 @@ int free_guest(void *kvm)
 	if (res)
 		panic("patrack_stop error: %d\n",res);
 
-	if (guest->hyp_page_data)
+	if (guest->hyp_page_data) {
 		for (i = 0; i < MAX_PAGING_BLOCKS; i++)
 			if (guest->hyp_page_data[i])
 				free(guest->hyp_page_data[i]);
-
+		free(guest->hyp_page_data);
+	}
 	free_pgd(&guest->s2_tablepool, NULL);
 
 	/*

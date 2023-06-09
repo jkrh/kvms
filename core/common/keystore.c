@@ -20,7 +20,6 @@
 #include "keystore.h"
 #include "mtree.h"
 
-
 #define CHECKRES(x, expected, err_handler) \
 		do { \
 			if ((x) != (expected)) { \
@@ -263,7 +262,7 @@ err_handler:
 }
 
 int generate_key(kvm_guest_t *guest, uint8_t *a_key, size_t size,
-		const char *a_name)
+		 const char *a_name)
 {
 	char name[KEY_NAME_LEN];
 	uint8_t *key = NULL;
@@ -389,6 +388,22 @@ err_handler:
 
 }
 
+int free_keys(kvm_guest_t *guest)
+{
+	keybuf_t *next = NULL;
+	keybuf_t *p = guest->keybuf;
+
+	while (p) {
+		memset(p->key.key, 0, p->key.size);
+		p->key.type = KEY_NONE;
+		next = p->next;
+		free(p);
+		p = next;
+	}
+	guest->keybuf = 0;
+	return 0;
+}
+
 int delete_key(kvm_guest_t *guest, const char *name)
 {
 	if (!is_valid_paddr(name) ||
@@ -483,7 +498,7 @@ int load_vm_key(kvm_guest_t *guest, const uint8_t *ctext, size_t ctext_len)
 {
 	uint8_t *ptext = NULL;
 	size_t ptext_len;
-	keys_header_t *key_hdr = (keys_header_t *)ctext ;
+	keys_header_t *key_hdr = (keys_header_t *)ctext;
 	uint8_t kek[32];
 	uint8_t hash[HASH_LEN];
 	uint8_t salt[GUEST_ID_LEN + KEYSTORE_SALT_SIZE];
@@ -505,7 +520,7 @@ int load_vm_key(kvm_guest_t *guest, const uint8_t *ctext, size_t ctext_len)
 
 	/*generate KEK for guest*/
 	memcpy(salt, guest->guest_id, GUEST_ID_LEN);
-	memcpy(&salt[GUEST_ID_LEN], KEYSTORE_SALT,  KEYSTORE_SALT_SIZE);
+	memcpy(&salt[GUEST_ID_LEN], KEYSTORE_SALT, KEYSTORE_SALT_SIZE);
 	ret = platform_get_static_key(kek, sizeof(kek), salt, sizeof(salt));
 	CHECKRES(ret, 0, err_handler);
 

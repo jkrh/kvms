@@ -6,7 +6,7 @@ TOOLDIR := $(BASE_DIR)/buildtools
 PATH=$(TOOLDIR)/bin:$(TOOLDIR)/usr/bin:/bin:/usr/bin:/usr/local/bin
 PVAR := $(shell echo $(PLATFORM) | tr a-z A-Z)
 
-INCLUDES += -I$(BASE_DIR)/mbedtls/include -I.. -I$(BASE_DIR)/core  -I.. -I$(BASE_DIR)/core/common
+INCLUDES += -I$(BASE_DIR)/mbedtls/include -I.. -I$(BASE_DIR)/core  -I.. -I$(BASE_DIR)/core/common -I$(BASE_DIR)/core/librs/include
 INCLUDES += -I$(BASE_DIR)/platform/common -I$(BASE_DIR)/platform/virt -I$(BASE_DIR)/oss/linux -I$(BASE_DIR)/stdlib
 
 CFLAGS := -march=armv8-a+nofp --sysroot=$(TOOLDIR) --no-sysroot-suffix $(INCLUDES) $(DEFINES) -fno-sanitize=all

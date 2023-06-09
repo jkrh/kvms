@@ -28,19 +28,20 @@ uint32_t el1_hyp_data[1024];
 DEFINE_SPINLOCK(kic_lock);
 
 /* Guest Authenticated Data */
-static gad_t *gad;
+static gad_t *gad = 0;
 
 void init_kic(kvm_guest_t *guest)
 {
 	guest->kic_status = KIC_NOT_STARTED;
 }
 
-void kic_free(kvm_guest_t *guest)
+void free_kic(kvm_guest_t *guest)
 {
-	if (guest->kic_status < KIC_PASSED) {
-		/* KIC process died, remote the lock
-		 */
-		guest->kic_status = KIC_FAILED;
+	if ((guest->kic_status != KIC_NOT_STARTED) &&
+	   (guest->kic_status < KIC_PASSED)) {
+		/* run only if kic is started but not complete */
+		if (gad)
+			free(gad);
 		spin_unlock(&kic_lock);
 	}
 }
@@ -70,12 +71,11 @@ int handle_icldr_mapping(kvm_guest_t *guest, uint64_t vaddr,
 
 		if (res)
 			return -EFAULT;
-
+		free_kic(guest);
 		if (guest->kic_status == KIC_VERIFIED_OK)
 			guest->kic_status = KIC_PASSED;
 		else
 			guest->kic_status = KIC_FAILED;
-		 spin_unlock(&kic_lock);
 	} else {
 		/* No executable pages (other than el1_hyp_img page) until
 		 * KIC is complete
@@ -87,7 +87,7 @@ int handle_icldr_mapping(kvm_guest_t *guest, uint64_t vaddr,
 		}
 	}
 
-	return res;
+	return 0;
 }
 
 static int guest_calc_hash(kvm_guest_t *guest, mbedtls_sha256_context *ctx,
@@ -173,8 +173,6 @@ int image_check_init(void *g, uint64_t start_page)
 
 	if (gad->macig != 0x4e474953) {
 		ERROR("No signature magic\n");
-		free (gad);
-		gad = NULL;
 		guest->kic_status = KIC_VERIFIED_FAIL;
 		return KIC_ERROR;
 	}
@@ -196,8 +194,6 @@ int image_check_init(void *g, uint64_t start_page)
 	for (i = 0; i < KIC_IMAGE_COUNT; i++)
 		if (gad->images[i].size > KIC_MAX_IMAGE_SIZE) {
 			ERROR("Too big image to check\n");
-			free (gad);
-			gad = NULL;
 			guest->kic_status = KIC_VERIFIED_FAIL;
 			return KIC_ERROR;
 		}
@@ -245,9 +241,6 @@ int check_guest_image(void *g, uint64_t laddr)
 
 	if (guest->kic_status != KIC_RUNNING) {
 		ERROR("Illegal icheck_guest_image() call\n");
-		if (gad)
-			free (gad);
-		gad = NULL;
 		guest->kic_status = KIC_VERIFIED_FAIL;
 		return -KIC_FATAL;
 	}
@@ -293,8 +286,7 @@ int check_guest_image(void *g, uint64_t laddr)
 		guest->kic_status = KIC_VERIFIED_OK;
 		ret = 0;
 	}
-	free (gad);
-	gad = 0;
+
 	return ret;
 }
 

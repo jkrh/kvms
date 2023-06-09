@@ -111,7 +111,7 @@ void __log(int level, const char *func, const char *fmt, ...)
 	struct timeval tv2;
 	va_list args;
 
-	gettimeofday(&tv2, NULL);
+	gettimeofday(&tv2);
 
 	if (level)
 		printf("\033[0;31m");
