@@ -110,6 +110,22 @@ int do_read_key(int fd, char *arg)
 	return 0;
 }
 
+int do_delete_key(int fd, char *arg)
+{
+	struct guest_key key;
+	int ret;
+
+#ifdef DEBUG
+	printf("delete key %s\n", arg);
+#endif
+	strncpy(key.name, arg, 15);
+	memset(&key, 0, sizeof(key));
+	strcpy(key.name, "hyp:");
+	strncat(key.name, arg, 12);
+	ret = ioctl(fd, HYPDRV_DELETE_KEY, &key);
+	return ret;
+}
+
 int do_save_keys(int fd, u64 vmid, char *filename)
 {
 	struct encrypted_keys keys;
@@ -240,6 +256,11 @@ int do_ioctl(int fd, int call, int argc, char *argv[])
 			ret  = get_arg(argv[0], &vmid);
 			if (!ret)
 				ret = do_load_keys(fd, vmid, argv[1]);
+		}
+		break;
+	case DELETE_KEY:
+		if (argc >= 1) {
+			ret = do_delete_key(fd, argv[0]);
 		}
 		break;
 	case READ_LOG:

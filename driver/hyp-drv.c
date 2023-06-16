@@ -384,6 +384,29 @@ err:
 }
 
 static ssize_t
+do_deletekey(void __user *argp)
+{
+	struct guest_key *key;
+	uint64_t ret;
+
+	key = kmalloc(sizeof(struct guest_key), GFP_KERNEL);
+	if (!key) {
+		ret = -ENOMEM;
+		goto err;
+	}
+	ret = copy_from_user(key, argp, sizeof(struct guest_key));
+	if (ret) {
+		ret =  -EIO;
+		goto err;
+	}
+	ret = call_hyp(HYP_DELETE_KEY, (u64) key->name, 0, 0, 0);
+
+err:
+	if (key)
+		kfree(key);
+	return ret;
+}
+static ssize_t
 do_read(void __user *argp)
 {
 	struct log_frag log = { 0 };
@@ -449,7 +472,10 @@ device_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case HYPDRV_LOAD_KEYS:
 		ret =  do_loadkeys(argp);
 		break;
-	case TCGETS:
+	case HYPDRV_DELETE_KEY:
+		ret = do_deletekey(argp);
+		break;
+			case TCGETS:
 #ifdef DEBUG
 		pr_info("HYPDRV: not a TTY\n");
 #endif

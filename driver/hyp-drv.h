@@ -27,11 +27,13 @@ struct guest_key {
 	size_t keysize;
 	unsigned char key[32];
 };
+
 struct encrypted_keys {
 	u64 vmid;
 	u32 len;
 	char buf[1024];
 };
+
 
 #define KERNEL_LOCK	1
 #define KERNEL_MMAP	2
@@ -41,6 +43,7 @@ struct encrypted_keys {
 #define READ_KEY	6
 #define SAVE_KEYS	7
 #define LOAD_KEYS	8
+#define DELETE_KEY	9
 
 #define HYPDRV_IOCTL_BASE 0xDE
 #define HYPDRV_KERNEL_LOCK _IO(HYPDRV_IOCTL_BASE, 1)
@@ -51,6 +54,7 @@ struct encrypted_keys {
 #define HYPDRV_READ_KEY _IOWR(HYPDRV_IOCTL_BASE, 6, struct guest_key)
 #define HYPDRV_SAVE_KEYS _IOWR(HYPDRV_IOCTL_BASE, 7, struct encrypted_keys)
 #define HYPDRV_LOAD_KEYS _IOW(HYPDRV_IOCTL_BASE, 8, struct encrypted_keys)
+#define HYPDRV_DELETE_KEY _IOW(HYPDRV_IOCTL_BASE, 9, struct guest_key)
 
 #define _XN(A, B)	(A<<54|B<<53)
 #define _SH(A, B)	(A<<9|B<<8)

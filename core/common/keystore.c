@@ -388,6 +388,7 @@ err_handler:
 
 }
 
+
 int free_keys(kvm_guest_t *guest)
 {
 	keybuf_t *next = NULL;
@@ -404,10 +405,13 @@ int free_keys(kvm_guest_t *guest)
 	return 0;
 }
 
-int delete_key(kvm_guest_t *guest, const char *name)
+int delete_key(kvm_guest_t *guest, const char *a_name)
 {
-	if (!is_valid_paddr(name) ||
-	    !kernel_integrity_ok(guest))
+	char name[KEY_NAME_LEN];
+
+	if (!kernel_integrity_ok(guest))
+		return -EINVAL;
+	if (copy_from_guest(guest, STAGEA, name, a_name, KEY_NAME_LEN) < 0)
 		return -EINVAL;
 	return __delete_key((keybuf_t **)&guest->keybuf, name);
 }

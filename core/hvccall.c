@@ -142,7 +142,7 @@ int64_t guest_hvccall(register_t cn, register_t a1, register_t a2, register_t a3
 		res = get_key(guest, (void *)a1, (void *)a2, (void *)a3);
 		break;
 	case HYP_DELETE_KEY:
-		res = delete_key(guest, virt_to_phys((void *) a1));
+		res = delete_key(guest, (void *) a1);
 		break;
 	case HYP_GUEST_INIT_IMAGE_CHECK:
 		res = image_check_init(guest, a1);
