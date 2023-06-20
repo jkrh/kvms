@@ -879,7 +879,7 @@ int mmap_range_unlocked(kvm_guest_t *guest, uint64_t stage, uint64_t vaddr,
 	int cid, res;
 
 	if (!guest || (vaddr > MAX_VADDR) || (paddr > MAX_PADDR) ||
-	    (length > (SZ_1G * 4)))
+	    (length > (SZ_1G * 8)))
 		return -EINVAL;
 
 	cid = smp_processor_id();

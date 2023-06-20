@@ -516,7 +516,7 @@ int restore_host_range(void *g, uint64_t gpa, uint64_t len, bool contiguous)
 	int res = 0;
 
 	if (!gpa || (gpa % PAGE_SIZE) || (len % PAGE_SIZE)) {
-		ERROR("invalid arguments: gpa %lx, len %d\n", gpa, len);
+		ERROR("invalid arguments: gpa 0x%lx, len %d\n", gpa, len);
 		return -EINVAL;
 	}
 	if (len > (SZ_1M * 16)) {
@@ -602,7 +602,7 @@ int restore_host_mappings(void *gp)
 {
 	kvm_guest_t *host, *guest = (kvm_guest_t *)gp;
 	uint64_t slot_start, slot_end, size;
-	uint64_t slot_addr, phy_addr, rcount;
+	uint64_t slot_addr, phy_addr, rcount, bcount;
 	int i, res;
 	bool use_at = false;
 	struct timeval tv1;
@@ -613,7 +613,7 @@ int restore_host_mappings(void *gp)
 
 	if ((uint64_t)guest->EL1S1_0_pgd ==
 	    (read_reg(TTBR0_EL1) & TTBR_BADDR_MASK)) {
-		LOG("%s using at commands\n", __func__);
+		LOG("restoring host pages using at commands\n");
 		use_at = true;
 	}
 
@@ -639,6 +639,7 @@ int restore_host_mappings(void *gp)
 	}
 
 	rcount = 0;
+	bcount = 0;
 	for (i = 0; i < KVM_MEM_SLOTS_NUM; i++) {
 		if (!guest->slots[i].slot.npages)
 			continue;
@@ -679,8 +680,10 @@ int restore_host_mappings(void *gp)
 			 * Shared communication channel data is always left
 			 * intact, even in the core dumps.
 			 */
-			if (phy_addr == ~0UL)
+			if (phy_addr == ~0UL) {
 				clean_guest_page((void *)slot_addr);
+				bcount++;
+			}
 
 			res = mmap_range(host, STAGE2, slot_addr, slot_addr,
 					 PAGE_SIZE,
@@ -694,7 +697,7 @@ cont:
 		}
 	}
 	gettimeofday(&tv2);
-	LOG("%s %ld pages. Latency was %ldms\n", __func__, rcount,
+	LOG("restored %ld/%ld host pages. Latency was %ldms\n", rcount, bcount,
 	   (tv2.tv_usec - tv1.tv_usec) / 1000);
 
 	return 0;

@@ -1127,7 +1127,8 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 	kvm_memslot *slot2;
 	int res;
 
-	if (!guest || !vaddr || !paddr || (len % PAGE_SIZE)) {
+	if (!guest || (vaddr % PAGE_SIZE) || (paddr % PAGE_SIZE) ||
+	   (len % PAGE_SIZE)) {
 		ERROR("invalid mapping request for guest %u: %p, %p, %lu\n",
 		       guest->vmid, vaddr, paddr, len);
 		res = -EINVAL;
@@ -1138,6 +1139,11 @@ int guest_map_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t paddr,
 
 	if (guest->state > GUEST_RUNNING)
 		return -EFAULT;
+
+	if (guest->state == GUEST_INIT) {
+		guest->state = GUEST_RUNNING;
+		init_global_area(guest);
+	}
 
 	/*
 	 * Permission(s) are integrity verified, so always disable the
@@ -1265,7 +1271,8 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 	int res = 0;
 
 	range_end = vaddr + len;
-	if (!guest || (len % PAGE_SIZE) || (range_end < vaddr)) {
+	if (!guest || (vaddr % PAGE_SIZE) || (len % PAGE_SIZE) ||
+	   (range_end < vaddr)) {
 		ERROR("invalid unmap request for guest %u: %p, %lu\n",
 		      guest->vmid, vaddr, len);
 		res = -EINVAL;
@@ -1281,15 +1288,13 @@ int guest_unmap_range(kvm_guest_t *guest, uint64_t vaddr, uint64_t len, uint64_t
 		return -EFAULT;
 	case GUEST_STOPPED:
 		/*
-		 * Guest is stopped. Stage 2 will be released at
-		 * free_guest.
+		 * Guest is stopped. Stage 2 will be released at free_guest.
 		 */
 		LOG("unmap while guest has stopped\n");
 		return -EFAULT;
 	case GUEST_RESET:
 		/*
-		 * Guest is in reset state. Release the whole stage 2
-		 * range.
+		 * Guest is in reset state. Release the whole stage 2 range.
 		 */
 		LOG("unmap on guest reset\n");
 		release_guest_s2(guest, 0, guest->ramend);
@@ -2185,7 +2190,6 @@ int copy_to_guest(kvm_guest_t *guest, uint64_t stage,
 	}
 	return copied;
 }
-
 
 #ifdef DEBUG
 void share_increment(kvm_guest_t *guest)
