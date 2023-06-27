@@ -23,9 +23,10 @@
 	 * 0x11000 0000 - 0x11fff ffff - EMEM   (256M, guest1)
 	 * 0x12000 0000 - 0x12fff ffff - EMEM   (256M, guest2)
 	 * 0x13000 0000 - 0x13fff ffff - EMEM   (256M, guest3)
+	 * -> rest of ram
 	 */
 	memory@40000000 {
-		reg = <0x00 0x40000000 0x0 0xc0000000>;
+		reg = <0x00 0x40000000 0x1 0xc0000000>;
 		device_type = "memory";
 	};
 
@@ -41,7 +42,7 @@
 		};
 
 		emem: region@100000000 {
-			reg = <0x1 0x00000000 0x0 0x10000000>;
+			reg = <0x1 0x00000000 0x0 0x40000000>;
 			alignment = <0x1000>;
 		};
 	};

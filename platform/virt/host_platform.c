@@ -103,14 +103,14 @@ cont:
 	/* Host ram, HYP */
 	perms = PAGE_KERNEL_RWX;
 	res = mmap_range(host, EL2_STAGE1, PHYS_OFFSET, PHYS_OFFSET,
-			 SZ_1G * 4, perms, NORMAL_MEMORY);
+			 SZ_1G * 8, perms, NORMAL_MEMORY);
 	if (res)
 		goto error;
 
 	/* Host ram, Linux */
 	perms = ((SH_INN << 8) | PAGE_HYP_RWX);
 	res = mmap_range(host, STAGE2, PHYS_OFFSET, PHYS_OFFSET,
-			 SZ_1G * 4, perms, S2_NORMAL_MEMORY);
+			 SZ_1G * 8, perms, S2_NORMAL_MEMORY);
 	if (res)
 		goto error;
 

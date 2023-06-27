@@ -1,4 +1,4 @@
-From c8bec9c93f3abeb7efa25a7c4ce0e044529905b9 Mon Sep 17 00:00:00 2001
+From 54aeccd25b8782d6f6f0fa4b7f0b050c5ba6ce25 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 15 May 2023 14:12:07 +0300
 Subject: [PATCH] mm: external memory allocator draft (kernel 6+)
@@ -35,38 +35,660 @@ the host have permission to access.
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- arch/arm64/configs/defconfig            |   1 +
+ arch/arm64/configs/defconfig            | 271 ++++--------------------
+ drivers/char/virtio_console.c           |  22 +-
  drivers/gpu/drm/virtio/virtgpu_object.c |   2 +-
  drivers/gpu/drm/virtio/virtgpu_vq.c     |   2 +-
- drivers/irqchip/irq-gic-v3-its.c        |  17 +--
- drivers/virtio/virtio_ring.c            |  26 ++---
- include/linux/emem.h                    |  31 ++++++
+ drivers/irqchip/irq-gic-v3-its.c        |  18 +-
+ drivers/virtio/virtio_mmio.c            |   2 +-
+ drivers/virtio/virtio_ring.c            |  26 +--
+ include/linux/emem.h                    |  36 ++++
  include/linux/gfp.h                     |   4 +
- include/linux/gfp_types.h               |  16 ++-
- include/linux/slab.h                    |  26 ++++-
+ include/linux/gfp_types.h               |  16 +-
+ include/linux/slab.h                    |  26 ++-
  include/trace/events/mmflags.h          |   6 +-
- init/main.c                             |   4 +
+ init/main.c                             |   7 +
  kernel/dma/direct.c                     |   5 +-
- mm/Kconfig                              |  15 +++
+ mm/Kconfig                              |  15 ++
  mm/Makefile                             |   1 +
- mm/emem.c                               | 136 ++++++++++++++++++++++++
- mm/page_alloc.c                         |  13 +++
+ mm/emem.c                               | 161 ++++++++++++++
+ mm/page_alloc.c                         |  15 ++
  mm/slab_common.c                        |   3 +
  mm/slub.c                               |   5 +
  tools/perf/builtin-kmem.c               |   1 +
- 19 files changed, 284 insertions(+), 30 deletions(-)
+ 21 files changed, 376 insertions(+), 268 deletions(-)
  create mode 100644 include/linux/emem.h
  create mode 100644 mm/emem.c
 
 diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
-index 0b6af3348e79..1c50b1fc9fb6 100644
+index 0b6af3348e79..f163a2341733 100644
 --- a/arch/arm64/configs/defconfig
 +++ b/arch/arm64/configs/defconfig
-@@ -1366,3 +1366,4 @@ CONFIG_CORESIGHT_STM=m
- CONFIG_CORESIGHT_CPU_DEBUG=m
- CONFIG_CORESIGHT_CTI=m
- CONFIG_MEMTEST=y
+@@ -36,13 +36,12 @@ CONFIG_ARCH_ALPINE=y
+ CONFIG_ARCH_APPLE=y
+ CONFIG_ARCH_BCM=y
+ CONFIG_ARCH_BCM2835=y
+-CONFIG_ARCH_BCMBCA=y
+ CONFIG_ARCH_BCM_IPROC=y
+-CONFIG_ARCH_BERLIN=y
++CONFIG_ARCH_BCMBCA=y
+ CONFIG_ARCH_BRCMSTB=y
++CONFIG_ARCH_BERLIN=y
+ CONFIG_ARCH_EXYNOS=y
+ CONFIG_ARCH_K3=y
+-CONFIG_ARCH_LAYERSCAPE=y
+ CONFIG_ARCH_LG1K=y
+ CONFIG_ARCH_HISI=y
+ CONFIG_ARCH_KEEMBAY=y
+@@ -50,12 +49,13 @@ CONFIG_ARCH_MEDIATEK=y
+ CONFIG_ARCH_MESON=y
+ CONFIG_ARCH_MVEBU=y
+ CONFIG_ARCH_NXP=y
++CONFIG_ARCH_LAYERSCAPE=y
+ CONFIG_ARCH_MXC=y
++CONFIG_ARCH_S32=y
+ CONFIG_ARCH_NPCM=y
+ CONFIG_ARCH_QCOM=y
+ CONFIG_ARCH_RENESAS=y
+ CONFIG_ARCH_ROCKCHIP=y
+-CONFIG_ARCH_S32=y
+ CONFIG_ARCH_SEATTLE=y
+ CONFIG_ARCH_INTEL_SOCFPGA=y
+ CONFIG_ARCH_SYNQUACER=y
+@@ -112,17 +112,6 @@ CONFIG_ACPI_APEI_MEMORY_FAILURE=y
+ CONFIG_ACPI_APEI_EINJ=y
+ CONFIG_VIRTUALIZATION=y
+ CONFIG_KVM=y
+-CONFIG_CRYPTO_SHA1_ARM64_CE=y
+-CONFIG_CRYPTO_SHA2_ARM64_CE=y
+-CONFIG_CRYPTO_SHA512_ARM64_CE=m
+-CONFIG_CRYPTO_SHA3_ARM64=m
+-CONFIG_CRYPTO_SM3_ARM64_CE=m
+-CONFIG_CRYPTO_GHASH_ARM64_CE=y
+-CONFIG_CRYPTO_CRCT10DIF_ARM64_CE=m
+-CONFIG_CRYPTO_AES_ARM64_CE_CCM=y
+-CONFIG_CRYPTO_AES_ARM64_CE_BLK=y
+-CONFIG_CRYPTO_CHACHA20_NEON=m
+-CONFIG_CRYPTO_AES_ARM64_BS=m
+ CONFIG_JUMP_LABEL=y
+ CONFIG_MODULES=y
+ CONFIG_MODULE_UNLOAD=y
+@@ -133,6 +122,7 @@ CONFIG_MEMORY_HOTREMOVE=y
+ CONFIG_KSM=y
+ CONFIG_MEMORY_FAILURE=y
+ CONFIG_TRANSPARENT_HUGEPAGE=y
 +CONFIG_EXT_MEMORY=y
+ CONFIG_NET=y
+ CONFIG_PACKET=y
+ CONFIG_UNIX=y
+@@ -186,16 +176,11 @@ CONFIG_NET_ACT_GATE=m
+ CONFIG_QRTR_SMD=m
+ CONFIG_QRTR_TUN=m
+ CONFIG_CAN=m
+-CONFIG_CAN_FLEXCAN=m
+-CONFIG_CAN_RCAR=m
+-CONFIG_CAN_RCAR_CANFD=m
+-CONFIG_CAN_MCP251XFD=m
+ CONFIG_BT=m
+ CONFIG_BT_HIDP=m
+ # CONFIG_BT_LE is not set
+ CONFIG_BT_LEDS=y
+ # CONFIG_BT_DEBUGFS is not set
+-CONFIG_BT_HCIBTUSB=m
+ CONFIG_BT_HCIUART=m
+ CONFIG_BT_HCIUART_LL=y
+ CONFIG_BT_HCIUART_BCM=y
+@@ -306,7 +291,6 @@ CONFIG_AHCI_XGENE=y
+ CONFIG_AHCI_QORIQ=y
+ CONFIG_SATA_SIL24=y
+ CONFIG_SATA_RCAR=y
+-CONFIG_PATA_PLATFORM=y
+ CONFIG_PATA_OF_PLATFORM=y
+ CONFIG_MD=y
+ CONFIG_BLK_DEV_MD=m
+@@ -362,34 +346,29 @@ CONFIG_SMSC911X=y
+ CONFIG_SNI_AVE=y
+ CONFIG_SNI_NETSEC=y
+ CONFIG_STMMAC_ETH=m
+-CONFIG_DWMAC_TEGRA=m
+ CONFIG_TI_K3_AM65_CPSW_NUSS=y
+ CONFIG_QCOM_IPA=m
+ CONFIG_MESON_GXL_PHY=m
+ CONFIG_AQUANTIA_PHY=y
++CONFIG_AX88796B_PHY=m
+ CONFIG_BCM54140_PHY=m
+ CONFIG_MARVELL_PHY=m
+ CONFIG_MARVELL_10G_PHY=m
+ CONFIG_MICREL_PHY=y
++CONFIG_MICROCHIP_PHY=m
+ CONFIG_MICROSEMI_PHY=y
+ CONFIG_AT803X_PHY=y
+ CONFIG_REALTEK_PHY=y
+ CONFIG_ROCKCHIP_PHY=y
++CONFIG_SMSC_PHY=m
+ CONFIG_DP83867_PHY=y
+ CONFIG_VITESSE_PHY=y
++CONFIG_CAN_FLEXCAN=m
++CONFIG_CAN_RCAR=m
++CONFIG_CAN_RCAR_CANFD=m
++CONFIG_CAN_MCP251XFD=m
+ CONFIG_MDIO_BUS_MUX_MULTIPLEXER=y
+ CONFIG_MDIO_BUS_MUX_MMIOREG=y
+-CONFIG_USB_PEGASUS=m
+-CONFIG_USB_RTL8150=m
+-CONFIG_USB_RTL8152=m
+-CONFIG_USB_LAN78XX=m
+-CONFIG_USB_USBNET=m
+-CONFIG_USB_NET_DM9601=m
+-CONFIG_USB_NET_SR9800=m
+-CONFIG_USB_NET_SMSC75XX=m
+-CONFIG_USB_NET_SMSC95XX=m
+-CONFIG_USB_NET_PLUSB=m
+-CONFIG_USB_NET_MCS7830=m
+ CONFIG_ATH10K=m
+ CONFIG_ATH10K_PCI=m
+ CONFIG_ATH10K_SNOC=m
+@@ -422,40 +401,10 @@ CONFIG_INPUT_HISI_POWERKEY=y
+ # CONFIG_SERIO_SERPORT is not set
+ CONFIG_SERIO_AMBAKMI=y
+ CONFIG_LEGACY_PTY_COUNT=16
+-CONFIG_SERIAL_8250=y
+-CONFIG_SERIAL_8250_CONSOLE=y
+-CONFIG_SERIAL_8250_EXTENDED=y
+-CONFIG_SERIAL_8250_SHARE_IRQ=y
+-CONFIG_SERIAL_8250_BCM2835AUX=y
+-CONFIG_SERIAL_8250_DW=y
+-CONFIG_SERIAL_8250_EM=y
+-CONFIG_SERIAL_8250_OMAP=y
+-CONFIG_SERIAL_8250_MT6577=y
+-CONFIG_SERIAL_8250_UNIPHIER=y
+-CONFIG_SERIAL_OF_PLATFORM=y
+ CONFIG_SERIAL_AMBA_PL011=y
+ CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+-CONFIG_SERIAL_MESON=y
+-CONFIG_SERIAL_MESON_CONSOLE=y
+-CONFIG_SERIAL_SAMSUNG=y
+-CONFIG_SERIAL_SAMSUNG_CONSOLE=y
+-CONFIG_SERIAL_TEGRA=y
+-CONFIG_SERIAL_TEGRA_TCU=y
+-CONFIG_SERIAL_IMX=y
+-CONFIG_SERIAL_IMX_CONSOLE=y
+-CONFIG_SERIAL_SH_SCI=y
+-CONFIG_SERIAL_MSM=y
+-CONFIG_SERIAL_MSM_CONSOLE=y
+-CONFIG_SERIAL_QCOM_GENI=y
+-CONFIG_SERIAL_QCOM_GENI_CONSOLE=y
+-CONFIG_SERIAL_XILINX_PS_UART=y
+-CONFIG_SERIAL_XILINX_PS_UART_CONSOLE=y
+-CONFIG_SERIAL_FSL_LPUART=y
+-CONFIG_SERIAL_FSL_LPUART_CONSOLE=y
+-CONFIG_SERIAL_FSL_LINFLEXUART=y
+-CONFIG_SERIAL_FSL_LINFLEXUART_CONSOLE=y
+-CONFIG_SERIAL_MVEBU_UART=y
+-CONFIG_SERIAL_OWL=y
++# CONFIG_SERIAL_BCM63XX is not set
++# CONFIG_HVC_XEN is not set
+ CONFIG_SERIAL_DEV_BUS=y
+ CONFIG_VIRTIO_CONSOLE=y
+ CONFIG_IPMI_HANDLER=m
+@@ -463,6 +412,7 @@ CONFIG_IPMI_DEVICE_INTERFACE=m
+ CONFIG_IPMI_SI=m
+ CONFIG_TCG_TPM=y
+ CONFIG_TCG_TIS_I2C_INFINEON=y
++# CONFIG_RANDOM_TRUST_BOOTLOADER is not set
+ CONFIG_I2C_CHARDEV=y
+ CONFIG_I2C_MUX=y
+ CONFIG_I2C_MUX_PCA954x=y
+@@ -520,6 +470,8 @@ CONFIG_SPI_TEGRA210_QUAD=m
+ CONFIG_SPI_TEGRA114=m
+ CONFIG_SPI_SPIDEV=m
+ CONFIG_SPMI=y
++CONFIG_PPS=y
++# CONFIG_PTP_1588_CLOCK is not set
+ CONFIG_PINCTRL_MAX77620=y
+ CONFIG_PINCTRL_SINGLE=y
+ CONFIG_PINCTRL_OWL=y
+@@ -626,6 +578,7 @@ CONFIG_ARM_SBSA_WATCHDOG=y
+ CONFIG_S3C2410_WATCHDOG=y
+ CONFIG_DW_WATCHDOG=y
+ CONFIG_SUNXI_WATCHDOG=m
++CONFIG_NPCM7XX_WATCHDOG=y
+ CONFIG_IMX2_WDT=y
+ CONFIG_IMX_SC_WDT=m
+ CONFIG_QCOM_WDT=m
+@@ -638,7 +591,6 @@ CONFIG_UNIPHIER_WATCHDOG=y
+ CONFIG_PM8916_WATCHDOG=m
+ CONFIG_BCM2835_WDT=y
+ CONFIG_BCM7038_WDT=m
+-CONFIG_NPCM7XX_WATCHDOG=y
+ CONFIG_MFD_ALTERA_SYSMGR=y
+ CONFIG_MFD_BD9571MWV=y
+ CONFIG_MFD_AXP20X_I2C=y
+@@ -653,6 +605,7 @@ CONFIG_MFD_SPMI_PMIC=y
+ CONFIG_MFD_RK808=y
+ CONFIG_MFD_SEC_CORE=y
+ CONFIG_MFD_SL28CPLD=y
++CONFIG_MFD_WM8994=m
+ CONFIG_MFD_ROHM_BD718XX=y
+ CONFIG_MFD_WCD934X=m
+ CONFIG_REGULATOR_FIXED_VOLTAGE=y
+@@ -693,8 +646,6 @@ CONFIG_MEDIA_DIGITAL_TV_SUPPORT=y
+ CONFIG_MEDIA_SDR_SUPPORT=y
+ CONFIG_MEDIA_PLATFORM_SUPPORT=y
+ # CONFIG_DVB_NET is not set
+-CONFIG_MEDIA_USB_SUPPORT=y
+-CONFIG_USB_VIDEO_CLASS=m
+ CONFIG_V4L_PLATFORM_DRIVERS=y
+ CONFIG_SDR_PLATFORM_DRIVERS=y
+ CONFIG_V4L_MEM2MEM_DRIVERS=y
+@@ -711,6 +662,7 @@ CONFIG_VIDEO_SAMSUNG_EXYNOS_GSC=m
+ CONFIG_VIDEO_SAMSUNG_S5P_JPEG=m
+ CONFIG_VIDEO_SAMSUNG_S5P_MFC=m
+ CONFIG_VIDEO_SUN6I_CSI=m
++CONFIG_VIDEO_HANTRO=m
+ CONFIG_VIDEO_IMX219=m
+ CONFIG_VIDEO_OV5640=m
+ CONFIG_VIDEO_OV5645=m
+@@ -736,11 +688,7 @@ CONFIG_ROCKCHIP_INNO_HDMI=y
+ CONFIG_ROCKCHIP_LVDS=y
+ CONFIG_DRM_RCAR_DU=m
+ CONFIG_DRM_RCAR_DW_HDMI=m
+-CONFIG_DRM_RCAR_MIPI_DSI=m
+ CONFIG_DRM_SUN4I=m
+-CONFIG_DRM_SUN6I_DSI=m
+-CONFIG_DRM_SUN8I_DW_HDMI=m
+-CONFIG_DRM_SUN8I_MIXER=m
+ CONFIG_DRM_MSM=m
+ CONFIG_DRM_TEGRA=m
+ CONFIG_DRM_PANEL_BOE_TV101WUM_NL6=m
+@@ -761,13 +709,10 @@ CONFIG_DRM_SIMPLE_BRIDGE=m
+ CONFIG_DRM_THINE_THC63LVD1024=m
+ CONFIG_DRM_TI_SN65DSI86=m
+ CONFIG_DRM_I2C_ADV7511=m
+-CONFIG_DRM_I2C_ADV7511_AUDIO=y
+ CONFIG_DRM_CDNS_MHDP8546=m
+-CONFIG_DRM_DW_HDMI_AHB_AUDIO=m
+ CONFIG_DRM_DW_HDMI_CEC=m
+ CONFIG_DRM_IMX_DCSS=m
+ CONFIG_DRM_V3D=m
+-CONFIG_DRM_VC4=m
+ CONFIG_DRM_ETNAVIV=m
+ CONFIG_DRM_HISI_HIBMC=m
+ CONFIG_DRM_HISI_KIRIN=m
+@@ -787,142 +732,10 @@ CONFIG_BACKLIGHT_LP855X=m
+ CONFIG_LOGO=y
+ # CONFIG_LOGO_LINUX_MONO is not set
+ # CONFIG_LOGO_LINUX_VGA16 is not set
+-CONFIG_SOUND=y
+-CONFIG_SND=y
+-CONFIG_SND_HDA_TEGRA=m
+-CONFIG_SND_HDA_CODEC_HDMI=m
+-CONFIG_SND_SOC=y
+-CONFIG_SND_BCM2835_SOC_I2S=m
+-CONFIG_SND_SOC_FSL_ASRC=m
+-CONFIG_SND_SOC_FSL_MICFIL=m
+-CONFIG_SND_SOC_FSL_EASRC=m
+-CONFIG_SND_IMX_SOC=m
+-CONFIG_SND_SOC_IMX_SGTL5000=m
+-CONFIG_SND_SOC_IMX_SPDIF=m
+-CONFIG_SND_SOC_FSL_ASOC_CARD=m
+-CONFIG_SND_SOC_IMX_AUDMIX=m
+-CONFIG_SND_MESON_AXG_SOUND_CARD=m
+-CONFIG_SND_MESON_GX_SOUND_CARD=m
+-CONFIG_SND_SOC_QCOM=m
+-CONFIG_SND_SOC_APQ8016_SBC=m
+-CONFIG_SND_SOC_MSM8996=m
+-CONFIG_SND_SOC_SDM845=m
+-CONFIG_SND_SOC_SM8250=m
+-CONFIG_SND_SOC_SC7180=m
+-CONFIG_SND_SOC_SC7280=m
+-CONFIG_SND_SOC_ROCKCHIP=m
+-CONFIG_SND_SOC_ROCKCHIP_SPDIF=m
+-CONFIG_SND_SOC_ROCKCHIP_RT5645=m
+-CONFIG_SND_SOC_RK3399_GRU_SOUND=m
+-CONFIG_SND_SOC_SAMSUNG=y
+-CONFIG_SND_SOC_RCAR=m
+-CONFIG_SND_SOC_RZ=m
+-CONFIG_SND_SUN8I_CODEC=m
+-CONFIG_SND_SUN8I_CODEC_ANALOG=m
+-CONFIG_SND_SUN50I_CODEC_ANALOG=m
+-CONFIG_SND_SUN4I_I2S=m
+-CONFIG_SND_SUN4I_SPDIF=m
+-CONFIG_SND_SOC_TEGRA=m
+-CONFIG_SND_SOC_TEGRA210_AHUB=m
+-CONFIG_SND_SOC_TEGRA210_DMIC=m
+-CONFIG_SND_SOC_TEGRA210_I2S=m
+-CONFIG_SND_SOC_TEGRA210_OPE=m
+-CONFIG_SND_SOC_TEGRA186_ASRC=m
+-CONFIG_SND_SOC_TEGRA186_DSPK=m
+-CONFIG_SND_SOC_TEGRA210_ADMAIF=m
+-CONFIG_SND_SOC_TEGRA210_MVC=m
+-CONFIG_SND_SOC_TEGRA210_SFC=m
+-CONFIG_SND_SOC_TEGRA210_AMX=m
+-CONFIG_SND_SOC_TEGRA210_ADX=m
+-CONFIG_SND_SOC_TEGRA210_MIXER=m
+-CONFIG_SND_SOC_TEGRA_AUDIO_GRAPH_CARD=m
+-CONFIG_SND_SOC_AK4613=m
+-CONFIG_SND_SOC_ES7134=m
+-CONFIG_SND_SOC_ES7241=m
+-CONFIG_SND_SOC_GTM601=m
+-CONFIG_SND_SOC_MSM8916_WCD_ANALOG=m
+-CONFIG_SND_SOC_MSM8916_WCD_DIGITAL=m
+-CONFIG_SND_SOC_PCM3168A_I2C=m
+-CONFIG_SND_SOC_RT5659=m
+-CONFIG_SND_SOC_SIMPLE_AMPLIFIER=m
+-CONFIG_SND_SOC_SIMPLE_MUX=m
+-CONFIG_SND_SOC_TAS571X=m
+-CONFIG_SND_SOC_TLV320AIC32X4_I2C=m
+-CONFIG_SND_SOC_WCD9335=m
+-CONFIG_SND_SOC_WCD934X=m
+-CONFIG_SND_SOC_WM8524=m
+-CONFIG_SND_SOC_WM8904=m
+-CONFIG_SND_SOC_WM8960=m
+-CONFIG_SND_SOC_WM8962=m
+-CONFIG_SND_SOC_WM8978=m
+-CONFIG_SND_SOC_WSA881X=m
+-CONFIG_SND_SOC_NAU8822=m
+-CONFIG_SND_SOC_LPASS_WSA_MACRO=m
+-CONFIG_SND_SOC_LPASS_VA_MACRO=m
+-CONFIG_SND_SOC_LPASS_RX_MACRO=m
+-CONFIG_SND_SOC_LPASS_TX_MACRO=m
+-CONFIG_SND_SIMPLE_CARD=m
+-CONFIG_SND_AUDIO_GRAPH_CARD=m
+-CONFIG_SND_AUDIO_GRAPH_CARD2=m
+ CONFIG_HID_MULTITOUCH=m
+ CONFIG_I2C_HID_ACPI=m
+ CONFIG_I2C_HID_OF=m
+-CONFIG_USB=y
+-CONFIG_USB_OTG=y
+-CONFIG_USB_XHCI_HCD=y
+-CONFIG_USB_XHCI_PCI_RENESAS=m
+-CONFIG_USB_XHCI_TEGRA=y
+-CONFIG_USB_BRCMSTB=m
+-CONFIG_USB_EHCI_HCD=y
+-CONFIG_USB_EHCI_EXYNOS=y
+-CONFIG_USB_EHCI_HCD_PLATFORM=y
+-CONFIG_USB_OHCI_HCD=y
+-CONFIG_USB_OHCI_EXYNOS=y
+-CONFIG_USB_OHCI_HCD_PLATFORM=y
+-CONFIG_USB_RENESAS_USBHS_HCD=m
+-CONFIG_USB_RENESAS_USBHS=m
+-CONFIG_USB_ACM=m
+-CONFIG_USB_STORAGE=y
+-CONFIG_USB_CDNS_SUPPORT=m
+-CONFIG_USB_CDNS3=m
+-CONFIG_USB_CDNS3_GADGET=y
+-CONFIG_USB_CDNS3_HOST=y
+-CONFIG_USB_MTU3=y
+-CONFIG_USB_MUSB_HDRC=y
+-CONFIG_USB_MUSB_SUNXI=y
+-CONFIG_USB_DWC3=y
+-CONFIG_USB_DWC2=y
+-CONFIG_USB_CHIPIDEA=y
+-CONFIG_USB_CHIPIDEA_UDC=y
+-CONFIG_USB_CHIPIDEA_HOST=y
+-CONFIG_USB_ISP1760=y
+-CONFIG_USB_SERIAL=m
+-CONFIG_USB_SERIAL_CP210X=m
+-CONFIG_USB_SERIAL_FTDI_SIO=m
+-CONFIG_USB_SERIAL_OPTION=m
+-CONFIG_USB_HSIC_USB3503=y
+-CONFIG_NOP_USB_XCEIV=y
+-CONFIG_USB_GADGET=y
+-CONFIG_USB_RENESAS_USBHS_UDC=m
+-CONFIG_USB_RENESAS_USB3=m
+-CONFIG_USB_TEGRA_XUDC=m
+-CONFIG_USB_CONFIGFS=m
+-CONFIG_USB_CONFIGFS_SERIAL=y
+-CONFIG_USB_CONFIGFS_ACM=y
+-CONFIG_USB_CONFIGFS_OBEX=y
+-CONFIG_USB_CONFIGFS_NCM=y
+-CONFIG_USB_CONFIGFS_ECM=y
+-CONFIG_USB_CONFIGFS_ECM_SUBSET=y
+-CONFIG_USB_CONFIGFS_RNDIS=y
+-CONFIG_USB_CONFIGFS_EEM=y
+-CONFIG_USB_CONFIGFS_MASS_STORAGE=y
+-CONFIG_USB_CONFIGFS_F_FS=y
+-CONFIG_TYPEC=m
+-CONFIG_TYPEC_TCPM=m
+-CONFIG_TYPEC_TCPCI=m
+-CONFIG_TYPEC_FUSB302=m
+-CONFIG_TYPEC_TPS6598X=m
+-CONFIG_TYPEC_HD3SS3220=m
++# CONFIG_USB_SUPPORT is not set
+ CONFIG_MMC=y
+ CONFIG_MMC_BLOCK_MINORS=32
+ CONFIG_MMC_ARMMMCI=y
+@@ -930,8 +743,8 @@ CONFIG_MMC_SDHCI=y
+ CONFIG_MMC_SDHCI_ACPI=y
+ CONFIG_MMC_SDHCI_PLTFM=y
+ CONFIG_MMC_SDHCI_OF_ARASAN=y
+-CONFIG_MMC_SDHCI_OF_DWCMSHC=y
+ CONFIG_MMC_SDHCI_OF_ESDHC=y
++CONFIG_MMC_SDHCI_OF_DWCMSHC=y
+ CONFIG_MMC_SDHCI_CADENCE=y
+ CONFIG_MMC_SDHCI_ESDHC_IMX=y
+ CONFIG_MMC_SDHCI_TEGRA=y
+@@ -1029,12 +842,12 @@ CONFIG_VFIO=y
+ CONFIG_VFIO_PCI=y
+ CONFIG_VIRTIO_PCI=y
+ CONFIG_VIRTIO_BALLOON=y
++CONFIG_VIRTIO_INPUT=y
+ CONFIG_VIRTIO_MMIO=y
+ CONFIG_XEN_GNTDEV=y
+ CONFIG_XEN_GRANT_DEV_ALLOC=y
+ CONFIG_STAGING=y
+ CONFIG_STAGING_MEDIA=y
+-CONFIG_VIDEO_HANTRO=m
+ CONFIG_VIDEO_IMX_MEDIA=m
+ CONFIG_VIDEO_MAX96712=m
+ CONFIG_CHROME_PLATFORMS=y
+@@ -1050,7 +863,6 @@ CONFIG_COMMON_CLK_FSL_SAI=y
+ CONFIG_COMMON_CLK_S2MPS11=y
+ CONFIG_COMMON_CLK_PWM=y
+ CONFIG_COMMON_CLK_VC5=y
+-CONFIG_COMMON_CLK_NPCM8XX=y
+ CONFIG_COMMON_CLK_BD718XX=m
+ CONFIG_CLK_RASPBERRYPI=m
+ CONFIG_CLK_IMX8MM=y
+@@ -1061,6 +873,7 @@ CONFIG_CLK_IMX8QXP=y
+ CONFIG_CLK_IMX8ULP=y
+ CONFIG_CLK_IMX93=y
+ CONFIG_TI_SCI_CLK=y
++CONFIG_COMMON_CLK_AXG_AUDIO=m
+ CONFIG_COMMON_CLK_QCOM=y
+ CONFIG_QCOM_A53PLL=y
+ CONFIG_QCOM_CLK_APCS_MSM8916=y
+@@ -1118,7 +931,6 @@ CONFIG_RPMSG_QCOM_GLINK_RPM=y
+ CONFIG_RPMSG_QCOM_GLINK_SMEM=m
+ CONFIG_RPMSG_QCOM_SMD=y
+ CONFIG_SOUNDWIRE=m
+-CONFIG_SOUNDWIRE_QCOM=m
+ CONFIG_OWL_PM_DOMAINS=y
+ CONFIG_RASPBERRYPI_POWER=y
+ CONFIG_FSL_DPAA=y
+@@ -1216,12 +1028,13 @@ CONFIG_PWM_VISCONTI=m
+ CONFIG_SL28CPLD_INTC=y
+ CONFIG_QCOM_PDC=y
+ CONFIG_RESET_IMX7=y
++CONFIG_RESET_MESON_AUDIO_ARB=m
+ CONFIG_RESET_QCOM_AOSS=y
+ CONFIG_RESET_QCOM_PDC=m
++CONFIG_RESET_RASPBERRYPI=m
+ CONFIG_RESET_RZG2L_USBPHY_CTRL=y
+ CONFIG_RESET_TI_SCI=y
+ CONFIG_PHY_XGENE=y
+-CONFIG_PHY_SUN4I_USB=y
+ CONFIG_PHY_CADENCE_TORRENT=m
+ CONFIG_PHY_CADENCE_SIERRA=m
+ CONFIG_PHY_MIXEL_MIPI_DPHY=m
+@@ -1235,23 +1048,19 @@ CONFIG_PHY_QCOM_EDP=m
+ CONFIG_PHY_QCOM_PCIE2=m
+ CONFIG_PHY_QCOM_QMP=m
+ CONFIG_PHY_QCOM_QUSB2=m
+-CONFIG_PHY_QCOM_USB_HS=m
+ CONFIG_PHY_QCOM_USB_SNPS_FEMTO_V2=m
+ CONFIG_PHY_QCOM_USB_HS_28NM=m
+ CONFIG_PHY_QCOM_USB_SS=m
+ CONFIG_PHY_RCAR_GEN3_PCIE=y
+-CONFIG_PHY_RCAR_GEN3_USB2=y
+ CONFIG_PHY_RCAR_GEN3_USB3=m
+ CONFIG_PHY_ROCKCHIP_EMMC=y
+ CONFIG_PHY_ROCKCHIP_INNO_HDMI=m
+-CONFIG_PHY_ROCKCHIP_INNO_USB2=y
+ CONFIG_PHY_ROCKCHIP_INNO_DSIDPHY=m
+ CONFIG_PHY_ROCKCHIP_PCIE=m
+ CONFIG_PHY_ROCKCHIP_TYPEC=y
+ CONFIG_PHY_SAMSUNG_UFS=y
+ CONFIG_PHY_UNIPHIER_USB2=y
+ CONFIG_PHY_UNIPHIER_USB3=y
+-CONFIG_PHY_TEGRA_XUSB=y
+ CONFIG_PHY_AM654_SERDES=m
+ CONFIG_PHY_J721E_WIZ=m
+ CONFIG_ARM_CCI_PMU=m
+@@ -1260,21 +1069,21 @@ CONFIG_ARM_CMN=m
+ CONFIG_ARM_SMMU_V3_PMU=m
+ CONFIG_ARM_DSU_PMU=m
+ CONFIG_FSL_IMX8_DDR_PMU=m
+-CONFIG_ARM_SPE_PMU=m
+-CONFIG_ARM_DMC620_PMU=m
+ CONFIG_QCOM_L2_PMU=y
+ CONFIG_QCOM_L3_PMU=y
++CONFIG_ARM_SPE_PMU=m
++CONFIG_ARM_DMC620_PMU=m
+ CONFIG_HISI_PMU=y
+ CONFIG_NVMEM_IMX_OCOTP=y
+ CONFIG_NVMEM_IMX_OCOTP_SCU=y
++CONFIG_NVMEM_LAYERSCAPE_SFP=m
++CONFIG_NVMEM_MESON_EFUSE=m
+ CONFIG_NVMEM_MTK_EFUSE=y
+ CONFIG_NVMEM_QCOM_QFPROM=y
++CONFIG_NVMEM_RMEM=m
+ CONFIG_NVMEM_ROCKCHIP_EFUSE=y
+ CONFIG_NVMEM_SUNXI_SID=y
+ CONFIG_NVMEM_UNIPHIER_EFUSE=y
+-CONFIG_NVMEM_MESON_EFUSE=m
+-CONFIG_NVMEM_RMEM=m
+-CONFIG_NVMEM_LAYERSCAPE_SFP=m
+ CONFIG_FPGA=y
+ CONFIG_FPGA_MGR_ALTERA_CVP=m
+ CONFIG_FPGA_MGR_STRATIX10_SOC=m
+@@ -1288,7 +1097,6 @@ CONFIG_MUX_MMIO=y
+ CONFIG_SLIMBUS=m
+ CONFIG_SLIM_QCOM_CTRL=m
+ CONFIG_SLIM_QCOM_NGD_CTRL=m
+-CONFIG_INTERCONNECT=y
+ CONFIG_INTERCONNECT_IMX=m
+ CONFIG_INTERCONNECT_IMX8MM=m
+ CONFIG_INTERCONNECT_IMX8MN=m
+@@ -1316,13 +1124,13 @@ CONFIG_FANOTIFY=y
+ CONFIG_FANOTIFY_ACCESS_PERMISSIONS=y
+ CONFIG_QUOTA=y
+ CONFIG_AUTOFS4_FS=y
+-CONFIG_FUSE_FS=m
+-CONFIG_CUSE=m
++CONFIG_FUSE_FS=y
++CONFIG_CUSE=y
++CONFIG_VIRTIO_FS=y
+ CONFIG_OVERLAY_FS=m
+ CONFIG_VFAT_FS=y
+ CONFIG_TMPFS_POSIX_ACL=y
+ CONFIG_HUGETLBFS=y
+-CONFIG_CONFIGFS_FS=y
+ CONFIG_EFIVAR_FS=y
+ CONFIG_SQUASHFS=y
+ CONFIG_NFS_FS=y
+@@ -1338,6 +1146,17 @@ CONFIG_CRYPTO_ECHAINIV=y
+ CONFIG_CRYPTO_MICHAEL_MIC=m
+ CONFIG_CRYPTO_ANSI_CPRNG=y
+ CONFIG_CRYPTO_USER_API_RNG=m
++CONFIG_CRYPTO_CHACHA20_NEON=m
++CONFIG_CRYPTO_GHASH_ARM64_CE=y
++CONFIG_CRYPTO_SHA1_ARM64_CE=y
++CONFIG_CRYPTO_SHA2_ARM64_CE=y
++CONFIG_CRYPTO_SHA512_ARM64_CE=m
++CONFIG_CRYPTO_SHA3_ARM64=m
++CONFIG_CRYPTO_SM3_ARM64_CE=m
++CONFIG_CRYPTO_AES_ARM64_CE_BLK=y
++CONFIG_CRYPTO_AES_ARM64_BS=m
++CONFIG_CRYPTO_AES_ARM64_CE_CCM=y
++CONFIG_CRYPTO_CRCT10DIF_ARM64_CE=m
+ CONFIG_CRYPTO_DEV_SUN8I_CE=m
+ CONFIG_CRYPTO_DEV_FSL_CAAM=m
+ CONFIG_CRYPTO_DEV_FSL_DPAA2_CAAM=m
+diff --git a/drivers/char/virtio_console.c b/drivers/char/virtio_console.c
+index 9fa3c76a267f..f09618c0c0b5 100644
+--- a/drivers/char/virtio_console.c
++++ b/drivers/char/virtio_console.c
+@@ -421,7 +421,7 @@ static struct port_buffer *alloc_buf(struct virtio_device *vdev, size_t buf_size
+ 	 * Allocate buffer and the sg list. The sg list array is allocated
+ 	 * directly after the port_buffer struct.
+ 	 */
+-	buf = kmalloc(struct_size(buf, sg, pages), GFP_KERNEL);
++	buf = kmalloc(struct_size(buf, sg, pages), GFP_KERNEL | GFP_EXT);
+ 	if (!buf)
+ 		goto fail;
+ 
+@@ -446,10 +446,10 @@ static struct port_buffer *alloc_buf(struct virtio_device *vdev, size_t buf_size
+ 		/* Increase device refcnt to avoid freeing it */
+ 		get_device(buf->dev);
+ 		buf->buf = dma_alloc_coherent(buf->dev, buf_size, &buf->dma,
+-					      GFP_KERNEL);
++					      GFP_KERNEL | GFP_EXT);
+ 	} else {
+ 		buf->dev = NULL;
+-		buf->buf = kmalloc(buf_size, GFP_KERNEL);
++		buf->buf = kmalloc(buf_size, GFP_KERNEL | GFP_EXT);
+ 	}
+ 
+ 	if (!buf->buf)
+@@ -1363,7 +1363,7 @@ static int add_port(struct ports_device *portdev, u32 id)
+ 	dev_t devt;
+ 	int err;
+ 
+-	port = kmalloc(sizeof(*port), GFP_KERNEL);
++	port = kmalloc(sizeof(*port), GFP_KERNEL | GFP_EXT);
+ 	if (!port) {
+ 		err = -ENOMEM;
+ 		goto fail;
+@@ -1664,7 +1664,7 @@ static void handle_control_message(struct virtio_device *vdev,
+ 		 */
+ 		name_size = buf->len - buf->offset - sizeof(*cpkt) + 1;
+ 
+-		port->name = kmalloc(name_size, GFP_KERNEL);
++		port->name = kmalloc(name_size, GFP_KERNEL | GFP_EXT);
+ 		if (!port->name) {
+ 			dev_err(port->dev,
+ 				"Not enough space to store port name\n");
+@@ -1849,14 +1849,14 @@ static int init_vqs(struct ports_device *portdev)
+ 	nr_ports = portdev->max_nr_ports;
+ 	nr_queues = use_multiport(portdev) ? (nr_ports + 1) * 2 : 2;
+ 
+-	vqs = kmalloc_array(nr_queues, sizeof(struct virtqueue *), GFP_KERNEL);
++	vqs = kmalloc_array(nr_queues, sizeof(struct virtqueue *), GFP_KERNEL | GFP_EXT);
+ 	io_callbacks = kmalloc_array(nr_queues, sizeof(vq_callback_t *),
+-				     GFP_KERNEL);
+-	io_names = kmalloc_array(nr_queues, sizeof(char *), GFP_KERNEL);
++				     GFP_KERNEL | GFP_EXT);
++	io_names = kmalloc_array(nr_queues, sizeof(char *), GFP_KERNEL | GFP_EXT);
+ 	portdev->in_vqs = kmalloc_array(nr_ports, sizeof(struct virtqueue *),
+-					GFP_KERNEL);
++					GFP_KERNEL | GFP_EXT);
+ 	portdev->out_vqs = kmalloc_array(nr_ports, sizeof(struct virtqueue *),
+-					 GFP_KERNEL);
++					 GFP_KERNEL | GFP_EXT);
+ 	if (!vqs || !io_callbacks || !io_names || !portdev->in_vqs ||
+ 	    !portdev->out_vqs) {
+ 		err = -ENOMEM;
+@@ -2016,7 +2016,7 @@ static int virtcons_probe(struct virtio_device *vdev)
+ 	/* Ensure to read early_put_chars now */
+ 	barrier();
+ 
+-	portdev = kmalloc(sizeof(*portdev), GFP_KERNEL);
++	portdev = kmalloc(sizeof(*portdev), GFP_KERNEL | GFP_EXT);
+ 	if (!portdev) {
+ 		err = -ENOMEM;
+ 		goto fail;
 diff --git a/drivers/gpu/drm/virtio/virtgpu_object.c b/drivers/gpu/drm/virtio/virtgpu_object.c
 index c7e74cf13022..46de18947fd3 100644
 --- a/drivers/gpu/drm/virtio/virtgpu_object.c
@@ -94,7 +716,7 @@ index 208e9434cb28..7b2046f282bd 100644
  	BUG_ON(size > MAX_INLINE_CMD_SIZE ||
  	       size < sizeof(struct virtio_gpu_ctrl_hdr));
 diff --git a/drivers/irqchip/irq-gic-v3-its.c b/drivers/irqchip/irq-gic-v3-its.c
-index 973ede0197e3..44d538feae89 100644
+index 973ede0197e3..50c4185b4f54 100644
 --- a/drivers/irqchip/irq-gic-v3-its.c
 +++ b/drivers/irqchip/irq-gic-v3-its.c
 @@ -2178,7 +2178,7 @@ static struct page *its_allocate_prop_table(gfp_t gfp_flags)
@@ -106,63 +728,77 @@ index 973ede0197e3..44d538feae89 100644
  	if (!prop_page)
  		return NULL;
  
-@@ -2312,7 +2312,7 @@ static int its_setup_baser(struct its_node *its, struct its_baser *baser,
+@@ -2312,7 +2312,8 @@ static int its_setup_baser(struct its_node *its, struct its_baser *baser,
  		order = get_order(GITS_BASER_PAGES_MAX * psz);
  	}
  
 -	page = alloc_pages_node(its->numa_node, GFP_KERNEL | __GFP_ZERO, order);
-+	page = alloc_pages_node(its->numa_node, GFP_KERNEL | __GFP_ZERO | __GFP_EXT, order);
++	page = alloc_pages_node(its->numa_node, GFP_KERNEL | GFP_EXT |
++				__GFP_ZERO, order);
  	if (!page)
  		return -ENOMEM;
  
-@@ -2778,7 +2778,7 @@ static bool allocate_vpe_l2_table(int cpu, u32 id)
+@@ -2778,7 +2779,7 @@ static bool allocate_vpe_l2_table(int cpu, u32 id)
  
  	/* Allocate memory for 2nd level table */
  	if (!table[idx]) {
 -		page = alloc_pages(GFP_KERNEL | __GFP_ZERO, get_order(psz));
-+		page = alloc_pages(GFP_KERNEL | __GFP_ZERO | __GFP_EXT, get_order(psz));
++		page = alloc_pages(GFP_KERNEL | GFP_EXT | __GFP_ZERO, get_order(psz));
  		if (!page)
  			return false;
  
-@@ -2897,7 +2897,7 @@ static int allocate_vpe_l1_table(void)
+@@ -2830,7 +2831,7 @@ static int allocate_vpe_l1_table(void)
+ 	if (val & GICR_VPROPBASER_4_1_VALID)
+ 		goto out;
  
- 	pr_debug("np = %d, npg = %lld, psz = %d, epp = %d, esz = %d\n",
- 		 np, npg, psz, epp, esz);
--	page = alloc_pages(GFP_ATOMIC | __GFP_ZERO, get_order(np * PAGE_SIZE));
-+	page = alloc_pages(GFP_ATOMIC | __GFP_ZERO | __GFP_EXT, get_order(np * PAGE_SIZE));
- 	if (!page)
+-	gic_data_rdist()->vpe_table_mask = kzalloc(sizeof(cpumask_t), GFP_ATOMIC);
++	gic_data_rdist()->vpe_table_mask = kzalloc(sizeof(cpumask_t), GFP_ATOMIC | GFP_EXT);
+ 	if (!gic_data_rdist()->vpe_table_mask)
  		return -ENOMEM;
  
-@@ -2941,7 +2941,7 @@ static struct page *its_allocate_pending_table(gfp_t gfp_flags)
+@@ -2941,7 +2942,7 @@ static struct page *its_allocate_pending_table(gfp_t gfp_flags)
  {
  	struct page *pend_page;
  
 -	pend_page = alloc_pages(gfp_flags | __GFP_ZERO,
-+	pend_page = alloc_pages(gfp_flags | __GFP_ZERO | __GFP_EXT,
++	pend_page = alloc_pages(gfp_flags | GFP_EXT | __GFP_ZERO,
  				get_order(LPI_PENDBASE_SZ));
  	if (!pend_page)
  		return NULL;
-@@ -3283,8 +3283,8 @@ static bool its_alloc_table_entry(struct its_node *its,
+@@ -3283,8 +3284,8 @@ static bool its_alloc_table_entry(struct its_node *its,
  
  	/* Allocate memory for 2nd level table */
  	if (!table[idx]) {
 -		page = alloc_pages_node(its->numa_node, GFP_KERNEL | __GFP_ZERO,
 -					get_order(baser->psz));
-+		page = alloc_pages_node(its->numa_node, GFP_KERNEL | __GFP_ZERO |
-+					__GFP_EXT, get_order(baser->psz));
++		page = alloc_pages_node(its->numa_node, GFP_KERNEL | GFP_EXT |
++					__GFP_ZERO, get_order(baser->psz));
  		if (!page)
  			return false;
  
-@@ -5064,7 +5064,8 @@ static int __init its_probe_one(struct resource *res,
+@@ -5064,7 +5065,8 @@ static int __init its_probe_one(struct resource *res,
  
  	its->numa_node = numa_node;
  
 -	page = alloc_pages_node(its->numa_node, GFP_KERNEL | __GFP_ZERO,
 +	page = alloc_pages_node(its->numa_node,
-+				GFP_KERNEL | __GFP_ZERO | __GFP_EXT,
++				GFP_KERNEL | GFP_EXT | __GFP_ZERO,
  				get_order(ITS_CMD_QUEUE_SZ));
  	if (!page) {
  		err = -ENOMEM;
+diff --git a/drivers/virtio/virtio_mmio.c b/drivers/virtio/virtio_mmio.c
+index 3ff746e3f24a..b1ff97636d4a 100644
+--- a/drivers/virtio/virtio_mmio.c
++++ b/drivers/virtio/virtio_mmio.c
+@@ -383,7 +383,7 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned int in
+ 	}
+ 
+ 	/* Allocate and fill out our active queue description */
+-	info = kmalloc(sizeof(*info), GFP_KERNEL);
++	info = kmalloc(sizeof(*info), GFP_KERNEL | GFP_EXT);
+ 	if (!info) {
+ 		err = -ENOMEM;
+ 		goto error_kmalloc;
 diff --git a/drivers/virtio/virtio_ring.c b/drivers/virtio/virtio_ring.c
 index 90d514c14179..6f5518e94282 100644
 --- a/drivers/virtio/virtio_ring.c
@@ -280,10 +916,10 @@ index 90d514c14179..6f5518e94282 100644
  
 diff --git a/include/linux/emem.h b/include/linux/emem.h
 new file mode 100644
-index 000000000000..b3cd0602dbf9
+index 000000000000..b2c153070700
 --- /dev/null
 +++ b/include/linux/emem.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,36 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef __MM_EMEM_H__
 +#define __MM_EMEM_H__
@@ -293,21 +929,26 @@ index 000000000000..b3cd0602dbf9
 +#include <asm/dma.h>
 +
 +struct emem_region {
-+	spinlock_t lock;
 +	unsigned long *bitmap;
++	unsigned int npages;
++	unsigned int bits;
 +	phys_addr_t base;
 +	void *dma_base;
-+	int npages;
 +};
 +
 +#ifdef CONFIG_EXT_MEMORY
 +int __init emem_region_init(void);
 +int is_emem(void *vaddr);
++struct page *emem_getpages_unlocked(gfp_t flags, int order);
 +struct page *emem_getpages(gfp_t flags, int order);
 +void emem_freepages(struct page *page, int order);
 +#else
 +static inline int __init emem_region_init(void) { return 0 };
 +static inline int is_emem(void *vaddr) { return 0; };
++static inline struct page *emem_getpages_unlocked(gfp_t flags, int order)
++{
++	return NULL;
++};
 +static inline struct page *emem_getpages(gfp_t flags, int order)
 +{
 +	return NULL;
@@ -491,7 +1132,7 @@ index e87cb2b80ed3..3cfa1dd77b3e 100644
  #define __def_gfpflag_names_kasan
  #endif
 diff --git a/init/main.c b/init/main.c
-index aa21add5f7c5..367feed42153 100644
+index aa21add5f7c5..f21a698cc899 100644
 --- a/init/main.c
 +++ b/init/main.c
 @@ -101,6 +101,7 @@
@@ -502,16 +1143,19 @@ index aa21add5f7c5..367feed42153 100644
  #include <net/net_namespace.h>
  
  #include <asm/io.h>
-@@ -1092,6 +1093,9 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
- 	 */
- 	mem_encrypt_init();
+@@ -1035,6 +1036,12 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
+ 	if (initcall_debug)
+ 		initcall_debug_enable();
  
-+	/* Alternative to above */
-+	emem_region_init();
++	/*
++	 * Needs to happen before the irq init as we may need to share
++	 * some memory for the irq controller itself.
++	 */
++        emem_region_init();
 +
- #ifdef CONFIG_BLK_DEV_INITRD
- 	if (initrd_start && !initrd_below_start_ok &&
- 	    page_to_pfn(virt_to_page((void *)initrd_start)) < min_low_pfn) {
+ 	context_tracking_init();
+ 	/* init some links before init_ISA_irqs() */
+ 	early_irq_init();
 diff --git a/kernel/dma/direct.c b/kernel/dma/direct.c
 index 63859a101ed8..4a00fe8d983e 100644
 --- a/kernel/dma/direct.c
@@ -572,10 +1216,10 @@ index 8e105e5b3e29..75d99bf588ef 100644
 +obj-$(CONFIG_EXT_MEMORY) += emem.o
 diff --git a/mm/emem.c b/mm/emem.c
 new file mode 100644
-index 000000000000..b016879dff66
+index 000000000000..77061f97d07b
 --- /dev/null
 +++ b/mm/emem.c
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,161 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + *  linux/mm/emem.c
@@ -586,9 +1230,11 @@ index 000000000000..b016879dff66
 +#include <linux/of_address.h>
 +#include <linux/of.h>
 +#include <linux/emem.h>
++#include <linux/memblock.h>
 +
 +extern gfp_t gfp_allowed_mask;
 +static struct emem_region emem;
++static DEFINE_SPINLOCK(emem_lock);
 +
 +static int emem_get_config(struct device_node *np, phys_addr_t *base, size_t *size)
 +{
@@ -618,41 +1264,56 @@ index 000000000000..b016879dff66
 +int emem_region_init(void)
 +{
 +	struct device_node *np;
++	unsigned long iflags;
 +	phys_addr_t base;
 +	size_t size;
 +	int res, npages;
 +
++	spin_lock_irqsave(&emem_lock, iflags);
++
 +	np = of_find_node_by_path("/emem_region");
-+	if (!np)
-+		return 0;
++	if (!np) {
++		pr_err("emem region not configured\n");
++		res = -ENOTSUPP;
++		goto out;
++	}
 +
 +	res = emem_get_config(np, &base, &size);
 +	of_node_put(np);
 +	if (res)
-+		return res;
++		goto out;
 +
-+	if ((base % PAGE_SIZE) || (size % PAGE_SIZE))
-+		return -EINVAL;
++	if ((base % PAGE_SIZE) || (size % PAGE_SIZE)) {
++		res = -EINVAL;
++		goto out;
++	}
 +
 +	res = add_memory(0, base, size, MMOP_OFFLINE);
-+	if (res)
-+		goto out_error;
++	if (res == -EEXIST) {
++		pr_warn("memory block already exists, assuming reserved\n");
++		res = 0;
++		goto cont;
++	} else if (res != 0)
++		goto out;
 +
++cont:
 +	/* Bookkeeping at the beginning */
 +	npages = size / (PAGE_SIZE * 8);
 +	emem.base = base;
 +	emem.bitmap = phys_to_virt(base);
 +	emem.npages = (size / PAGE_SIZE) - npages;
++	emem.bits = emem.npages * PAGE_SIZE * 8;
 +	emem.dma_base = phys_to_virt(emem.base) + (npages * PAGE_SIZE);
-+	spin_lock_init(&emem.lock);
 +	gfp_allowed_mask |= GFP_EXT;
 +
-+	pr_info("emem: region at 0x%llx registered successfully\n",
-+		(u64)emem.dma_base);
-+	return 0;
++out:
++	spin_unlock_irqrestore(&emem_lock, iflags);
++	if (res == 0)
++		pr_info("emem: region at 0x%llx registered successfully\n",
++			(u64)emem.dma_base);
++	else
++		pr_err("emem: region registration failed, error %d\n", res);
 +
-+out_error:
-+	pr_err("emem: region registration failed, error %d\n", res);
 +	return res;
 +}
 +
@@ -669,29 +1330,37 @@ index 000000000000..b016879dff66
 +}
 +EXPORT_SYMBOL(is_emem);
 +
-+struct page *emem_getpages(gfp_t flags, int order)
++struct page *emem_getpages_unlocked(gfp_t flags, int order)
 +{
 +	struct page *page;
-+	unsigned long irq_flags;
 +	void *vaddr = NULL;
 +	int pageno;
 +
 +	if (!emem.bitmap)
-+		return NULL;
++		panic("emem_getpages() without init?\n");
 +
-+	spin_lock_irqsave(&emem.lock, irq_flags);
-+	pageno = bitmap_find_free_region(emem.bitmap,
-+					 emem.npages * PAGE_SIZE,
-+					 order);
++	pageno = bitmap_find_free_region(emem.bitmap, emem.bits, order);
 +	if (pageno >= 0)
 +		vaddr = emem.dma_base + (pageno << PAGE_SHIFT);
-+	spin_unlock_irqrestore(&emem.lock, irq_flags);
 +	if (!vaddr)
 +		return NULL;
 +
 +	page = virt_to_page(vaddr);
 +	if (!page)
 +		panic("no page for allocation emem page\n");
++	return page;
++}
++EXPORT_SYMBOL_GPL(emem_getpages_unlocked);
++
++struct page *emem_getpages(gfp_t flags, int order)
++{
++	struct page *page;
++	unsigned long iflags;
++
++	spin_lock_irqsave(&emem_lock, iflags);
++	page = emem_getpages_unlocked(flags, order);
++	spin_unlock_irqrestore(&emem_lock, iflags);
++
 +	return page;
 +}
 +EXPORT_SYMBOL_GPL(emem_getpages);
@@ -707,13 +1376,13 @@ index 000000000000..b016879dff66
 +	pageno = (page_to_virt(page) - emem.dma_base) >> PAGE_SHIFT;
 +	page_mapcount_reset(page);
 +
-+	spin_lock_irqsave(&emem.lock, irq_flags);
++	spin_lock_irqsave(&emem_lock, irq_flags);
 +	bitmap_release_region(emem.bitmap, pageno, order);
-+	spin_unlock_irqrestore(&emem.lock, irq_flags);
++	spin_unlock_irqrestore(&emem_lock, irq_flags);
 +}
 +EXPORT_SYMBOL_GPL(emem_freepages);
 diff --git a/mm/page_alloc.c b/mm/page_alloc.c
-index 69668817fed3..07cd3998b8d7 100644
+index 69668817fed3..5cbe2796c9a2 100644
 --- a/mm/page_alloc.c
 +++ b/mm/page_alloc.c
 @@ -76,6 +76,7 @@
@@ -724,22 +1393,24 @@ index 69668817fed3..07cd3998b8d7 100644
  #include <asm/sections.h>
  #include <asm/tlbflush.h>
  #include <asm/div64.h>
-@@ -5536,6 +5537,14 @@ struct page *__alloc_pages(gfp_t gfp, unsigned int order, int preferred_nid,
+@@ -5536,6 +5537,16 @@ struct page *__alloc_pages(gfp_t gfp, unsigned int order, int preferred_nid,
  		return NULL;
  
  	gfp &= gfp_allowed_mask;
 +
 +	if (unlikely(gfp & __GFP_EXT)) {
 +		page = emem_getpages(gfp, order);
-+		if (!page)
++		if (!page) {
++			pr_err("emem_getpages out of memory?\n");
 +			return NULL;
++		}
 +		goto out;
 +	}
 +
  	/*
  	 * Apply scoped allocation constraints. This is mainly about GFP_NOFS
  	 * resp. GFP_NOIO which has to be inherited for all allocation requests
-@@ -5644,6 +5653,10 @@ void __free_pages(struct page *page, unsigned int order)
+@@ -5644,6 +5655,10 @@ void __free_pages(struct page *page, unsigned int order)
  	/* get PageHead before we drop reference */
  	int head = PageHead(page);
  

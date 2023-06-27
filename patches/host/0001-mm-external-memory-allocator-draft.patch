@@ -1,4 +1,4 @@
-From 6d8ade2dc1abd0991bd70fb28d6ee04cb50e53e9 Mon Sep 17 00:00:00 2001
+From 1fbd61d6d09bcc5f131ca300bdbe5775c0dc8611 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 4 May 2023 14:11:17 +0300
 Subject: [PATCH] mm: external memory allocator draft
@@ -36,19 +36,19 @@ the host have permission to access.
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
  arch/arm64/configs/defconfig   |   2 +
- include/linux/emem.h           |  31 ++++++++
- include/linux/gfp.h            |  20 ++++-
- include/linux/slab.h           |  26 ++++++-
+ include/linux/emem.h           |  36 ++++++++
+ include/linux/gfp.h            |  20 +++-
+ include/linux/slab.h           |  26 +++++-
  include/trace/events/mmflags.h |   3 +-
- init/main.c                    |   4 +
- mm/Kconfig                     |  15 ++++
+ init/main.c                    |   7 ++
+ mm/Kconfig                     |  15 +++
  mm/Makefile                    |   1 +
- mm/emem.c                      | 136 +++++++++++++++++++++++++++++++++
- mm/page_alloc.c                |  13 ++++
+ mm/emem.c                      | 161 +++++++++++++++++++++++++++++++++
+ mm/page_alloc.c                |  13 +++
  mm/slab_common.c               |   3 +
- mm/slub.c                      |   5 ++
+ mm/slub.c                      |   5 +
  tools/perf/builtin-kmem.c      |   1 +
- 13 files changed, 255 insertions(+), 5 deletions(-)
+ 13 files changed, 288 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/emem.h
  create mode 100644 mm/emem.c
 
@@ -64,10 +64,10 @@ index ac7d5d172428..b814e8e7b758 100644
 +CONFIG_EXT_MEMORY=y
 diff --git a/include/linux/emem.h b/include/linux/emem.h
 new file mode 100644
-index 000000000000..b3cd0602dbf9
+index 000000000000..b2c153070700
 --- /dev/null
 +++ b/include/linux/emem.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,36 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef __MM_EMEM_H__
 +#define __MM_EMEM_H__
@@ -77,21 +77,26 @@ index 000000000000..b3cd0602dbf9
 +#include <asm/dma.h>
 +
 +struct emem_region {
-+	spinlock_t lock;
 +	unsigned long *bitmap;
++	unsigned int npages;
++	unsigned int bits;
 +	phys_addr_t base;
 +	void *dma_base;
-+	int npages;
 +};
 +
 +#ifdef CONFIG_EXT_MEMORY
 +int __init emem_region_init(void);
 +int is_emem(void *vaddr);
++struct page *emem_getpages_unlocked(gfp_t flags, int order);
 +struct page *emem_getpages(gfp_t flags, int order);
 +void emem_freepages(struct page *page, int order);
 +#else
 +static inline int __init emem_region_init(void) { return 0 };
 +static inline int is_emem(void *vaddr) { return 0; };
++static inline struct page *emem_getpages_unlocked(gfp_t flags, int order)
++{
++	return NULL;
++};
 +static inline struct page *emem_getpages(gfp_t flags, int order)
 +{
 +	return NULL;
@@ -249,7 +254,7 @@ index 116ed4d5d0f8..f9b2c0087231 100644
  #define show_gfp_flags(flags)						\
  	(flags) ? __print_flags(flags, "|",				\
 diff --git a/init/main.c b/init/main.c
-index 649d9e4201a8..d4b2bf16b113 100644
+index 649d9e4201a8..d234b5044206 100644
 --- a/init/main.c
 +++ b/init/main.c
 @@ -101,6 +101,7 @@
@@ -260,16 +265,19 @@ index 649d9e4201a8..d4b2bf16b113 100644
  #include <net/net_namespace.h>
  
  #include <asm/io.h>
-@@ -1091,6 +1092,9 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
- 	 */
- 	mem_encrypt_init();
+@@ -1030,6 +1031,12 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
+ 	if (initcall_debug)
+ 		initcall_debug_enable();
  
-+	/* Alternative to above */
++	/*
++	 * Needs to happen before the irq init as we may need to share
++	 * some memory for the irq controller itself.
++	 */
 +	emem_region_init();
 +
- #ifdef CONFIG_BLK_DEV_INITRD
- 	if (initrd_start && !initrd_below_start_ok &&
- 	    page_to_pfn(virt_to_page((void *)initrd_start)) < min_low_pfn) {
+ 	context_tracking_init();
+ 	/* init some links before init_ISA_irqs() */
+ 	early_irq_init();
 diff --git a/mm/Kconfig b/mm/Kconfig
 index c048dea7e342..80de7ff5a89f 100644
 --- a/mm/Kconfig
@@ -314,10 +322,10 @@ index fc60a40ce954..c9b7bc97f837 100644
 +obj-$(CONFIG_EXT_MEMORY) += emem.o
 diff --git a/mm/emem.c b/mm/emem.c
 new file mode 100644
-index 000000000000..b016879dff66
+index 000000000000..77061f97d07b
 --- /dev/null
 +++ b/mm/emem.c
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,161 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + *  linux/mm/emem.c
@@ -328,9 +336,11 @@ index 000000000000..b016879dff66
 +#include <linux/of_address.h>
 +#include <linux/of.h>
 +#include <linux/emem.h>
++#include <linux/memblock.h>
 +
 +extern gfp_t gfp_allowed_mask;
 +static struct emem_region emem;
++static DEFINE_SPINLOCK(emem_lock);
 +
 +static int emem_get_config(struct device_node *np, phys_addr_t *base, size_t *size)
 +{
@@ -360,41 +370,56 @@ index 000000000000..b016879dff66
 +int emem_region_init(void)
 +{
 +	struct device_node *np;
++	unsigned long iflags;
 +	phys_addr_t base;
 +	size_t size;
 +	int res, npages;
 +
++	spin_lock_irqsave(&emem_lock, iflags);
++
 +	np = of_find_node_by_path("/emem_region");
-+	if (!np)
-+		return 0;
++	if (!np) {
++		pr_err("emem region not configured\n");
++		res = -ENOTSUPP;
++		goto out;
++	}
 +
 +	res = emem_get_config(np, &base, &size);
 +	of_node_put(np);
 +	if (res)
-+		return res;
++		goto out;
 +
-+	if ((base % PAGE_SIZE) || (size % PAGE_SIZE))
-+		return -EINVAL;
++	if ((base % PAGE_SIZE) || (size % PAGE_SIZE)) {
++		res = -EINVAL;
++		goto out;
++	}
 +
 +	res = add_memory(0, base, size, MMOP_OFFLINE);
-+	if (res)
-+		goto out_error;
++	if (res == -EEXIST) {
++		pr_warn("memory block already exists, assuming reserved\n");
++		res = 0;
++		goto cont;
++	} else if (res != 0)
++		goto out;
 +
++cont:
 +	/* Bookkeeping at the beginning */
 +	npages = size / (PAGE_SIZE * 8);
 +	emem.base = base;
 +	emem.bitmap = phys_to_virt(base);
 +	emem.npages = (size / PAGE_SIZE) - npages;
++	emem.bits = emem.npages * PAGE_SIZE * 8;
 +	emem.dma_base = phys_to_virt(emem.base) + (npages * PAGE_SIZE);
-+	spin_lock_init(&emem.lock);
 +	gfp_allowed_mask |= GFP_EXT;
 +
-+	pr_info("emem: region at 0x%llx registered successfully\n",
-+		(u64)emem.dma_base);
-+	return 0;
++out:
++	spin_unlock_irqrestore(&emem_lock, iflags);
++	if (res == 0)
++		pr_info("emem: region at 0x%llx registered successfully\n",
++			(u64)emem.dma_base);
++	else
++		pr_err("emem: region registration failed, error %d\n", res);
 +
-+out_error:
-+	pr_err("emem: region registration failed, error %d\n", res);
 +	return res;
 +}
 +
@@ -411,29 +436,37 @@ index 000000000000..b016879dff66
 +}
 +EXPORT_SYMBOL(is_emem);
 +
-+struct page *emem_getpages(gfp_t flags, int order)
++struct page *emem_getpages_unlocked(gfp_t flags, int order)
 +{
 +	struct page *page;
-+	unsigned long irq_flags;
 +	void *vaddr = NULL;
 +	int pageno;
 +
 +	if (!emem.bitmap)
-+		return NULL;
++		panic("emem_getpages() without init?\n");
 +
-+	spin_lock_irqsave(&emem.lock, irq_flags);
-+	pageno = bitmap_find_free_region(emem.bitmap,
-+					 emem.npages * PAGE_SIZE,
-+					 order);
++	pageno = bitmap_find_free_region(emem.bitmap, emem.bits, order);
 +	if (pageno >= 0)
 +		vaddr = emem.dma_base + (pageno << PAGE_SHIFT);
-+	spin_unlock_irqrestore(&emem.lock, irq_flags);
 +	if (!vaddr)
 +		return NULL;
 +
 +	page = virt_to_page(vaddr);
 +	if (!page)
 +		panic("no page for allocation emem page\n");
++	return page;
++}
++EXPORT_SYMBOL_GPL(emem_getpages_unlocked);
++
++struct page *emem_getpages(gfp_t flags, int order)
++{
++	struct page *page;
++	unsigned long iflags;
++
++	spin_lock_irqsave(&emem_lock, iflags);
++	page = emem_getpages_unlocked(flags, order);
++	spin_unlock_irqrestore(&emem_lock, iflags);
++
 +	return page;
 +}
 +EXPORT_SYMBOL_GPL(emem_getpages);
@@ -449,9 +482,9 @@ index 000000000000..b016879dff66
 +	pageno = (page_to_virt(page) - emem.dma_base) >> PAGE_SHIFT;
 +	page_mapcount_reset(page);
 +
-+	spin_lock_irqsave(&emem.lock, irq_flags);
++	spin_lock_irqsave(&emem_lock, irq_flags);
 +	bitmap_release_region(emem.bitmap, pageno, order);
-+	spin_unlock_irqrestore(&emem.lock, irq_flags);
++	spin_unlock_irqrestore(&emem_lock, irq_flags);
 +}
 +EXPORT_SYMBOL_GPL(emem_freepages);
 diff --git a/mm/page_alloc.c b/mm/page_alloc.c
