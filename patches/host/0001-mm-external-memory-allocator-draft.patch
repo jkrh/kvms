@@ -1,4 +1,4 @@
-From 1fbd61d6d09bcc5f131ca300bdbe5775c0dc8611 Mon Sep 17 00:00:00 2001
+From 44cc6f4928708923cbf0ffbfa86485aad5cd27a4 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 4 May 2023 14:11:17 +0300
 Subject: [PATCH] mm: external memory allocator draft
@@ -36,19 +36,19 @@ the host have permission to access.
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
  arch/arm64/configs/defconfig   |   2 +
- include/linux/emem.h           |  36 ++++++++
- include/linux/gfp.h            |  20 +++-
- include/linux/slab.h           |  26 +++++-
+ include/linux/emem.h           |  41 ++++++
+ include/linux/gfp.h            |  20 ++-
+ include/linux/slab.h           |  26 +++-
  include/trace/events/mmflags.h |   3 +-
- init/main.c                    |   7 ++
- mm/Kconfig                     |  15 +++
+ init/main.c                    |   7 +
+ mm/Kconfig                     |  15 ++
  mm/Makefile                    |   1 +
- mm/emem.c                      | 161 +++++++++++++++++++++++++++++++++
- mm/page_alloc.c                |  13 +++
+ mm/emem.c                      | 244 +++++++++++++++++++++++++++++++++
+ mm/page_alloc.c                |  13 ++
  mm/slab_common.c               |   3 +
  mm/slub.c                      |   5 +
  tools/perf/builtin-kmem.c      |   1 +
- 13 files changed, 288 insertions(+), 5 deletions(-)
+ 13 files changed, 376 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/emem.h
  create mode 100644 mm/emem.c
 
@@ -64,10 +64,10 @@ index ac7d5d172428..b814e8e7b758 100644
 +CONFIG_EXT_MEMORY=y
 diff --git a/include/linux/emem.h b/include/linux/emem.h
 new file mode 100644
-index 000000000000..b2c153070700
+index 000000000000..3eb13828314c
 --- /dev/null
 +++ b/include/linux/emem.h
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,41 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef __MM_EMEM_H__
 +#define __MM_EMEM_H__
@@ -80,19 +80,24 @@ index 000000000000..b2c153070700
 +	unsigned long *bitmap;
 +	unsigned int npages;
 +	unsigned int bits;
-+	phys_addr_t base;
-+	void *dma_base;
++	phys_addr_t dma_base;
++	u64 base;
 +};
++
++extern struct emem_region emem;
++extern spinlock_t emem_lock;
 +
 +#ifdef CONFIG_EXT_MEMORY
 +int __init emem_region_init(void);
 +int is_emem(void *vaddr);
++int is_emem_dma(dma_addr_t addr);
 +struct page *emem_getpages_unlocked(gfp_t flags, int order);
 +struct page *emem_getpages(gfp_t flags, int order);
 +void emem_freepages(struct page *page, int order);
 +#else
 +static inline int __init emem_region_init(void) { return 0 };
 +static inline int is_emem(void *vaddr) { return 0; };
++static inline int is_emem_dma(dma_addr_t addr) { return 0; };
 +static inline struct page *emem_getpages_unlocked(gfp_t flags, int order)
 +{
 +	return NULL;
@@ -322,10 +327,10 @@ index fc60a40ce954..c9b7bc97f837 100644
 +obj-$(CONFIG_EXT_MEMORY) += emem.o
 diff --git a/mm/emem.c b/mm/emem.c
 new file mode 100644
-index 000000000000..77061f97d07b
+index 000000000000..7eafbb08c241
 --- /dev/null
 +++ b/mm/emem.c
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,244 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + *  linux/mm/emem.c
@@ -338,9 +343,55 @@ index 000000000000..77061f97d07b
 +#include <linux/emem.h>
 +#include <linux/memblock.h>
 +
++#define EMEM_NAME "emem"
++
 +extern gfp_t gfp_allowed_mask;
-+static struct emem_region emem;
-+static DEFINE_SPINLOCK(emem_lock);
++struct emem_region emem;
++DEFINE_SPINLOCK(emem_lock);
++static bool emem_init_done;
++static int emem_major;
++static atomic_t emem_dopen = ATOMIC_INIT(0);
++
++int emem_open(struct inode *inode, struct file *file)
++{
++	return atomic_add_unless(&emem_dopen, 1, 1) ? 0 : -EBUSY;
++}
++
++int emem_mmap(struct file *filp, struct vm_area_struct *vma)
++{
++	int res;
++
++	vma->vm_flags |= VM_READ | VM_WRITE;
++	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
++
++	res = vm_iomap_memory(vma, emem.dma_base,
++			      emem.npages * PAGE_SIZE);
++	if (res) {
++		pr_err("emem: io_remap_memory() returned %d\n", res);
++		return -EAGAIN;
++	}
++	return res;
++}
++
++int emem_release(struct inode *inode, struct file *file)
++{
++	iounmap((void *)emem.dma_base);
++	atomic_set(&emem_dopen, 0);
++	return 0;
++}
++
++long emem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
++{
++	return -ENOTSUPP;
++}
++
++static const struct file_operations fops = {
++	.mmap = emem_mmap,
++	.open = emem_open,
++	.release = emem_release,
++	.mmap = emem_mmap,
++	.unlocked_ioctl = emem_ioctl,
++};
 +
 +static int emem_get_config(struct device_node *np, phys_addr_t *base, size_t *size)
 +{
@@ -367,16 +418,36 @@ index 000000000000..77061f97d07b
 +	return 0;
 +}
 +
++static int emem_device_init(void)
++{
++	if (emem_major)
++		return 0;
++
++	emem_major = register_chrdev(0, EMEM_NAME, &fops);
++	if (emem_major < 0) {
++		pr_err("emem register_chrdev failed with %d\n",
++			emem_major);
++		return emem_major;
++	}
++
++	pr_info("emem: mknod /dev/%s c %d 0\n", EMEM_NAME, emem_major);
++	return 0;
++}
++late_initcall(emem_device_init);
++
 +int emem_region_init(void)
 +{
 +	struct device_node *np;
-+	unsigned long iflags;
 +	phys_addr_t base;
-+	size_t size;
++	unsigned long iflags;
 +	int res, npages;
++	size_t size;
++
++	if (emem_init_done)
++		return 0;
++	emem_init_done = true;
 +
 +	spin_lock_irqsave(&emem_lock, iflags);
-+
 +	np = of_find_node_by_path("/emem_region");
 +	if (!np) {
 +		pr_err("emem region not configured\n");
@@ -405,36 +476,53 @@ index 000000000000..77061f97d07b
 +cont:
 +	/* Bookkeeping at the beginning */
 +	npages = size / (PAGE_SIZE * 8);
-+	emem.base = base;
++	emem.dma_base = base;
 +	emem.bitmap = phys_to_virt(base);
 +	emem.npages = (size / PAGE_SIZE) - npages;
 +	emem.bits = emem.npages * PAGE_SIZE * 8;
-+	emem.dma_base = phys_to_virt(emem.base) + (npages * PAGE_SIZE);
++	emem.base = (u64)phys_to_virt(emem.dma_base) + (npages * PAGE_SIZE);
 +	gfp_allowed_mask |= GFP_EXT;
 +
 +out:
-+	spin_unlock_irqrestore(&emem_lock, iflags);
 +	if (res == 0)
-+		pr_info("emem: region at 0x%llx registered successfully\n",
-+			(u64)emem.dma_base);
++		pr_info("emem: region registered at 0x%llx successfully\n",
++			(u64)emem.base);
 +	else
 +		pr_err("emem: region registration failed, error %d\n", res);
 +
++	spin_unlock_irqrestore(&emem_lock, iflags);
 +	return res;
 +}
 +
 +int is_emem(void *vaddr)
 +{
-+	void *s, *e;
++	u64 s, e, v = (u64)vaddr;
 +
-+	s = emem.dma_base;
++	if (!emem.base)
++		BUG();
++
++	s = emem.base;
 +	e = s + (emem.npages * PAGE_SIZE);
-+	if ((vaddr >= s) && (vaddr < e))
++	if ((v >= s) && (v < e))
 +		return 1;
-+
 +	return 0;
 +}
 +EXPORT_SYMBOL(is_emem);
++
++int is_emem_dma(dma_addr_t addr)
++{
++	u64 s, e, a = (u64)addr;
++
++	if (!emem.base)
++		BUG();
++
++	s = (u64)emem.dma_base;
++	e = s + (emem.npages * PAGE_SIZE);
++	if ((a >= s) && (a < e))
++		return 1;
++	return 0;
++}
++EXPORT_SYMBOL(is_emem_dma);
 +
 +struct page *emem_getpages_unlocked(gfp_t flags, int order)
 +{
@@ -447,7 +535,7 @@ index 000000000000..77061f97d07b
 +
 +	pageno = bitmap_find_free_region(emem.bitmap, emem.bits, order);
 +	if (pageno >= 0)
-+		vaddr = emem.dma_base + (pageno << PAGE_SHIFT);
++		vaddr = (void *)emem.base + (pageno << PAGE_SHIFT);
 +	if (!vaddr)
 +		return NULL;
 +
@@ -479,7 +567,7 @@ index 000000000000..77061f97d07b
 +	if (!emem.bitmap)
 +		return;
 +
-+	pageno = (page_to_virt(page) - emem.dma_base) >> PAGE_SHIFT;
++	pageno = (page_to_virt(page) - (void *)emem.base) >> PAGE_SHIFT;
 +	page_mapcount_reset(page);
 +
 +	spin_lock_irqsave(&emem_lock, irq_flags);
