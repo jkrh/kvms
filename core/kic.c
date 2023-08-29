@@ -11,7 +11,7 @@
 #include "mbedtls/sha256.h"
 #include "signature_pub.h"
 
-#ifdef KIC_ENABLE
+#ifdef KIC_ENABLED
 #define CHECKRES(x) (if (x != MBEDTLS_EXIT_SUCCESS) return -EFAULT;)
 __attribute__((__section__(".el1_hyp_img")))
 uint32_t el1_hyp_img[1024] = {

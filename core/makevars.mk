@@ -91,8 +91,10 @@ BUILDOPTS += -DSPINNER
 endif
 
 # Disable kernel integrity check
-ifeq ($(KIC_ENABLE),1)
-BUILDOPTS += -DKIC_ENABLE
+ifeq ($(DISABLE_KIC),1)
+BUILDOPTS += -DKIC_DISABLED
+else
+BUILDOPTS += -DKIC_ENABLED
 endif
 #
 # Default build will include headers from linux kernel and
