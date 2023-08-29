@@ -115,6 +115,7 @@ cd linux
 #patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
 patch -p1 < ../../patches/guest/0001-kvm-encrypted-memory-draft-for-arm64-5.15.patch
 patch -p1 < ../../patches/guest/0002-kvm-integrate-kvms-interface-driver-for-5.15-kernel.patch
+patch -p1 < ../../patches/guest/0003-enable-virtio-fs-and-dax-by-default.patch
 
 echo "Building guest kernel.."
 make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 INSTALL_MOD_STRIP=1 INSTALL_MOD_PATH=../tmp -j$CPUS defconfig Image modules modules_install

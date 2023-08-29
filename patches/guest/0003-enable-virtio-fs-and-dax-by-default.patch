@@ -1,0 +1,32 @@
+From 1ec0bea7057b3349762225610f791fb99e0eb158 Mon Sep 17 00:00:00 2001
+From: Sahara <keun-o.park@digital14.com>
+Date: Thu, 24 Aug 2023 15:33:31 +0400
+Subject: [PATCH] enable virtio-fs and dax by default
+
+Signed-off-by: Sahara <keun-o.park@digital14.com>
+---
+ arch/arm64/configs/defconfig | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/configs/defconfig b/arch/arm64/configs/defconfig
+index d00122c4b6f9..41f970ef0f63 100644
+--- a/arch/arm64/configs/defconfig
++++ b/arch/arm64/configs/defconfig
+@@ -1173,8 +1173,12 @@ CONFIG_FANOTIFY=y
+ CONFIG_FANOTIFY_ACCESS_PERMISSIONS=y
+ CONFIG_QUOTA=y
+ CONFIG_AUTOFS4_FS=y
+-CONFIG_FUSE_FS=m
+-CONFIG_CUSE=m
++CONFIG_FS_DAX=y
++CONFIG_FUSE_FS=y
++CONFIG_CUSE=y
++CONFIG_FUSE_DAX=y
++CONFIG_VIRTIO_FS=y
++CONFIG_DAX_DRIVER=y
+ CONFIG_OVERLAY_FS=m
+ CONFIG_VFAT_FS=y
+ CONFIG_TMPFS_POSIX_ACL=y
+-- 
+2.34.1
+
