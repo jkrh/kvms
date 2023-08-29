@@ -32,6 +32,7 @@ Building and running on QEMU:
 - Run 'make target-qemu' to generate a qemu binary for the host invocation
 - Run 'make hostimage' to generate a virtualization system host image
 - Run 'make guestimage' to generate a sample virtualized guest for testing
+- Run 'make create_vm' to copy generated guest images to host image
 - Confirm whether PLATFORM and BOOTIMG env variables set correct value.
   or set environment variable BOOTIMG to point to the image. Set PLATFORM
   as well to tell the build system which target you are going for.
