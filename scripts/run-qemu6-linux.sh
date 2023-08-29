@@ -203,6 +203,8 @@ NETOPTS="-device virtio-net-pci,netdev=net0 -netdev user,id=net0,host=192.168.8.
 QEMUOPTS="${CPU} ${SMP} -M ${MACHINE},${GICV} -m ${MEM} ${NETOPTS} ${RNG} ${AUDIO} ${BALLOON} ${DEBUGOPTS} -L . -portrait"
 SCREEN="-nographic -device virtio-gpu-pci -spice $SPICEOPTS $VDAGENT"
 
+[ -n "$ENABLE_VIRTIO_FS" ] && SHARED_FS="-chardev socket,id=char0,path=/tmp/vfsd.sock -device vhost-user-fs-pci,queue-size=1024,chardev=char0,tag=katimfs -object memory-backend-file,id=mem,size=${MEM}m,mem-path=/dev/shm,share=on -numa node,memdev=mem"
+
 #
 # Finally the qemu invocation with some helper output
 #
@@ -217,13 +219,13 @@ echo "- Host wlan ip $LOCALIP"
 
 if [ -n "$DISABLE_KIC" ]  ; then
 	$QEMUDIR/qemu-system-aarch64 -name $VMNAME -kernel $KERNEL $DRIVE $DTB $INPUT \
-	$PARTITIONS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
+	$PARTITIONS $SHARED_FS $SCREEN -append "$KERNEL_OPTS" $QEMUOPTS
 	exit 0
 else
 	echo "Run with KIC (kernel integrity check)"
 	$QEMUDIR/qemu-system-aarch64 -name $VMNAME \
 	-device loader,addr=0x40200000,cpu-num=0  \
 	-device loader,file=$KERNEL,addr=0x40200000 \
-	$DRIVE $DTB $INPUT $PARTITIONS $SCREEN  $QEMUOPTS
+	$DRIVE $DTB $INPUT $PARTITIONS $SHARED_FS $SCREEN  $QEMUOPTS
 	exit 0
 fi
