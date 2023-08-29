@@ -14,3 +14,4 @@ libseccomp-dev
 uidmap
 curl
 pciutils
+bonnie++
