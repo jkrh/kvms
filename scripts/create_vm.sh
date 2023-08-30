@@ -40,6 +40,7 @@ mkdir -p $HOST_TMP/$HOST_PATH
 echo "copying images to  $HOST_IMAGE:/$HOST_PATH"
 
 cp -u $BASE_DIR/scripts/run-qemu6-linux.sh $HOST_TMP/$HOST_PATH/
+cp -u $BASE_DIR/scripts/run-virtiofsd-linux.sh $HOST_TMP/$HOST_PATH/
 cp -u $BASE_DIR/buildtools/usr/share/qemu/efi-virtio.rom $HOST_TMP/$HOST_PATH/
 
 if [ -n "${DISABLE_KIC}" ]; then
