@@ -1,4 +1,4 @@
-From 44cc6f4928708923cbf0ffbfa86485aad5cd27a4 Mon Sep 17 00:00:00 2001
+From 92c0327145aca2bec7a8194ba8b7f8b8e291e9a8 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 4 May 2023 14:11:17 +0300
 Subject: [PATCH] mm: external memory allocator draft
@@ -36,19 +36,20 @@ the host have permission to access.
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
  arch/arm64/configs/defconfig   |   2 +
- include/linux/emem.h           |  41 ++++++
+ include/linux/emem.h           |  43 ++++++
  include/linux/gfp.h            |  20 ++-
  include/linux/slab.h           |  26 +++-
  include/trace/events/mmflags.h |   3 +-
  init/main.c                    |   7 +
  mm/Kconfig                     |  15 ++
  mm/Makefile                    |   1 +
- mm/emem.c                      | 244 +++++++++++++++++++++++++++++++++
+ mm/emem.c                      | 250 +++++++++++++++++++++++++++++++++
  mm/page_alloc.c                |  13 ++
  mm/slab_common.c               |   3 +
  mm/slub.c                      |   5 +
  tools/perf/builtin-kmem.c      |   1 +
- 13 files changed, 376 insertions(+), 5 deletions(-)
+ virt/kvm/kvm_main.c            |   3 +
+ 14 files changed, 387 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/emem.h
  create mode 100644 mm/emem.c
 
@@ -64,10 +65,10 @@ index ac7d5d172428..b814e8e7b758 100644
 +CONFIG_EXT_MEMORY=y
 diff --git a/include/linux/emem.h b/include/linux/emem.h
 new file mode 100644
-index 000000000000..3eb13828314c
+index 000000000000..946a6e1ea403
 --- /dev/null
 +++ b/include/linux/emem.h
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,43 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef __MM_EMEM_H__
 +#define __MM_EMEM_H__
@@ -75,6 +76,8 @@ index 000000000000..3eb13828314c
 +#include <linux/init.h>
 +#include <linux/mm.h>
 +#include <asm/dma.h>
++
++#define EMEM_ALLOC_MAXORDER 15
 +
 +struct emem_region {
 +	unsigned long *bitmap;
@@ -327,10 +330,10 @@ index fc60a40ce954..c9b7bc97f837 100644
 +obj-$(CONFIG_EXT_MEMORY) += emem.o
 diff --git a/mm/emem.c b/mm/emem.c
 new file mode 100644
-index 000000000000..7eafbb08c241
+index 000000000000..c0da8a0e2e74
 --- /dev/null
 +++ b/mm/emem.c
-@@ -0,0 +1,244 @@
+@@ -0,0 +1,250 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + *  linux/mm/emem.c
@@ -551,6 +554,9 @@ index 000000000000..7eafbb08c241
 +	struct page *page;
 +	unsigned long iflags;
 +
++	if (order > EMEM_ALLOC_MAXORDER)
++		return NULL;
++
 +	spin_lock_irqsave(&emem_lock, iflags);
 +	page = emem_getpages_unlocked(flags, order);
 +	spin_unlock_irqrestore(&emem_lock, iflags);
@@ -564,8 +570,11 @@ index 000000000000..7eafbb08c241
 +	unsigned long irq_flags;
 +	int pageno;
 +
-+	if (!emem.bitmap)
++	if (!emem.bitmap || !page)
 +		return;
++
++	if (order > EMEM_ALLOC_MAXORDER)
++		panic("emem free of insane order %d\n", order);
 +
 +	pageno = (page_to_virt(page) - (void *)emem.base) >> PAGE_SHIFT;
 +	page_mapcount_reset(page);
@@ -669,6 +678,20 @@ index da03a341c63c..08f9ff68e25b 100644
  };
  
  static size_t max_gfp_len;
+diff --git a/virt/kvm/kvm_main.c b/virt/kvm/kvm_main.c
+index 3ffed093d3ea..b0324989f0db 100644
+--- a/virt/kvm/kvm_main.c
++++ b/virt/kvm/kvm_main.c
+@@ -2485,6 +2485,9 @@ kvm_pfn_t __gfn_to_pfn_memslot(struct kvm_memory_slot *slot, gfn_t gfn,
+ {
+ 	unsigned long addr = __gfn_to_hva_many(slot, gfn, NULL, write_fault);
+ 
++	if (slot->base_gfn == 0x100000)
++		panic("faulting at emem region\n");
++
+ 	if (hva)
+ 		*hva = addr;
+ 
 -- 
 2.34.1
 

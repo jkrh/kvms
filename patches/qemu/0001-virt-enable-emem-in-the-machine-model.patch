@@ -1,0 +1,259 @@
+From 842f0975fdad0d319a0a1843ca2623543dd24cbe Mon Sep 17 00:00:00 2001
+From: Janne Karhunen <Janne.Karhunen@gmail.com>
+Date: Fri, 15 Sep 2023 11:35:49 +0300
+Subject: [PATCH] virt: enable emem in the machine model
+
+Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
+---
+ accel/kvm/kvm-all.c         |  5 +++++
+ accel/tcg/cpu-exec-common.c |  2 +-
+ hw/arm/virt.c               | 33 +++++++++++++++++++++++++++++++++
+ hw/virtio/virtio.c          |  8 ++++++++
+ include/sysemu/tcg.h        |  2 +-
+ include/tcg/tcg.h           |  2 ++
+ softmmu/memory.c            |  1 +
+ softmmu/physmem.c           |  2 ++
+ target/arm/psci.c           |  4 ++++
+ 9 files changed, 57 insertions(+), 2 deletions(-)
+
+diff --git a/accel/kvm/kvm-all.c b/accel/kvm/kvm-all.c
+index 8d81ab74de..ac17fcd1e8 100644
+--- a/accel/kvm/kvm-all.c
++++ b/accel/kvm/kvm-all.c
+@@ -372,11 +372,16 @@ static int kvm_set_user_memory_region(KVMMemoryListener *kml, KVMSlot *slot, boo
+         /* Set the slot size to 0 before setting the slot to the desired
+          * value. This is needed based on KVM commit 75d61fbc. */
+         mem.memory_size = 0;
++        error_report("kvm_set_user_memory_region(): addr 0x%llx -> 0x%llx sz %lu",
++            mem.userspace_addr, (hwaddr)mem.guest_phys_addr, slot->memory_size);
+         ret = kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem);
+         if (ret < 0) {
+             goto err;
+         }
+     }
++    error_report("kvm_set_user_memory_region(): addr 0x%llx -> 0x%llx sz %lu",
++        mem.userspace_addr, (hwaddr)mem.guest_phys_addr, slot->memory_size);
++
+     mem.memory_size = slot->memory_size;
+     ret = kvm_vm_ioctl(s, KVM_SET_USER_MEMORY_REGION, &mem);
+     slot->old_flags = mem.flags;
+diff --git a/accel/tcg/cpu-exec-common.c b/accel/tcg/cpu-exec-common.c
+index be6fe45aa5..c98e21ac00 100644
+--- a/accel/tcg/cpu-exec-common.c
++++ b/accel/tcg/cpu-exec-common.c
+@@ -22,7 +22,7 @@
+ #include "sysemu/tcg.h"
+ #include "exec/exec-all.h"
+ 
+-bool tcg_allowed;
++const bool tcg_allowed = false;
+ 
+ /* exit the current TB, but without causing any exception to be raised */
+ void cpu_loop_exit_noexc(CPUState *cpu)
+diff --git a/hw/arm/virt.c b/hw/arm/virt.c
+index 9633f822f3..4b63344803 100644
+--- a/hw/arm/virt.c
++++ b/hw/arm/virt.c
+@@ -79,6 +79,7 @@
+ #include "hw/virtio/virtio-iommu.h"
+ #include "hw/char/pl011.h"
+ #include "qemu/guest-random.h"
++#include "exec/ram_addr.h"
+ 
+ #define DEFINE_VIRT_MACHINE_LATEST(major, minor, latest) \
+     static void virt_##major##_##minor##_class_init(ObjectClass *oc, \
+@@ -209,6 +210,33 @@ static const char *valid_cpus[] = {
+     ARM_CPU_TYPE_NAME("max"),
+ };
+ 
++#define EMEM_NAME                "/dev/emem"
++#define EMEM_ADDR                0xffff90000000UL
++#define EMEM_SIZE                0x10000000UL
++#define EMEM_PHYS                0x100000000UL
++
++static void emem_init(MachineState *machine, MemoryRegion *sr)
++{
++    void *emem_map;
++    int fd;
++
++    fd = open(EMEM_NAME, O_RDWR);
++    if (fd < 0) {
++        error_report("Failed to open %s, error: %s", EMEM_NAME, strerror(errno));
++        return;
++    }
++    emem_map = mmap(NULL, EMEM_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
++    if (emem_map == (void *)-1) {
++        error_report("Failed to mmap emem, error: %s", strerror(errno));
++        close(fd);
++        return;
++    }
++    memory_region_init_ram_ptr(sr, OBJECT(machine), "ext-mem", EMEM_SIZE, emem_map);
++    qemu_ram_unset_migratable(sr->ram_block);
++
++    error_report("emem mapped to 0x%lx", (hwaddr)emem_map);
++}
++
+ static bool cpu_type_valid(const char *cpu)
+ {
+     int i;
+@@ -1981,6 +2009,7 @@ static void machvirt_init(MachineState *machine)
+     const CPUArchIdList *possible_cpus;
+     MemoryRegion *sysmem = get_system_memory();
+     MemoryRegion *secure_sysmem = NULL;
++    MemoryRegion *emem = NULL;
+     MemoryRegion *tag_sysmem = NULL;
+     MemoryRegion *secure_tag_sysmem = NULL;
+     int n, virt_max_cpus;
+@@ -2212,6 +2241,10 @@ static void machvirt_init(MachineState *machine)
+                                     &machine->device_memory->mr);
+     }
+ 
++    emem = g_new(MemoryRegion, 1);
++    emem_init(machine, emem);
++    memory_region_add_subregion_overlap(sysmem, EMEM_PHYS, emem, 1000);
++
+     virt_flash_fdt(vms, sysmem, secure_sysmem ?: sysmem);
+ 
+     create_gic(vms, sysmem);
+diff --git a/hw/virtio/virtio.c b/hw/virtio/virtio.c
+index 5d607aeaa0..0ed323d568 100644
+--- a/hw/virtio/virtio.c
++++ b/hw/virtio/virtio.c
+@@ -329,6 +329,7 @@ static VRingMemoryRegionCaches *vring_get_region_caches(struct VirtQueue *vq)
+ }
+ 
+ /* Called within rcu_read_lock().  */
++__attribute__((optimize(0)))
+ static inline uint16_t vring_avail_flags(VirtQueue *vq)
+ {
+     VRingMemoryRegionCaches *caches = vring_get_region_caches(vq);
+@@ -342,6 +343,8 @@ static inline uint16_t vring_avail_flags(VirtQueue *vq)
+ }
+ 
+ /* Called within rcu_read_lock().  */
++
++__attribute__((optimize(0)))
+ static inline uint16_t vring_avail_idx(VirtQueue *vq)
+ {
+     VRingMemoryRegionCaches *caches = vring_get_region_caches(vq);
+@@ -356,6 +359,7 @@ static inline uint16_t vring_avail_idx(VirtQueue *vq)
+ }
+ 
+ /* Called within rcu_read_lock().  */
++__attribute__((optimize(0)))
+ static inline uint16_t vring_avail_ring(VirtQueue *vq, int i)
+ {
+     VRingMemoryRegionCaches *caches = vring_get_region_caches(vq);
+@@ -453,6 +457,7 @@ static inline void vring_used_flags_unset_bit(VirtQueue *vq, int mask)
+ }
+ 
+ /* Called within rcu_read_lock().  */
++__attribute__((optimize(0)))
+ static inline void vring_set_avail_event(VirtQueue *vq, uint16_t val)
+ {
+     VRingMemoryRegionCaches *caches;
+@@ -471,6 +476,7 @@ static inline void vring_set_avail_event(VirtQueue *vq, uint16_t val)
+     address_space_cache_invalidate(&caches->used, pa, sizeof(val));
+ }
+ 
++__attribute__((optimize(0)))
+ static void virtio_queue_split_set_notification(VirtQueue *vq, int enable)
+ {
+     RCU_READ_LOCK_GUARD();
+@@ -488,6 +494,7 @@ static void virtio_queue_split_set_notification(VirtQueue *vq, int enable)
+     }
+ }
+ 
++__attribute__((optimize(0)))
+ static void virtio_queue_packed_set_notification(VirtQueue *vq, int enable)
+ {
+     uint16_t off_wrap;
+@@ -526,6 +533,7 @@ bool virtio_queue_get_notification(VirtQueue *vq)
+     return vq->notification;
+ }
+ 
++__attribute__((optimize(0)))
+ void virtio_queue_set_notification(VirtQueue *vq, int enable)
+ {
+     vq->notification = enable;
+diff --git a/include/sysemu/tcg.h b/include/sysemu/tcg.h
+index 53352450ff..e54c4ee98d 100644
+--- a/include/sysemu/tcg.h
++++ b/include/sysemu/tcg.h
+@@ -9,7 +9,7 @@
+ #define SYSEMU_TCG_H
+ 
+ #ifdef CONFIG_TCG
+-extern bool tcg_allowed;
++extern const bool tcg_allowed;
+ #define tcg_enabled() (tcg_allowed)
+ #else
+ #define tcg_enabled() 0
+diff --git a/include/tcg/tcg.h b/include/tcg/tcg.h
+index 26a70526f1..f87e38989d 100644
+--- a/include/tcg/tcg.h
++++ b/include/tcg/tcg.h
+@@ -32,7 +32,9 @@
+ #include "qemu/plugin.h"
+ #include "qemu/queue.h"
+ #include "tcg/tcg-mo.h"
++#if defined(CONFIG_TCG)
+ #include "tcg-target.h"
++#endif
+ #include "tcg/tcg-cond.h"
+ 
+ /* XXX: make safe guess about sizes */
+diff --git a/softmmu/memory.c b/softmmu/memory.c
+index 7ba2048836..5ff7031729 100644
+--- a/softmmu/memory.c
++++ b/softmmu/memory.c
+@@ -1826,6 +1826,7 @@ bool memory_region_is_protected(MemoryRegion *mr)
+     return mr->ram && (mr->ram_block->flags & RAM_PROTECTED);
+ }
+ 
++__attribute__((optimize(0)))
+ uint8_t memory_region_get_dirty_log_mask(MemoryRegion *mr)
+ {
+     uint8_t mask = mr->dirty_log_mask;
+diff --git a/softmmu/physmem.c b/softmmu/physmem.c
+index dc3c3e5f2e..498e4e4523 100644
+--- a/softmmu/physmem.c
++++ b/softmmu/physmem.c
+@@ -2695,6 +2695,7 @@ MemoryRegion *get_system_io(void)
+     return system_io;
+ }
+ 
++__attribute__((optimize(0)))
+ static void invalidate_and_set_dirty(MemoryRegion *mr, hwaddr addr,
+                                      hwaddr length)
+ {
+@@ -3382,6 +3383,7 @@ int64_t address_space_cache_init(MemoryRegionCache *cache,
+     return l;
+ }
+ 
++__attribute__((optimize(0)))
+ void address_space_cache_invalidate(MemoryRegionCache *cache,
+                                     hwaddr addr,
+                                     hwaddr access_len)
+diff --git a/target/arm/psci.c b/target/arm/psci.c
+index 6c1239bb96..a592e2159c 100644
+--- a/target/arm/psci.c
++++ b/target/arm/psci.c
+@@ -25,6 +25,8 @@
+ #include "internals.h"
+ #include "arm-powerctl.h"
+ 
++#if defined(CONFIG_TCG)
++
+ bool arm_is_psci_call(ARMCPU *cpu, int excp_type)
+ {
+     /*
+@@ -220,3 +222,5 @@ cpu_off:
+     /* sanity check in case something failed */
+     assert(ret == QEMU_ARM_POWERCTL_RET_SUCCESS);
+ }
++
++#endif
+-- 
+2.34.1
+
