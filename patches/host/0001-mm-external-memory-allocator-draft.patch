@@ -1,4 +1,4 @@
-From 92c0327145aca2bec7a8194ba8b7f8b8e291e9a8 Mon Sep 17 00:00:00 2001
+From 1ac6869d99f919406322cbf78d5ff6c2ba1ad936 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 4 May 2023 14:11:17 +0300
 Subject: [PATCH] mm: external memory allocator draft
@@ -36,20 +36,20 @@ the host have permission to access.
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
  arch/arm64/configs/defconfig   |   2 +
- include/linux/emem.h           |  43 ++++++
- include/linux/gfp.h            |  20 ++-
- include/linux/slab.h           |  26 +++-
+ include/linux/emem.h           |  43 +++++
+ include/linux/gfp.h            |  20 +-
+ include/linux/slab.h           |  26 ++-
  include/trace/events/mmflags.h |   3 +-
  init/main.c                    |   7 +
  mm/Kconfig                     |  15 ++
  mm/Makefile                    |   1 +
- mm/emem.c                      | 250 +++++++++++++++++++++++++++++++++
+ mm/emem.c                      | 324 +++++++++++++++++++++++++++++++++
  mm/page_alloc.c                |  13 ++
  mm/slab_common.c               |   3 +
  mm/slub.c                      |   5 +
  tools/perf/builtin-kmem.c      |   1 +
  virt/kvm/kvm_main.c            |   3 +
- 14 files changed, 387 insertions(+), 5 deletions(-)
+ 14 files changed, 461 insertions(+), 5 deletions(-)
  create mode 100644 include/linux/emem.h
  create mode 100644 mm/emem.c
 
@@ -330,10 +330,10 @@ index fc60a40ce954..c9b7bc97f837 100644
 +obj-$(CONFIG_EXT_MEMORY) += emem.o
 diff --git a/mm/emem.c b/mm/emem.c
 new file mode 100644
-index 000000000000..c0da8a0e2e74
+index 000000000000..ab048c52ac8b
 --- /dev/null
 +++ b/mm/emem.c
-@@ -0,0 +1,250 @@
+@@ -0,0 +1,324 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + *  linux/mm/emem.c
@@ -352,6 +352,7 @@ index 000000000000..c0da8a0e2e74
 +struct emem_region emem;
 +DEFINE_SPINLOCK(emem_lock);
 +static bool emem_init_done;
++
 +static int emem_major;
 +static atomic_t emem_dopen = ATOMIC_INIT(0);
 +
@@ -396,6 +397,31 @@ index 000000000000..c0da8a0e2e74
 +	.unlocked_ioctl = emem_ioctl,
 +};
 +
++static int emem_device_init(void)
++{
++	if (emem_major)
++		return 0;
++
++	emem_major = register_chrdev(0, EMEM_NAME, &fops);
++	if (emem_major < 0) {
++		pr_err("emem register_chrdev failed with %d\n",
++			emem_major);
++		return emem_major;
++	}
++
++	pr_info("emem: mknod /dev/%s c %d 0\n", EMEM_NAME, emem_major);
++	return 0;
++}
++late_initcall(emem_device_init);
++
++void print_region(u64 start_addr, u64 end_addr)
++{
++	pr_info("region 0x%llx - 0x%llx, pages 0x%llx - 0x%llx\n",
++		start_addr, end_addr,
++		(u64)virt_to_page(start_addr),
++		(u64)virt_to_page(end_addr));
++}
++
 +static int emem_get_config(struct device_node *np, phys_addr_t *base, size_t *size)
 +{
 +	struct device_node *shm_np;
@@ -420,23 +446,6 @@ index 000000000000..c0da8a0e2e74
 +	pr_info("emem: shm base at 0x%llx size %lu\n", *base, *size);
 +	return 0;
 +}
-+
-+static int emem_device_init(void)
-+{
-+	if (emem_major)
-+		return 0;
-+
-+	emem_major = register_chrdev(0, EMEM_NAME, &fops);
-+	if (emem_major < 0) {
-+		pr_err("emem register_chrdev failed with %d\n",
-+			emem_major);
-+		return emem_major;
-+	}
-+
-+	pr_info("emem: mknod /dev/%s c %d 0\n", EMEM_NAME, emem_major);
-+	return 0;
-+}
-+late_initcall(emem_device_init);
 +
 +int emem_region_init(void)
 +{
@@ -468,6 +477,7 @@ index 000000000000..c0da8a0e2e74
 +		goto out;
 +	}
 +
++	/* Add the block and make sure it's not part of existing zones */
 +	res = add_memory(0, base, size, MMOP_OFFLINE);
 +	if (res == -EEXIST) {
 +		pr_warn("memory block already exists, assuming reserved\n");
@@ -477,13 +487,15 @@ index 000000000000..c0da8a0e2e74
 +		goto out;
 +
 +cont:
-+	/* Bookkeeping at the beginning */
++	/* Now that it is ours, put out bookkeeping at the beginning */
 +	npages = size / (PAGE_SIZE * 8);
 +	emem.dma_base = base;
 +	emem.bitmap = phys_to_virt(base);
 +	emem.npages = (size / PAGE_SIZE) - npages;
 +	emem.bits = emem.npages * PAGE_SIZE * 8;
 +	emem.base = (u64)phys_to_virt(emem.dma_base) + (npages * PAGE_SIZE);
++
++	/* Now allow allocations into this region */
 +	gfp_allowed_mask |= GFP_EXT;
 +
 +out:
@@ -527,14 +539,34 @@ index 000000000000..c0da8a0e2e74
 +}
 +EXPORT_SYMBOL(is_emem_dma);
 +
++void scan_busy_pages(void)
++{
++	void *vaddr, *eaddr;
++	int pno = 0;
++
++	vaddr = (void *)emem.base;
++	eaddr = vaddr + (emem.npages * PAGE_SIZE);
++
++	while (vaddr < eaddr) {
++		struct page *npage = virt_to_page(vaddr);
++		if (page_ref_count(npage) > 1) {
++			if (bitmap_allocate_region(emem.bitmap, pno, 0) < 0)
++				pr_warn("page %u already allocated?\n", pno);
++		}
++		vaddr += PAGE_SIZE;
++		pno++;
++	}
++}
++
 +struct page *emem_getpages_unlocked(gfp_t flags, int order)
 +{
-+	struct page *page;
-+	void *vaddr = NULL;
++	struct page *page, *npage;
++	void *vaddr = NULL, *eaddr;
++	u64 start_addr, end_addr;
 +	int pageno;
 +
 +	if (!emem.bitmap)
-+		panic("emem_getpages() without init?\n");
++		return ERR_PTR(-ENOTSUPP);
 +
 +	pageno = bitmap_find_free_region(emem.bitmap, emem.bits, order);
 +	if (pageno >= 0)
@@ -542,9 +574,34 @@ index 000000000000..c0da8a0e2e74
 +	if (!vaddr)
 +		return NULL;
 +
++	eaddr = vaddr + ((1 << order) * PAGE_SIZE);
 +	page = virt_to_page(vaddr);
-+	if (!page)
-+		panic("no page for allocation emem page\n");
++	start_addr = 0;
++	end_addr = 0;
++
++	while (vaddr < eaddr) {
++		npage = virt_to_page(vaddr);
++		if (!npage)
++			panic("no page for 0x%llx?\n", (u64)vaddr);
++
++		get_page(npage);
++		SetPageReserved(npage);
++
++		/* This is only for debugging */
++		if (page_ref_count(npage) > 1) {
++			if (!start_addr)
++				start_addr = (u64)vaddr;
++			end_addr = (u64)vaddr;
++		} else {
++			if (start_addr)
++				print_region(start_addr, end_addr);
++			start_addr = 0;
++			end_addr = 0;
++		}
++
++		vaddr += PAGE_SIZE;
++	}
++
 +	return page;
 +}
 +EXPORT_SYMBOL_GPL(emem_getpages_unlocked);
@@ -568,6 +625,7 @@ index 000000000000..c0da8a0e2e74
 +void emem_freepages(struct page *page, int order)
 +{
 +	unsigned long irq_flags;
++	void *vaddr, *eaddr;
 +	int pageno;
 +
 +	if (!emem.bitmap || !page)
@@ -576,10 +634,26 @@ index 000000000000..c0da8a0e2e74
 +	if (order > EMEM_ALLOC_MAXORDER)
 +		panic("emem free of insane order %d\n", order);
 +
-+	pageno = (page_to_virt(page) - (void *)emem.base) >> PAGE_SHIFT;
-+	page_mapcount_reset(page);
++	vaddr = page_to_virt(page);
++	pageno = (vaddr - (void *)emem.base) >> PAGE_SHIFT;
 +
 +	spin_lock_irqsave(&emem_lock, irq_flags);
++	eaddr = vaddr + ((1 << order) * PAGE_SIZE);
++	while (vaddr < eaddr) {
++		page = virt_to_page(vaddr);
++		if (!page)
++			panic("no page\n");
++
++		page_mapcount_reset(page);
++		ClearPageReserved(page);
++
++		if (page_ref_count(page) > 1)
++			panic("page 0x%llx still in use?\n", (u64)vaddr);
++
++		put_page(page);
++		vaddr += PAGE_SIZE;
++	}
++	/* Release it all */
 +	bitmap_release_region(emem.bitmap, pageno, order);
 +	spin_unlock_irqrestore(&emem_lock, irq_flags);
 +}
