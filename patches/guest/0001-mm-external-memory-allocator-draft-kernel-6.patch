@@ -1,4 +1,4 @@
-From 55dd388fcafa69fafa1152b2ab40bfe59654fb74 Mon Sep 17 00:00:00 2001
+From 64709305bab6fc25ee2f2dce5bf10d09f12ee098 Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Mon, 15 May 2023 14:12:07 +0300
 Subject: [PATCH] mm: external memory allocator draft (kernel 6+)
@@ -37,14 +37,12 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
  arch/arm64/configs/defconfig            | 277 ++++----------------
  arch/arm64/mm/init.c                    |   2 -
- drivers/block/virtio_blk.c              |  23 +-
- drivers/char/virtio_console.c           |  22 +-
+ drivers/char/virtio_console.c           |   4 +-
  drivers/gpu/drm/virtio/virtgpu_object.c |   2 +-
  drivers/gpu/drm/virtio/virtgpu_vq.c     |   4 +-
  drivers/gpu/drm/virtio/virtgpu_vram.c   |   2 +-
  drivers/irqchip/irq-gic-v3-its.c        |  18 +-
- drivers/virtio/virtio_mmio.c            |   3 +-
- drivers/virtio/virtio_ring.c            |  98 +++++--
+ drivers/virtio/virtio_ring.c            |  75 +++++-
  include/linux/emem.h                    |  43 ++++
  include/linux/gfp.h                     |   4 +
  include/linux/gfp_types.h               |  16 +-
@@ -52,20 +50,18 @@ Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
  include/trace/events/mmflags.h          |   5 +-
  init/main.c                             |   9 +
  kernel/dma/contiguous.c                 |  15 ++
- kernel/dma/direct.c                     |  16 ++
  kernel/dma/mapping.c                    |   1 +
  kernel/dma/swiotlb.c                    |  38 +--
- lib/scatterlist.c                       |  12 +-
  mm/Kconfig                              |  15 ++
  mm/Makefile                             |   1 +
- mm/emem.c                               | 324 ++++++++++++++++++++++++
+ mm/emem.c                               | 329 ++++++++++++++++++++++++
  mm/mempool.c                            |   1 +
  mm/page_alloc.c                         |  34 ++-
  mm/slab_common.c                        |   3 +
  mm/slub.c                               |   5 +
  mm/sparse.c                             |   1 +
  tools/perf/builtin-kmem.c               |   1 +
- 30 files changed, 711 insertions(+), 310 deletions(-)
+ 26 files changed, 645 insertions(+), 286 deletions(-)
  create mode 100644 include/linux/emem.h
  create mode 100644 mm/emem.c
 
@@ -655,84 +651,10 @@ index 4b4651ee47f2..38baec1235ef 100644
  	/* this will put all unused low memory onto the freelists */
  	memblock_free_all();
  
-diff --git a/drivers/block/virtio_blk.c b/drivers/block/virtio_blk.c
-index a7697027ce43..80bb04aa3fd9 100644
---- a/drivers/block/virtio_blk.c
-+++ b/drivers/block/virtio_blk.c
-@@ -15,6 +15,7 @@
- #include <linux/blk-mq.h>
- #include <linux/blk-mq-virtio.h>
- #include <linux/numa.h>
-+#include <linux/emem.h>
- #include <uapi/linux/virtio_ring.h>
- 
- #define PART_BITS 4
-@@ -141,10 +142,14 @@ static int virtblk_setup_discard_write_zeroes_erase(struct request *req, bool un
- 	if (unmap)
- 		flags |= VIRTIO_BLK_WRITE_ZEROES_FLAG_UNMAP;
- 
--	range = kmalloc_array(segments, sizeof(*range), GFP_ATOMIC);
-+	range = kmalloc_array(segments, sizeof(*range), GFP_ATOMIC | GFP_EXT);
- 	if (!range)
- 		return -ENOMEM;
- 
-+#ifdef CONFIG_EXT_MEMORY
-+	BUG_ON(!is_emem(range));
-+#endif
-+
- 	/*
- 	 * Single max discard segment means multi-range discard isn't
- 	 * supported, and block layer only runs contiguity merge like
-@@ -644,18 +649,23 @@ static int init_vq(struct virtio_blk *vblk)
- 				vblk->io_queues[HCTX_TYPE_READ],
- 				vblk->io_queues[HCTX_TYPE_POLL]);
- 
--	vblk->vqs = kmalloc_array(num_vqs, sizeof(*vblk->vqs), GFP_KERNEL);
-+	vblk->vqs = kmalloc_array(num_vqs, sizeof(*vblk->vqs), GFP_KERNEL | GFP_EXT);
- 	if (!vblk->vqs)
- 		return -ENOMEM;
- 
--	names = kmalloc_array(num_vqs, sizeof(*names), GFP_KERNEL);
--	callbacks = kmalloc_array(num_vqs, sizeof(*callbacks), GFP_KERNEL);
--	vqs = kmalloc_array(num_vqs, sizeof(*vqs), GFP_KERNEL);
-+	names = kmalloc_array(num_vqs, sizeof(*names), GFP_KERNEL | GFP_EXT);
-+	callbacks = kmalloc_array(num_vqs, sizeof(*callbacks), GFP_KERNEL | GFP_EXT);
-+	vqs = kmalloc_array(num_vqs, sizeof(*vqs), GFP_KERNEL | GFP_EXT);
- 	if (!names || !callbacks || !vqs) {
- 		err = -ENOMEM;
- 		goto out;
- 	}
--
-+#ifdef CONFIG_EXT_MEMORY
-+	BUG_ON(!is_emem(vblk->vqs));
-+	BUG_ON(!is_emem(names));
-+	BUG_ON(!is_emem(callbacks));
-+	BUG_ON(!is_emem(vqs));
-+#endif
- 	for (i = 0; i < num_vqs - num_poll_vqs; i++) {
- 		callbacks[i] = virtblk_done;
- 		snprintf(vblk->vqs[i].name, VQ_NAME_LEN, "req.%d", i);
-@@ -1152,6 +1162,7 @@ static int virtblk_probe(struct virtio_device *vdev)
- 	virtblk_update_capacity(vblk, false);
- 	virtio_device_ready(vdev);
- 
-+	pr_err("device_add_disk()\n");
- 	err = device_add_disk(&vdev->dev, vblk->disk, virtblk_attr_groups);
- 	if (err)
- 		goto out_cleanup_disk;
 diff --git a/drivers/char/virtio_console.c b/drivers/char/virtio_console.c
-index 9fa3c76a267f..f09618c0c0b5 100644
+index 9fa3c76a267f..78c4ef4e156d 100644
 --- a/drivers/char/virtio_console.c
 +++ b/drivers/char/virtio_console.c
-@@ -421,7 +421,7 @@ static struct port_buffer *alloc_buf(struct virtio_device *vdev, size_t buf_size
- 	 * Allocate buffer and the sg list. The sg list array is allocated
- 	 * directly after the port_buffer struct.
- 	 */
--	buf = kmalloc(struct_size(buf, sg, pages), GFP_KERNEL);
-+	buf = kmalloc(struct_size(buf, sg, pages), GFP_KERNEL | GFP_EXT);
- 	if (!buf)
- 		goto fail;
- 
 @@ -446,10 +446,10 @@ static struct port_buffer *alloc_buf(struct virtio_device *vdev, size_t buf_size
  		/* Increase device refcnt to avoid freeing it */
  		get_device(buf->dev);
@@ -746,53 +668,6 @@ index 9fa3c76a267f..f09618c0c0b5 100644
  	}
  
  	if (!buf->buf)
-@@ -1363,7 +1363,7 @@ static int add_port(struct ports_device *portdev, u32 id)
- 	dev_t devt;
- 	int err;
- 
--	port = kmalloc(sizeof(*port), GFP_KERNEL);
-+	port = kmalloc(sizeof(*port), GFP_KERNEL | GFP_EXT);
- 	if (!port) {
- 		err = -ENOMEM;
- 		goto fail;
-@@ -1664,7 +1664,7 @@ static void handle_control_message(struct virtio_device *vdev,
- 		 */
- 		name_size = buf->len - buf->offset - sizeof(*cpkt) + 1;
- 
--		port->name = kmalloc(name_size, GFP_KERNEL);
-+		port->name = kmalloc(name_size, GFP_KERNEL | GFP_EXT);
- 		if (!port->name) {
- 			dev_err(port->dev,
- 				"Not enough space to store port name\n");
-@@ -1849,14 +1849,14 @@ static int init_vqs(struct ports_device *portdev)
- 	nr_ports = portdev->max_nr_ports;
- 	nr_queues = use_multiport(portdev) ? (nr_ports + 1) * 2 : 2;
- 
--	vqs = kmalloc_array(nr_queues, sizeof(struct virtqueue *), GFP_KERNEL);
-+	vqs = kmalloc_array(nr_queues, sizeof(struct virtqueue *), GFP_KERNEL | GFP_EXT);
- 	io_callbacks = kmalloc_array(nr_queues, sizeof(vq_callback_t *),
--				     GFP_KERNEL);
--	io_names = kmalloc_array(nr_queues, sizeof(char *), GFP_KERNEL);
-+				     GFP_KERNEL | GFP_EXT);
-+	io_names = kmalloc_array(nr_queues, sizeof(char *), GFP_KERNEL | GFP_EXT);
- 	portdev->in_vqs = kmalloc_array(nr_ports, sizeof(struct virtqueue *),
--					GFP_KERNEL);
-+					GFP_KERNEL | GFP_EXT);
- 	portdev->out_vqs = kmalloc_array(nr_ports, sizeof(struct virtqueue *),
--					 GFP_KERNEL);
-+					 GFP_KERNEL | GFP_EXT);
- 	if (!vqs || !io_callbacks || !io_names || !portdev->in_vqs ||
- 	    !portdev->out_vqs) {
- 		err = -ENOMEM;
-@@ -2016,7 +2016,7 @@ static int virtcons_probe(struct virtio_device *vdev)
- 	/* Ensure to read early_put_chars now */
- 	barrier();
- 
--	portdev = kmalloc(sizeof(*portdev), GFP_KERNEL);
-+	portdev = kmalloc(sizeof(*portdev), GFP_KERNEL | GFP_EXT);
- 	if (!portdev) {
- 		err = -ENOMEM;
- 		goto fail;
 diff --git a/drivers/gpu/drm/virtio/virtgpu_object.c b/drivers/gpu/drm/virtio/virtgpu_object.c
 index c7e74cf13022..46de18947fd3 100644
 --- a/drivers/gpu/drm/virtio/virtgpu_object.c
@@ -912,29 +787,8 @@ index 973ede0197e3..50c4185b4f54 100644
  				get_order(ITS_CMD_QUEUE_SZ));
  	if (!page) {
  		err = -ENOMEM;
-diff --git a/drivers/virtio/virtio_mmio.c b/drivers/virtio/virtio_mmio.c
-index 3ff746e3f24a..7692ebd42d9a 100644
---- a/drivers/virtio/virtio_mmio.c
-+++ b/drivers/virtio/virtio_mmio.c
-@@ -67,6 +67,7 @@
- #include <linux/spinlock.h>
- #include <linux/virtio.h>
- #include <linux/virtio_config.h>
-+#include <linux/emem.h>
- #include <uapi/linux/virtio_mmio.h>
- #include <linux/virtio_ring.h>
- 
-@@ -383,7 +384,7 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned int in
- 	}
- 
- 	/* Allocate and fill out our active queue description */
--	info = kmalloc(sizeof(*info), GFP_KERNEL);
-+	info = kmalloc(sizeof(*info), GFP_KERNEL | GFP_EXT);
- 	if (!info) {
- 		err = -ENOMEM;
- 		goto error_kmalloc;
 diff --git a/drivers/virtio/virtio_ring.c b/drivers/virtio/virtio_ring.c
-index 90d514c14179..413f9f862529 100644
+index 90d514c14179..5fa3e6c64fbd 100644
 --- a/drivers/virtio/virtio_ring.c
 +++ b/drivers/virtio/virtio_ring.c
 @@ -14,6 +14,7 @@
@@ -1001,37 +855,7 @@ index 90d514c14179..413f9f862529 100644
  	 */
  	gfp &= ~__GFP_HIGHMEM;
  
-@@ -1019,7 +1035,7 @@ static int vring_alloc_state_extra_split(struct vring_virtqueue_split *vring_spl
- 	struct vring_desc_extra *extra;
- 	u32 num = vring_split->vring.num;
- 
--	state = kmalloc_array(num, sizeof(struct vring_desc_state_split), GFP_KERNEL);
-+	state = kmalloc_array(num, sizeof(struct vring_desc_state_split), GFP_KERNEL | GFP_EXT);
- 	if (!state)
- 		goto err_state;
- 
-@@ -1228,7 +1244,11 @@ static struct vring_packed_desc *alloc_indirect_packed(unsigned int total_sg,
- 	 * otherwise virt_to_phys will give us bogus addresses in the
- 	 * virtqueue.
- 	 */
-+#ifndef CONFIG_EXT_MEMORY
- 	gfp &= ~__GFP_HIGHMEM;
-+#else
-+	gfp &= GFP_EXT;
-+#endif
- 
- 	desc = kmalloc_array(total_sg, sizeof(struct vring_packed_desc), gfp);
- 
-@@ -1844,7 +1864,7 @@ static struct vring_desc_extra *vring_alloc_desc_extra(unsigned int num)
- 	unsigned int i;
- 
- 	desc_extra = kmalloc_array(num, sizeof(struct vring_desc_extra),
--				   GFP_KERNEL);
-+				   GFP_KERNEL | GFP_EXT);
- 	if (!desc_extra)
- 		return NULL;
- 
-@@ -1917,6 +1937,12 @@ static int vring_alloc_queue_packed(struct vring_virtqueue_packed *vring_packed,
+@@ -1917,6 +1933,12 @@ static int vring_alloc_queue_packed(struct vring_virtqueue_packed *vring_packed,
  	if (!device)
  		goto err;
  
@@ -1044,44 +868,7 @@ index 90d514c14179..413f9f862529 100644
  	vring_packed->vring.device          = device;
  	vring_packed->device_event_dma_addr = device_event_dma_addr;
  
-@@ -1935,7 +1961,7 @@ static int vring_alloc_state_extra_packed(struct vring_virtqueue_packed *vring_p
- 	struct vring_desc_extra *extra;
- 	u32 num = vring_packed->vring.num;
- 
--	state = kmalloc_array(num, sizeof(struct vring_desc_state_packed), GFP_KERNEL);
-+	state = kmalloc_array(num, sizeof(struct vring_desc_state_packed), GFP_KERNEL | GFP_EXT);
- 	if (!state)
- 		goto err_desc_state;
- 
-@@ -1945,6 +1971,11 @@ static int vring_alloc_state_extra_packed(struct vring_virtqueue_packed *vring_p
- 	if (!extra)
- 		goto err_desc_extra;
- 
-+#ifdef CONFIG_EXT_MEMORY
-+	BUG_ON(!is_emem(state));
-+	BUG_ON(!is_emem(extra));
-+#endif
-+
- 	vring_packed->desc_state = state;
- 	vring_packed->desc_extra = extra;
- 
-@@ -2012,10 +2043,14 @@ static struct virtqueue *vring_create_virtqueue_packed(
- 	if (vring_alloc_queue_packed(&vring_packed, vdev, num))
- 		goto err_ring;
- 
--	vq = kmalloc(sizeof(*vq), GFP_KERNEL);
-+	vq = kmalloc(sizeof(*vq), GFP_KERNEL | GFP_EXT);
- 	if (!vq)
- 		goto err_vq;
- 
-+#ifdef CONFIG_EXT_MEMORY
-+	BUG_ON(!is_emem(vq));
-+#endif
-+
- 	vq->vq.callback = callback;
- 	vq->vq.vdev = vdev;
- 	vq->vq.name = name;
-@@ -2107,6 +2142,7 @@ static inline int virtqueue_add(struct virtqueue *_vq,
+@@ -2107,6 +2129,7 @@ static inline int virtqueue_add(struct virtqueue *_vq,
  {
  	struct vring_virtqueue *vq = to_vvq(_vq);
  
@@ -1089,7 +876,7 @@ index 90d514c14179..413f9f862529 100644
  	return vq->packed_ring ? virtqueue_add_packed(_vq, sgs, total_sg,
  					out_sgs, in_sgs, data, ctx, gfp) :
  				 virtqueue_add_split(_vq, sgs, total_sg,
-@@ -2136,6 +2172,7 @@ int virtqueue_add_sgs(struct virtqueue *_vq,
+@@ -2136,6 +2159,7 @@ int virtqueue_add_sgs(struct virtqueue *_vq,
  {
  	unsigned int i, total_sg = 0;
  
@@ -1097,7 +884,7 @@ index 90d514c14179..413f9f862529 100644
  	/* Count them first. */
  	for (i = 0; i < out_sgs + in_sgs; i++) {
  		struct scatterlist *sg;
-@@ -2166,6 +2203,10 @@ int virtqueue_add_outbuf(struct virtqueue *vq,
+@@ -2166,6 +2190,10 @@ int virtqueue_add_outbuf(struct virtqueue *vq,
  			 void *data,
  			 gfp_t gfp)
  {
@@ -1108,7 +895,7 @@ index 90d514c14179..413f9f862529 100644
  	return virtqueue_add(vq, &sg, num, 1, 0, data, NULL, gfp);
  }
  EXPORT_SYMBOL_GPL(virtqueue_add_outbuf);
-@@ -2188,6 +2229,10 @@ int virtqueue_add_inbuf(struct virtqueue *vq,
+@@ -2188,6 +2216,10 @@ int virtqueue_add_inbuf(struct virtqueue *vq,
  			void *data,
  			gfp_t gfp)
  {
@@ -1119,7 +906,7 @@ index 90d514c14179..413f9f862529 100644
  	return virtqueue_add(vq, &sg, num, 0, 1, data, NULL, gfp);
  }
  EXPORT_SYMBOL_GPL(virtqueue_add_inbuf);
-@@ -2212,6 +2257,7 @@ int virtqueue_add_inbuf_ctx(struct virtqueue *vq,
+@@ -2212,6 +2244,7 @@ int virtqueue_add_inbuf_ctx(struct virtqueue *vq,
  			void *ctx,
  			gfp_t gfp)
  {
@@ -1127,16 +914,7 @@ index 90d514c14179..413f9f862529 100644
  	return virtqueue_add(vq, &sg, num, 0, 1, data, ctx, gfp);
  }
  EXPORT_SYMBOL_GPL(virtqueue_add_inbuf_ctx);
-@@ -2499,7 +2545,7 @@ static struct virtqueue *__vring_new_virtqueue(unsigned int index,
- 	if (virtio_has_feature(vdev, VIRTIO_F_RING_PACKED))
- 		return NULL;
- 
--	vq = kmalloc(sizeof(*vq), GFP_KERNEL);
-+	vq = kmalloc(sizeof(*vq), GFP_KERNEL | GFP_EXT);
- 	if (!vq)
- 		return NULL;
- 
-@@ -2828,41 +2874,63 @@ EXPORT_SYMBOL_GPL(__virtio_unbreak_device);
+@@ -2828,41 +2861,63 @@ EXPORT_SYMBOL_GPL(__virtio_unbreak_device);
  dma_addr_t virtqueue_get_desc_addr(struct virtqueue *_vq)
  {
  	struct vring_virtqueue *vq = to_vvq(_vq);
@@ -1172,13 +950,13 @@ index 90d514c14179..413f9f862529 100644
 +		addr = vq->split.queue_dma_addr +
 +			((char *)vq->split.vring.avail -
 +			(char *)vq->split.vring.desc);
-+
-+#ifdef CONFIG_EXT_MEMORY
-+	BUG_ON(!is_emem_dma(addr));
-+#endif
  
 -	return vq->split.queue_dma_addr +
 -		((char *)vq->split.vring.avail - (char *)vq->split.vring.desc);
++#ifdef CONFIG_EXT_MEMORY
++	BUG_ON(!is_emem_dma(addr));
++#endif
++
 +	return addr;
  }
  EXPORT_SYMBOL_GPL(virtqueue_get_avail_addr);
@@ -1488,47 +1266,6 @@ index 6ea80ae42622..4ebd45976d44 100644
  	/* CMA can be used only in the context which permits sleeping */
  	if (!gfpflags_allow_blocking(gfp))
  		return NULL;
-diff --git a/kernel/dma/direct.c b/kernel/dma/direct.c
-index 63859a101ed8..3f2103c36fcc 100644
---- a/kernel/dma/direct.c
-+++ b/kernel/dma/direct.c
-@@ -13,6 +13,7 @@
- #include <linux/vmalloc.h>
- #include <linux/set_memory.h>
- #include <linux/slab.h>
-+#include <linux/emem.h>
- #include "direct.h"
- 
- /*
-@@ -128,6 +129,8 @@ static struct page *__dma_direct_alloc_pages(struct device *dev, size_t size,
- 
- 	gfp |= dma_direct_optimal_gfp_mask(dev, dev->coherent_dma_mask,
- 					   &phys_limit);
-+	gfp |= GFP_EXT;
-+
- 	page = dma_alloc_contiguous(dev, size, gfp);
- 	if (page) {
- 		if (!dma_coherent_ok(dev, page_to_phys(page), size) ||
-@@ -370,6 +373,19 @@ struct page *dma_direct_alloc_pages(struct device *dev, size_t size,
- 	struct page *page;
- 	void *ret;
- 
-+	if (unlikely(gfp & __GFP_EXT)) {
-+		page = emem_getpages(gfp, get_order(round_up(size, PAGE_SIZE)));
-+		if (!page) {
-+			pr_err("emem_getpages out of memory?\n");
-+			return NULL;
-+		}
-+		if (PTR_ERR(page) == -ENOTSUPP)
-+			panic("attempting to allocate emem too early?\n");
-+
-+		*dma_handle = page_to_phys(page);
-+		return page;
-+	}
-+
- 	if (force_dma_unencrypted(dev) && dma_direct_use_pool(dev, gfp))
- 		return dma_direct_alloc_from_pool(dev, size, dma_handle, gfp);
- 
 diff --git a/kernel/dma/mapping.c b/kernel/dma/mapping.c
 index 33437d620644..b0aeea7073e9 100644
 --- a/kernel/dma/mapping.c
@@ -1542,7 +1279,7 @@ index 33437d620644..b0aeea7073e9 100644
  #include "direct.h"
  
 diff --git a/kernel/dma/swiotlb.c b/kernel/dma/swiotlb.c
-index 7f4ad5e70b40..283ffce4930b 100644
+index 7f4ad5e70b40..a33843cd1929 100644
 --- a/kernel/dma/swiotlb.c
 +++ b/kernel/dma/swiotlb.c
 @@ -41,6 +41,7 @@
@@ -1580,7 +1317,7 @@ index 7f4ad5e70b40..283ffce4930b 100644
  
  	if (remap && remap(tlb, nslabs) < 0) {
 -		memblock_free(tlb, PAGE_ALIGN(bytes));
-+		emem_freepages(tlb, get_order(bytes));
++		emem_freepages(tlb, get_order(round_up(bytes, PAGE_SIZE)));
  
  		nslabs = ALIGN(nslabs >> 1, IO_TLB_SEGSIZE);
  		if (nslabs >= IO_TLB_MIN_SLABS)
@@ -1630,44 +1367,6 @@ index 7f4ad5e70b40..283ffce4930b 100644
  
  	/*
  	 * For mappings with an alignment requirement don't bother looping to
-diff --git a/lib/scatterlist.c b/lib/scatterlist.c
-index c8c3d675845c..84dd5f6baeab 100644
---- a/lib/scatterlist.c
-+++ b/lib/scatterlist.c
-@@ -9,6 +9,8 @@
- #include <linux/scatterlist.h>
- #include <linux/highmem.h>
- #include <linux/kmemleak.h>
-+#include <linux/kernel.h>
-+#include <linux/emem.h>
- 
- /**
-  * sg_next - return the next scatterlist entry in a list
-@@ -148,6 +150,8 @@ EXPORT_SYMBOL(sg_init_one);
-  */
- static struct scatterlist *sg_kmalloc(unsigned int nents, gfp_t gfp_mask)
- {
-+	struct scatterlist *sg;
-+
- 	if (nents == SG_MAX_SINGLE_ALLOC) {
- 		/*
- 		 * Kmemleak doesn't track page allocations as they are not
-@@ -160,10 +164,12 @@ static struct scatterlist *sg_kmalloc(unsigned int nents, gfp_t gfp_mask)
- 		 */
- 		void *ptr = (void *) __get_free_page(gfp_mask);
- 		kmemleak_alloc(ptr, PAGE_SIZE, 1, gfp_mask);
--		return ptr;
-+		sg = (struct scatterlist *)ptr;
- 	} else
--		return kmalloc_array(nents, sizeof(struct scatterlist),
--				     gfp_mask);
-+		sg = kmalloc_array(nents, sizeof(struct scatterlist),
-+				   gfp_mask);
-+
-+	return sg;
- }
- 
- static void sg_kfree(struct scatterlist *sg, unsigned int nents)
 diff --git a/mm/Kconfig b/mm/Kconfig
 index 57e1d8c5b505..89f00a9f41f2 100644
 --- a/mm/Kconfig
@@ -1712,10 +1411,10 @@ index 8e105e5b3e29..75d99bf588ef 100644
 +obj-$(CONFIG_EXT_MEMORY) += emem.o
 diff --git a/mm/emem.c b/mm/emem.c
 new file mode 100644
-index 000000000000..ab048c52ac8b
+index 000000000000..376c22239ae2
 --- /dev/null
 +++ b/mm/emem.c
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,329 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + *  linux/mm/emem.c
@@ -1947,9 +1646,6 @@ index 000000000000..ab048c52ac8b
 +	u64 start_addr, end_addr;
 +	int pageno;
 +
-+	if (!emem.bitmap)
-+		return ERR_PTR(-ENOTSUPP);
-+
 +	pageno = bitmap_find_free_region(emem.bitmap, emem.bits, order);
 +	if (pageno >= 0)
 +		vaddr = (void *)emem.base + (pageno << PAGE_SHIFT);
@@ -1984,6 +1680,8 @@ index 000000000000..ab048c52ac8b
 +		vaddr += PAGE_SIZE;
 +	}
 +
++	pr_info("emem: allocated 0x%llx - 0x%llx\n",
++		(u64)page_to_virt(page), (u64)eaddr);
 +	return page;
 +}
 +EXPORT_SYMBOL_GPL(emem_getpages_unlocked);
@@ -1995,6 +1693,9 @@ index 000000000000..ab048c52ac8b
 +
 +	if (order > EMEM_ALLOC_MAXORDER)
 +		return NULL;
++
++	if (!emem.bitmap)
++		return ERR_PTR(-ENOTSUPP);
 +
 +	spin_lock_irqsave(&emem_lock, iflags);
 +	page = emem_getpages_unlocked(flags, order);
@@ -2037,6 +1738,9 @@ index 000000000000..ab048c52ac8b
 +	}
 +	/* Release it all */
 +	bitmap_release_region(emem.bitmap, pageno, order);
++	pr_info("emem: freed 0x%llx - 0x%llx\n",
++		(u64)page_to_virt(page),(u64)eaddr);
++
 +	spin_unlock_irqrestore(&emem_lock, irq_flags);
 +}
 +EXPORT_SYMBOL_GPL(emem_freepages);
