@@ -1,4 +1,4 @@
-From 6aa87effb659e7136fd21f6e78e3a11d9e29b5db Mon Sep 17 00:00:00 2001
+From 8c05fa38acc19ea24753a0126acb74de0cf1e6ad Mon Sep 17 00:00:00 2001
 From: Janne Karhunen <Janne.Karhunen@gmail.com>
 Date: Thu, 5 Oct 2023 14:53:55 +0300
 Subject: [PATCH] mm: external memory allocator draft (kernel 6+)
@@ -35,33 +35,33 @@ the host have permission to access.
 
 Signed-off-by: Janne Karhunen <Janne.Karhunen@gmail.com>
 ---
- arch/arm64/configs/defconfig            |  75 ++----
+ arch/arm64/configs/defconfig            |  75 ++---
  arch/arm64/mm/init.c                    |   2 -
  drivers/char/virtio_console.c           |   4 +-
  drivers/gpu/drm/virtio/virtgpu_object.c |   2 +-
  drivers/gpu/drm/virtio/virtgpu_vq.c     |   4 +-
  drivers/gpu/drm/virtio/virtgpu_vram.c   |   2 +-
  drivers/irqchip/irq-gic-v3-its.c        |  18 +-
- drivers/virtio/virtio_ring.c            |  78 +++++-
- include/linux/emem.h                    |  43 +++
+ drivers/virtio/virtio_ring.c            |  78 ++++-
+ include/linux/emem.h                    |  63 ++++
  include/linux/gfp.h                     |   4 +
  include/linux/gfp_types.h               |  16 +-
  include/linux/slab.h                    |  26 +-
  include/trace/events/mmflags.h          |   5 +-
  init/main.c                             |   9 +
- kernel/dma/contiguous.c                 |  18 ++
+ kernel/dma/contiguous.c                 |  18 +
  kernel/dma/mapping.c                    |   1 +
- kernel/dma/swiotlb.c                    |  38 +--
- mm/Kconfig                              |  15 ++
+ kernel/dma/swiotlb.c                    |  38 ++-
+ mm/Kconfig                              |  15 +
  mm/Makefile                             |   1 +
- mm/emem.c                               | 336 ++++++++++++++++++++++++
+ mm/emem.c                               | 426 ++++++++++++++++++++++++
  mm/mempool.c                            |   1 +
- mm/page_alloc.c                         |  37 ++-
+ mm/page_alloc.c                         |  37 +-
  mm/slab_common.c                        |   3 +
- mm/slub.c                               |   5 +
+ mm/slub.c                               |  13 +
  mm/sparse.c                             |   1 +
  tools/perf/builtin-kmem.c               |   1 +
- 26 files changed, 642 insertions(+), 103 deletions(-)
+ 26 files changed, 760 insertions(+), 103 deletions(-)
  create mode 100644 include/linux/emem.h
  create mode 100644 mm/emem.c
 
@@ -677,10 +677,10 @@ index 90d514c14179..2954e4c7a101 100644
  
 diff --git a/include/linux/emem.h b/include/linux/emem.h
 new file mode 100644
-index 000000000000..946a6e1ea403
+index 000000000000..efc7fd87401e
 --- /dev/null
 +++ b/include/linux/emem.h
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,63 @@
 +/* SPDX-License-Identifier: GPL-2.0 */
 +#ifndef __MM_EMEM_H__
 +#define __MM_EMEM_H__
@@ -690,13 +690,21 @@ index 000000000000..946a6e1ea403
 +#include <asm/dma.h>
 +
 +#define EMEM_ALLOC_MAXORDER 15
++#define EMEM_IOSPLIT 2
 +
 +struct emem_region {
++	/* vmemmap region */
 +	unsigned long *bitmap;
 +	unsigned int npages;
 +	unsigned int bits;
 +	phys_addr_t dma_base;
 +	u64 base;
++	/* iomapped region */
++	unsigned long *iobitmap;
++	unsigned long iopages;
++	unsigned int iobits;
++	phys_addr_t io_dma_base;
++	u64 iobase;
 +};
 +
 +extern struct emem_region emem;
@@ -706,6 +714,14 @@ index 000000000000..946a6e1ea403
 +int __init emem_region_init(void);
 +int is_emem(void *vaddr);
 +int is_emem_dma(dma_addr_t addr);
++int is_emem_io(void *vaddr);
++int is_emem_io_phys(phys_addr_t addr);
++
++/* IO allocations */
++void *emem_getpages_io(gfp_t flags, int order);
++void emem_freepages_io(void *, int order);
++
++/* Kernel memory */
 +struct page *emem_getpages_unlocked(gfp_t flags, int order);
 +struct page *emem_getpages(gfp_t flags, int order);
 +void emem_freepages(struct page *page, int order);
@@ -713,6 +729,8 @@ index 000000000000..946a6e1ea403
 +static inline int __init emem_region_init(void) { return 0 };
 +static inline int is_emem(void *vaddr) { return 0; };
 +static inline int is_emem_dma(dma_addr_t addr) { return 0; };
++static inline int is_emem_io(void *vaddr) { return 0; };
++static inline int is_emem_io_phys(phys_addr_t addr) { return 0; };
 +static inline struct page *emem_getpages_unlocked(gfp_t flags, int order)
 +{
 +	return NULL;
@@ -722,6 +740,8 @@ index 000000000000..946a6e1ea403
 +	return NULL;
 +};
 +static inline void emem_freepages(struct page *page, int order) { };
++static inline void *emem_getpages_io(gfp_t flags, int order) { };
++static inline void emem_freepages_io(void *, int order) { };
 +#endif
 +#endif // __MM_EMEM_H__
 diff --git a/include/linux/gfp.h b/include/linux/gfp.h
@@ -740,7 +760,7 @@ index 65a78773dcca..fab4e7cc80c7 100644
   * GFP_ZONE_TABLE is a word size bitstring that is used for looking up the
   * zone to use given the lowest 4 bits of gfp_t. Entries are GFP_ZONES_SHIFT
 diff --git a/include/linux/gfp_types.h b/include/linux/gfp_types.h
-index d88c46ca82e1..946a027088ee 100644
+index d88c46ca82e1..0af63fc82cf1 100644
 --- a/include/linux/gfp_types.h
 +++ b/include/linux/gfp_types.h
 @@ -60,6 +60,12 @@ typedef unsigned int __bitwise gfp_t;
@@ -756,13 +776,19 @@ index d88c46ca82e1..946a027088ee 100644
  /* If the above are modified, __GFP_BITS_SHIFT may need updating */
  
  /*
-@@ -255,8 +261,11 @@ typedef unsigned int __bitwise gfp_t;
- /* Disable lockdep for GFP context tracking */
+@@ -75,6 +81,9 @@ typedef unsigned int __bitwise gfp_t;
+ #define __GFP_MOVABLE	((__force gfp_t)___GFP_MOVABLE)  /* ZONE_MOVABLE allowed */
+ #define GFP_ZONEMASK	(__GFP_DMA|__GFP_HIGHMEM|__GFP_DMA32|__GFP_MOVABLE)
+ 
++/* Shared external allocation, non buddy */
++#define __GFP_EXT       ((__force gfp_t)___GFP_EXT)
++
+ /**
+  * DOC: Page mobility and placement hints
+  *
+@@ -256,7 +265,7 @@ typedef unsigned int __bitwise gfp_t;
  #define __GFP_NOLOCKDEP ((__force gfp_t)___GFP_NOLOCKDEP)
  
-+/* Shared external allocation */
-+#define __GFP_EXT	((__force gfp_t)___GFP_EXT)
-+
  /* Room for N __GFP_FOO bits */
 -#define __GFP_BITS_SHIFT (27 + IS_ENABLED(CONFIG_LOCKDEP))
 +#define __GFP_BITS_SHIFT (28 + IS_ENABLED(CONFIG_EXT_MEMORY))
@@ -1103,10 +1129,10 @@ index 8e105e5b3e29..75d99bf588ef 100644
 +obj-$(CONFIG_EXT_MEMORY) += emem.o
 diff --git a/mm/emem.c b/mm/emem.c
 new file mode 100644
-index 000000000000..6652f5b5edda
+index 000000000000..151ab30b1bfb
 --- /dev/null
 +++ b/mm/emem.c
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,426 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + *  linux/mm/emem.c
@@ -1121,6 +1147,7 @@ index 000000000000..6652f5b5edda
 +
 +#define EMEM_NAME "emem"
 +
++const bool emem_host = false;
 +extern gfp_t gfp_allowed_mask;
 +struct emem_region emem;
 +DEFINE_SPINLOCK(emem_lock);
@@ -1144,8 +1171,8 @@ index 000000000000..6652f5b5edda
 +	res = vm_iomap_memory(vma, emem.dma_base,
 +			      emem.npages * PAGE_SIZE);
 +	if (res) {
-+		pr_err("emem: io_remap_memory() returned %d\n", res);
-+		return -EAGAIN;
++		pr_err("emem: io_remap_memory(0x%llx,%lu) returned %d\n",
++			emem.dma_base, emem.npages * PAGE_SIZE, res);
 +	}
 +	return res;
 +}
@@ -1220,13 +1247,15 @@ index 000000000000..6652f5b5edda
 +	return 0;
 +}
 +
++__attribute__((optimize(0)))
 +int emem_region_init(void)
 +{
 +	struct device_node *np;
 +	phys_addr_t base;
 +	unsigned long iflags;
-+	int res, npages;
-+	size_t size;
++	size_t size, iosize;
++	int res, ret = 0;
++	void *io;
 +
 +	if (emem_init_done)
 +		return 0;
@@ -1245,37 +1274,72 @@ index 000000000000..6652f5b5edda
 +	if (res)
 +		goto out;
 +
-+	if ((base % PAGE_SIZE) || (size % PAGE_SIZE)) {
++	if ((base % PAGE_SIZE) || (size % PAGE_SIZE) || !size) {
 +		res = -EINVAL;
 +		goto out;
 +	}
 +
 +	/* Add the block and make sure it's not part of existing zones */
-+	res = add_memory(0, base, size, MMOP_OFFLINE);
-+	if (res == -EEXIST) {
-+		pr_warn("emem: memory block already exists, assuming reserved\n");
-+		res = 0;
-+		goto cont;
++	if (!emem_host)
++		iosize = size / EMEM_IOSPLIT;
++	else
++		iosize = 0;
++
++retry:
++	res = add_memory(0, base, size - iosize, MMOP_OFFLINE);
++	if ((res == -EEXIST) && !ret) {
++		pr_warn("emem: memory block already exists, trying to offline it\n");
++		ret = 1;
++		res = remove_memory(base, size - iosize);
++		if (res == 0)
++			goto retry;
++		else
++			goto out;
 +	} else if (res != 0)
 +		goto out;
 +
-+cont:
-+	/* Now that it is ours, put out bookkeeping at the beginning */
-+	npages = size / (PAGE_SIZE * 8);
 +	emem.dma_base = base;
-+	emem.bitmap = phys_to_virt(base);
-+	emem.npages = (size / PAGE_SIZE) - npages;
++	emem.npages = (size - iosize) / PAGE_SIZE;
++
++	/* Host does not allocate, just accesses */
++	if (emem_host)
++		goto out;
++
++	/* Kernel memory setup */
++	emem.bitmap = kzalloc(GFP_KERNEL | GFP_ATOMIC, emem.npages * 8);
++	if (!emem.bitmap) {
++		res = -ENOMEM;
++		goto out;
++	}
 +	emem.bits = emem.npages * PAGE_SIZE * 8;
-+	emem.base = (u64)phys_to_virt(emem.dma_base) + (npages * PAGE_SIZE);
++	emem.base = (u64)phys_to_virt(emem.dma_base);
++
++	/* IO memory setup */
++	emem.io_dma_base = emem.dma_base + (emem.npages * PAGE_SIZE);
++	io = ioremap(emem.io_dma_base, iosize);
++	if (!io)
++		panic("unable to ioremap io block\n");
++	emem.iobase = (u64)io;
++	emem.iopages = iosize / PAGE_SIZE;
++	emem.iobits = iosize * 8;
++	emem.iobitmap = kzalloc(GFP_KERNEL | GFP_ATOMIC, (emem.iobits / 8));
++	if (!emem.iobitmap) {
++		res = -ENOMEM;
++		goto out;
++	}
 +
 +	/* Now allow allocations into this region */
 +	gfp_allowed_mask |= GFP_EXT;
 +
 +out:
-+	if (res == 0)
-+		pr_info("emem: region registered at 0x%llx successfully\n",
-+			(u64)emem.base);
-+	else
++	if (res == 0) {
++		if (emem_host)
++			pr_info("emem: host enabled for 0x%llx - 0x%llx\n",
++				(u64)base, (u64)(base + size));
++		else
++			pr_info("emem: guest region at 0x%llx - 0x%llx\n",
++				(u64)base, (u64)(base + size));
++	} else
 +		pr_err("emem: region registration failed, error %d\n", res);
 +
 +	spin_unlock_irqrestore(&emem_lock, iflags);
@@ -1285,9 +1349,6 @@ index 000000000000..6652f5b5edda
 +int is_emem(void *vaddr)
 +{
 +	u64 s, e, v = (u64)vaddr;
-+
-+	if (!emem.base)
-+		BUG();
 +
 +	s = emem.base;
 +	e = s + (emem.npages * PAGE_SIZE);
@@ -1301,9 +1362,6 @@ index 000000000000..6652f5b5edda
 +{
 +	u64 s, e, a = (u64)addr;
 +
-+	if (!emem.base)
-+		BUG();
-+
 +	s = (u64)emem.dma_base;
 +	e = s + (emem.npages * PAGE_SIZE);
 +	if ((a >= s) && (a < e))
@@ -1312,24 +1370,29 @@ index 000000000000..6652f5b5edda
 +}
 +EXPORT_SYMBOL(is_emem_dma);
 +
-+static void scan_busy_pages(void)
++int is_emem_io(void *vaddr)
 +{
-+	void *vaddr, *eaddr;
-+	int pno = 0;
++	u64 s, e, v = (u64)vaddr;
 +
-+	vaddr = (void *)emem.base;
-+	eaddr = vaddr + (emem.npages * PAGE_SIZE);
-+
-+	while (vaddr < eaddr) {
-+		struct page *npage = virt_to_page(vaddr);
-+		if (page_ref_count(npage) > 1) {
-+			if (bitmap_allocate_region(emem.bitmap, pno, 0) < 0)
-+				pr_warn("emem: page %u already allocated?\n", pno);
-+		}
-+		vaddr += PAGE_SIZE;
-+		pno++;
-+	}
++	s = emem.iobase;
++	e = s + (emem.iopages * PAGE_SIZE);
++	if ((v >= s) && (v < e))
++		return 1;
++	return 0;
 +}
++EXPORT_SYMBOL(is_emem_io);
++
++int is_emem_io_phys(phys_addr_t addr)
++{
++	u64 s, e, v = (u64)addr;
++
++	s = emem.io_dma_base;
++	e = s + (emem.iopages * PAGE_SIZE);
++	if ((v >= s) && (v < e))
++		return 1;
++	return 0;
++}
++EXPORT_SYMBOL(is_emem_io_phys);
 +
 +struct page *emem_getpages_unlocked(gfp_t flags, int order)
 +{
@@ -1368,12 +1431,12 @@ index 000000000000..6652f5b5edda
 +			start_addr = 0;
 +			end_addr = 0;
 +		}
++		if (flags & __GFP_ZERO)
++			memset(vaddr, 0, PAGE_SIZE);
 +
-+		/* __GFP_ZERO should probably be carried here */
-+		memset(vaddr, 0, PAGE_SIZE);
 +		vaddr += PAGE_SIZE;
 +	}
-+	pr_info("emem: allocated 0x%llx - 0x%llx\n",
++	pr_info("emem: allocated kmem 0x%llx - 0x%llx\n",
 +		(u64)page_to_virt(page), (u64)eaddr - 1);
 +
 +	return page;
@@ -1408,13 +1471,15 @@ index 000000000000..6652f5b5edda
 +	if (!emem.bitmap || !page)
 +		return;
 +
-+	if (order > EMEM_ALLOC_MAXORDER)
-+		panic("emem: free of insane order %d\n", order);
++	if (order > EMEM_ALLOC_MAXORDER) {
++		pr_crit("emem: free of insane order %d\n", order);
++		return;
++	}
 +
 +	vaddr = page_to_virt(page);
 +	if (!is_emem(vaddr)) {
 +		pr_crit("emem: attempting to free non-emem page at 0x%llx\n",
-+			vaddr);
++			(u64)vaddr);
 +		return;
 +	}
 +	pageno = (vaddr - (void *)emem.base) >> PAGE_SHIFT;
@@ -1437,12 +1502,63 @@ index 000000000000..6652f5b5edda
 +	}
 +	/* Release it all */
 +	bitmap_release_region(emem.bitmap, pageno, order);
-+	pr_info("emem: freed 0x%llx - 0x%llx\n",
-+		(u64)page_to_virt(page),(u64)eaddr - 1);
-+
 +	spin_unlock_irqrestore(&emem_lock, irq_flags);
++
++	pr_info("emem: freed kmem 0x%llx - 0x%llx\n",
++		(u64)page_to_virt(page),(u64)eaddr - 1);
 +}
 +EXPORT_SYMBOL_GPL(emem_freepages);
++
++void *emem_getpages_io(gfp_t flags, int order)
++{
++	unsigned long irq_flags;
++	void *vaddr = NULL;
++	int pageno;
++
++	if (order > EMEM_ALLOC_MAXORDER)
++		return NULL;
++
++	if (!emem.iobitmap)
++		return ERR_PTR(-ENOTSUPP);
++
++	if (!(flags & GFP_DMA))
++		return ERR_PTR(-ENOTSUPP);
++
++	spin_lock_irqsave(&emem_lock, irq_flags);
++	pageno = bitmap_find_free_region(emem.iobitmap, emem.iobits, order);
++	if (pageno >= 0)
++		vaddr = (void *)emem.iobase + (pageno << PAGE_SHIFT);
++	spin_unlock_irqrestore(&emem_lock, irq_flags);
++
++	if ((pageno >= 0) && (flags & __GFP_ZERO))
++		memset(vaddr, 0, (1 << order) * PAGE_SIZE);
++
++	pr_info("emem: allocated iomem 0x%llx - 0x%llx for IO\n", (u64)vaddr,
++		(u64)(vaddr + ((1 << order) * PAGE_SIZE) -1));
++
++	return vaddr;
++}
++EXPORT_SYMBOL_GPL(emem_getpages_io);
++
++void emem_freepages_io(void *vaddr, int order)
++{
++	unsigned long irq_flags;
++	int pageno;
++
++	if (order > EMEM_ALLOC_MAXORDER) {
++			pr_crit("emem: free of insane order %d\n", order);
++			return;
++	}
++	pageno = (vaddr - (void *)emem.iobase) >> PAGE_SHIFT;
++
++	spin_lock_irqsave(&emem_lock, irq_flags);
++	bitmap_release_region(emem.iobitmap, pageno, order);
++	spin_unlock_irqrestore(&emem_lock, irq_flags);
++
++	pr_info("emem: freed iomem 0x%llx - 0x%llx\n", (u64)vaddr,
++		(u64)(vaddr + ((1 << order) * PAGE_SIZE) -1));
++}
++EXPORT_SYMBOL_GPL(emem_freepages_io);
 diff --git a/mm/mempool.c b/mm/mempool.c
 index 96488b13a1ef..2c8e71cb3418 100644
 --- a/mm/mempool.c
@@ -1542,10 +1658,25 @@ index 0042fb2730d1..b83d60cb3015 100644
  	kmalloc_caches[type][idx] = create_kmalloc_cache(
  					kmalloc_info[idx].name[type],
 diff --git a/mm/slub.c b/mm/slub.c
-index 157527d7101b..d73799083860 100644
+index 157527d7101b..98858a0ba145 100644
 --- a/mm/slub.c
 +++ b/mm/slub.c
-@@ -4285,6 +4285,9 @@ static int calculate_sizes(struct kmem_cache *s)
+@@ -1928,6 +1928,14 @@ static struct slab *allocate_slab(struct kmem_cache *s, gfp_t flags, int node)
+ 
+ 	flags |= s->allocflags;
+ 
++	/* Mandatory ext adjustments */
++	if (flags & __GFP_EXT) {
++		if (flags & __GFP_MOVABLE)
++			flags &= ~__GFP_MOVABLE;
++		if (flags & __GFP_RECLAIMABLE)
++			flags &= ~__GFP_RECLAIMABLE;
++	}
++
+ 	/*
+ 	 * Let the initial higher-order allocation fail under memory pressure
+ 	 * so we fall-back to the minimum order allocation.
+@@ -4285,6 +4293,9 @@ static int calculate_sizes(struct kmem_cache *s)
  	if (s->flags & SLAB_CACHE_DMA32)
  		s->allocflags |= GFP_DMA32;
  
@@ -1555,7 +1686,7 @@ index 157527d7101b..d73799083860 100644
  	if (s->flags & SLAB_RECLAIM_ACCOUNT)
  		s->allocflags |= __GFP_RECLAIMABLE;
  
-@@ -5895,6 +5898,8 @@ static char *create_unique_id(struct kmem_cache *s)
+@@ -5895,6 +5906,8 @@ static char *create_unique_id(struct kmem_cache *s)
  		*p++ = 'd';
  	if (s->flags & SLAB_CACHE_DMA32)
  		*p++ = 'D';
