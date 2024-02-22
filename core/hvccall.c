@@ -651,6 +651,28 @@ void memctrl_exec(uint64_t *sp)
 		write_reg(APDBKEYHI_EL1, sp[rt]);
 		break;
 #endif
+#if MEMTAG
+	case 0x30140C:
+		PRINTREG("vmid %u core %u tfsr_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(TFSR_EL1, sp[rt]);
+		break;
+	case 0x32140C:
+		PRINTREG("vmid %u core %u tfsre0_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(TFSRE0_EL1, sp[rt]);
+		break;
+	case 0x384000:
+		PRINTREG("vmid %u core %u gmid_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(GMID_EL1, sp[rt]);
+		break;
+	case 0x3A0400:
+		PRINTREG("vmid %u core %u rgsr_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(RGSR_EL1, sp[rt]);
+		break;
+	case 0x3C0400:
+		PRINTREG("vmid %u core %u gcr_el1 0x%lx\n", vmid, cid, sp[rt]);
+		write_reg(GCR_EL1, sp[rt]);
+		break;
+#endif
 	case 0x320800:
 		PRINTREG("vmid %u core %u ttbr1_el1 0x%lx\n", vmid, cid, sp[rt]);
 		write_reg(TTBR1_EL1, sp[rt]);

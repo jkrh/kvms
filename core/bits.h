@@ -38,6 +38,10 @@
 #define HCR_NV1_BIT 43
 #define HCR_NV2_BIT 45
 
+#define HCR_ATA_BIT 56
+#define HCR_DCT_BIT 57
+#define HCR_TID5_BIT 58
+
 /* CPTR */
 #define CPTR_TCPAC_BIT 31
 #define CPTR_TTA_BIT 28

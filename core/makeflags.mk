@@ -45,6 +45,10 @@ else
 export ARM_BASE=armv8-a
 endif
 
+ifeq ($(MEMTAG),1)
+export ARM_BASE=armv8.5-a
+endif
+
 export CFLAGS := \
 	--sysroot=$(TOOLDIR) --no-sysroot-suffix -fstack-protector-strong -mstrict-align \
 	-static -ffreestanding -fno-hosted -std=c99 -fno-omit-frame-pointer -fno-data-sections \
@@ -59,7 +63,15 @@ endif
 export CFLAGS += -march=$(ARM_BASE)+nosimd -mgeneral-regs-only
 
 ifeq ($(PTRAUTH),1)
-export CFLAGS += -mbranch-protection=standard -DPTRAUTH
+export CFLAGS += -DPTRAUTH
+endif
+
+ifeq ($(MEMTAG),1)
+export CFLAGS += -march=$(ARM_BASE)+memtag
+endif
+
+ifneq (,$(filter 1,$(PTRAUTH) $(MEMTAG)))
+export CFLAGS += -mbranch-protection=standard
 endif
 
 export ASFLAGS := -D__ASSEMBLY__ $(CFLAGS)
