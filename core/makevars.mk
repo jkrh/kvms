@@ -58,6 +58,14 @@ else
 endif
 
 #
+# Define if system should support memory tagging extension.
+#
+ifeq ($(MEMTAG),1)
+BUILDOPTS += -DMEMTAG
+else
+endif
+
+#
 # Add validate.c tests into the build. These symbols are for
 # hypervisor internal state validation and can be called via
 # the debugger.

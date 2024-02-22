@@ -39,8 +39,13 @@ else
 HYP_IMAGE := -device loader,file=$(PROG).bin,addr=0xC0000000,force-raw=true
 endif
 
+MTE := off
+ifeq ($(MEMTAG),1)
+override MTE := on
+endif
+
 QEMUOPTS := --accel tcg,thread=multi -d $(QEMUDEBUGOPTS) $(QEMUDEBUGLOG) $(DEBUGOPTS) \
-	    -machine virt,virtualization=on,secure=off,gic-version=3 \
+	    -machine virt,virtualization=on,secure=off,gic-version=3,mte=$(MTE)\
 	    -cpu max,sve=off,lpa2=off -smp 4 -m 8G $(NETWORK) $(USB) $(BOOTIMG) \
 	    -kernel $(KERNEL) -append '$(KERNEL_OPTS)' -dtb $(DTB) $(HYP_IMAGE)
 

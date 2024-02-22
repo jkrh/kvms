@@ -48,6 +48,15 @@ void platform_early_setup(void)
 	bit_set(hcr_el2, HCR_TVM_BIT);
 	//bit_set(hcr_el2, HCR_APK_BIT);
 	bit_set(hcr_el2, HCR_API_BIT);
+#ifndef MEMTAG
+	/*
+	 * this will have no effect if platform
+	 * doesn't support MTE, here just for info
+	 */
+	bit_set(hcr_el2, HCR_ATA_BIT);
+
+#endif
+	/* TODO: HCR_DCT_BIT */
 	write_reg(HCR_EL2, hcr_el2);
 
 	/* EL1 timer access */

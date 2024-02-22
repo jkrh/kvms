@@ -32,7 +32,11 @@
 #define PLAT_NORMAL_WBACK_P 4
 #define PLAT_NORMAL_WT_P 5
 
+#ifdef MEMTAG
+#define PLATFORM_MAIR_EL2 0x00f0bbff440c0400
+#else
 #define PLATFORM_MAIR_EL2 0x0000bbff440c0400
+#endif
 
 int console_putc(unsigned char);
 
